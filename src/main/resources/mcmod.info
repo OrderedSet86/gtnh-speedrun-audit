@@ -1,0 +1,21 @@
+{
+	"modListVersion": 2,
+	"modList": [{
+		"modid": "${modId}",
+		"name": "${modName}",
+		"description": "Tamper-evident audit trail for GT: New Horizons speedruns. Logs commands, sessions, gamemode changes, NEI cheats, quest completions, multiblock formations and periodic AE2/inventory snapshots into a hash-chained ledger that survives backup restores, for speedrun.com verification.",
+		"version": "${modVersion}",
+		"mcversion": "${minecraftVersion}",
+		"url": "https://github.com/OrderedSet86/gtnh-speedrun-audit",
+		"updateUrl": "",
+		"authorList": ["OrderedSet86"],
+		"credits": "",
+		"logoFile": "",
+		"screenshots": [],
+		"parent": "",
+		"requiredMods": [],
+		"dependencies": [],
+		"dependants": [],
+		"useDependencyInformation": false
+	}]
+}
