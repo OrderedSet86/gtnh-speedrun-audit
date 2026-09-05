@@ -27,7 +27,7 @@ public class MetaTileEntityMixin {
         AuditSinks.gtExplosion(
             self.getClass()
                 .getSimpleName(),
-            self.getLocalNameKey(),
+            AuditSinks.gtLocalName(self),
             base.getWorld().provider.dimensionId,
             base.getXCoord(),
             base.getYCoord(),

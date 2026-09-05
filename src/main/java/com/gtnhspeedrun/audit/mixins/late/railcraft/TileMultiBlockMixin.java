@@ -21,7 +21,7 @@ import mods.railcraft.common.blocks.machine.TileMultiBlock;
 public class TileMultiBlockMixin {
 
     @Shadow(remap = false)
-    private boolean isMaster;
+    protected boolean isMaster;
 
     @Unique
     private boolean audit$wasMaster;

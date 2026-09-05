@@ -41,7 +41,7 @@ public class MTEBrickedBlastFurnaceMixin {
             "gt",
             self.getClass()
                 .getSimpleName(),
-            self.getLocalNameKey(),
+            AuditSinks.gtLocalName(self),
             aBaseMetaTileEntity.getWorld().provider.dimensionId,
             aBaseMetaTileEntity.getXCoord(),
             aBaseMetaTileEntity.getYCoord(),

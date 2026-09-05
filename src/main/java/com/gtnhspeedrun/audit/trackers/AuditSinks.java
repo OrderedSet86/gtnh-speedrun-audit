@@ -18,8 +18,42 @@ import com.gtnhspeedrun.audit.core.SessionManager;
 public final class AuditSinks {
 
     private static volatile Map<Integer, String> neiPacketNames;
+    private static volatile java.lang.reflect.Method gtNameMethod;
+    private static volatile boolean gtNameUnavailable;
 
     private AuditSinks() {}
+
+    /**
+     * GT renamed MetaTileEntity.getLocalName() (≤5.09.51.x, pack 2.8.4) to getLocalNameKey() (5.09.54.x,
+     * dailies). The mixins must run on both lines, so the name is resolved reflectively — a call compiled
+     * against either one would NoSuchMethodError on the other.
+     */
+    public static String gtLocalName(Object mte) {
+        if (gtNameUnavailable) {
+            return null;
+        }
+        java.lang.reflect.Method m = gtNameMethod;
+        if (m == null) {
+            try {
+                m = mte.getClass()
+                    .getMethod("getLocalNameKey");
+            } catch (NoSuchMethodException e) {
+                try {
+                    m = mte.getClass()
+                        .getMethod("getLocalName");
+                } catch (NoSuchMethodException e2) {
+                    gtNameUnavailable = true;
+                    return null;
+                }
+            }
+            gtNameMethod = m;
+        }
+        try {
+            return String.valueOf(m.invoke(mte));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return null;
+        }
+    }
 
     // ------------------------------------------------------------------ NEI
 
