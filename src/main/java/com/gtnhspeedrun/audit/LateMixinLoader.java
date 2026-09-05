@@ -28,10 +28,8 @@ public class LateMixinLoader implements ILateMixinLoader {
     @Override
     public List<String> getMixins(Set<String> loadedMods) {
         final List<String> mixins = new ArrayList<>();
-        if (loadedMods.contains("NotEnoughItems")) {
-            mixins.add("nei.NEISPHMixin");
-            mixins.add("nei.NEIServerUtilsMixin");
-        }
+        // NEI mixins are NOT here: NEI is a coremod whose classes load before the late phase prepares, so they
+        // ride the manifest-registered base config, gated by AuditMixinPlugin (daily-707 crash otherwise).
         if (loadedMods.contains("gregtech")) {
             mixins.add("gt.MTEMultiBlockBaseMixin");
             mixins.add("gt.MTEBrickedBlastFurnaceMixin");

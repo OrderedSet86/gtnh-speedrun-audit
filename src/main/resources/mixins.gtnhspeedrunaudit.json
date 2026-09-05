@@ -2,8 +2,12 @@
     "required": true,
     "minVersion": "0.8.5-GTNH",
     "package": "com.gtnhspeedrun.audit.mixins",
+    "plugin": "com.gtnhspeedrun.audit.mixins.AuditMixinPlugin",
     "refmap": "mixins.gtnhspeedrunaudit.refmap.json",
     "target": "@env(DEFAULT)",
     "compatibilityLevel": "JAVA_8",
-    "mixins": []
+    "mixins": [
+        "nei.NEISPHMixin",
+        "nei.NEIServerUtilsMixin"
+    ]
 }

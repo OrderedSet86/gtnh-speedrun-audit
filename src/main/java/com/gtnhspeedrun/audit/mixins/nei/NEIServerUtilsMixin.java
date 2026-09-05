@@ -1,4 +1,4 @@
-package com.gtnhspeedrun.audit.mixins.late.nei;
+package com.gtnhspeedrun.audit.mixins.nei;
 
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
