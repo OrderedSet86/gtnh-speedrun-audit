@@ -1,12 +1,21 @@
 package com.gtnhspeedrun.audit;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import net.minecraftforge.common.MinecraftForge;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.gtnhspeedrun.audit.command.CommandAudit;
 import com.gtnhspeedrun.audit.core.SessionManager;
+import com.gtnhspeedrun.audit.snapshot.InventorySnapshotter;
+import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
+import com.gtnhspeedrun.audit.snapshot.SnapshotScheduler;
 import com.gtnhspeedrun.audit.trackers.CommandTracker;
+import com.gtnhspeedrun.audit.trackers.GamemodeTracker;
+import com.gtnhspeedrun.audit.trackers.MilestoneTracker;
 import com.gtnhspeedrun.audit.trackers.PlayerSessionTracker;
 
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -35,8 +44,9 @@ public class GtnhSpeedrunAudit {
     /** The live session, or null between worlds. Static because mixin sinks have no other path to it. */
     private static volatile SessionManager session;
 
-    private CommandTracker commandTracker;
-    private PlayerSessionTracker playerTracker;
+    /** Both buses tolerate listeners whose events belong to the other bus, so one list per bus suffices. */
+    private final List<Object> forgeBusListeners = new ArrayList<>();
+    private final List<Object> fmlBusListeners = new ArrayList<>();
 
     public static SessionManager session() {
         return session;
@@ -54,16 +64,38 @@ public class GtnhSpeedrunAudit {
             sm.start();
             session = sm;
 
-            commandTracker = new CommandTracker(sm.logger());
-            playerTracker = new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp);
-            MinecraftForge.EVENT_BUS.register(commandTracker);
-            FMLCommonHandler.instance().bus().register(playerTracker);
-            event.registerServerCommand(new com.gtnhspeedrun.audit.command.CommandAudit());
+            final KeyItemIndex keyItems = new KeyItemIndex(AuditConfig.keyItems, sm.logger(), sm.anchor());
+            final InventorySnapshotter inventory = new InventorySnapshotter(sm.logger(), keyItems);
+            final SnapshotScheduler scheduler = new SnapshotScheduler(event.getServer(), inventory,
+                AuditConfig.invSnapshotMinutes);
+            sm.addSnapshotHook(() -> scheduler.snapshotAllPlayers("manual"));
+
+            final MilestoneTracker milestones = new MilestoneTracker(sm.logger(), sm.anchor(), keyItems);
+            onForgeBus(new CommandTracker(sm.logger()));
+            onForgeBus(inventory); // LivingDeathEvent
+            onForgeBus(milestones); // AchievementEvent
+            onFmlBus(inventory); // login/logout snapshots
+            onFmlBus(milestones); // dim change, crafts
+            onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp));
+            onFmlBus(new GamemodeTracker(sm.logger(), inventory, event.getServer()));
+            onFmlBus(scheduler);
+
+            event.registerServerCommand(new CommandAudit());
         } catch (Exception e) {
             // A broken audit trail must be loud but must not brick someone's server mid-run.
             LOG.error("Speedrun audit failed to start — THIS RUN IS NOT BEING AUDITED", e);
             session = null;
         }
+    }
+
+    private void onForgeBus(Object listener) {
+        MinecraftForge.EVENT_BUS.register(listener);
+        forgeBusListeners.add(listener);
+    }
+
+    private void onFmlBus(Object listener) {
+        FMLCommonHandler.instance().bus().register(listener);
+        fmlBusListeners.add(listener);
     }
 
     @Mod.EventHandler
@@ -81,13 +113,13 @@ public class GtnhSpeedrunAudit {
         if (sm != null) {
             sm.stopped();
         }
-        if (commandTracker != null) {
-            MinecraftForge.EVENT_BUS.unregister(commandTracker);
-            commandTracker = null;
+        for (Object l : forgeBusListeners) {
+            MinecraftForge.EVENT_BUS.unregister(l);
         }
-        if (playerTracker != null) {
-            FMLCommonHandler.instance().bus().unregister(playerTracker);
-            playerTracker = null;
+        for (Object l : fmlBusListeners) {
+            FMLCommonHandler.instance().bus().unregister(l);
         }
+        forgeBusListeners.clear();
+        fmlBusListeners.clear();
     }
 }
