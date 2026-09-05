@@ -12,13 +12,15 @@ public final class PendingEvent {
     public final JsonObject data;
     public final long wallMs;
     public final long ticks;
+    public final long onlineTicks;
     public final String thread;
 
-    public PendingEvent(String type, JsonObject data, long wallMs, long ticks, String thread) {
+    public PendingEvent(String type, JsonObject data, long wallMs, long ticks, long onlineTicks, String thread) {
         this.type = type;
         this.data = data;
         this.wallMs = wallMs;
         this.ticks = ticks;
+        this.onlineTicks = onlineTicks;
         this.thread = thread;
     }
 }

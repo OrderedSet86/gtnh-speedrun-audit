@@ -64,15 +64,17 @@ public final class LogWriter implements Runnable {
         final JsonObject refData;
         final long wallMs;
         final long ticks;
+        final long onlineTicks;
 
         SnapshotJob(String type, String fileName, Supplier<JsonElement> content, JsonObject refData, long wallMs,
-            long ticks) {
+            long ticks, long onlineTicks) {
             this.type = type;
             this.fileName = fileName;
             this.content = content;
             this.refData = refData;
             this.wallMs = wallMs;
             this.ticks = ticks;
+            this.onlineTicks = onlineTicks;
         }
     }
 
@@ -125,9 +127,9 @@ public final class LogWriter implements Runnable {
     }
 
     public void submitSnapshot(String type, String fileName, Supplier<JsonElement> content, JsonObject refData,
-        long wallMs, long ticks) {
+        long wallMs, long ticks, long onlineTicks) {
         if (!dead) {
-            queue.add(new SnapshotJob(type, fileName, content, refData, wallMs, ticks));
+            queue.add(new SnapshotJob(type, fileName, content, refData, wallMs, ticks, onlineTicks));
         }
     }
 
@@ -182,7 +184,7 @@ public final class LogWriter implements Runnable {
                     break;
                 }
                 if (job instanceof PendingEvent event) {
-                    appendLine(event.type, event.data, event.wallMs, event.ticks, event.thread);
+                    appendLine(event.type, event.data, event.wallMs, event.ticks, event.onlineTicks, event.thread);
                 } else if (job instanceof SnapshotJob snap) {
                     writeSnapshot(snap);
                 } else if (job == null) {
@@ -208,11 +210,11 @@ public final class LogWriter implements Runnable {
         snap.refData.addProperty("file", snap.fileName);
         snap.refData.addProperty("fileSha256", JsonUtil.sha256Hex(gzBytes));
         snap.refData.addProperty("rawBytes", json.length);
-        appendLine(snap.type, snap.refData, snap.wallMs, snap.ticks, "writer");
+        appendLine(snap.type, snap.refData, snap.wallMs, snap.ticks, snap.onlineTicks, "writer");
     }
 
-    private void appendLine(String type, JsonObject data, long wallMs, long ticks, String producerThread)
-        throws IOException {
+    private void appendLine(String type, JsonObject data, long wallMs, long ticks, long onlineTicks,
+        String producerThread) throws IOException {
         final JsonObject line = new JsonObject();
         line.addProperty("v", 1);
         line.addProperty("seq", seq);
@@ -221,6 +223,7 @@ public final class LogWriter implements Runnable {
         line.addProperty("t", type);
         line.addProperty("wall", wallMs);
         line.addProperty("ticks", ticks);
+        line.addProperty("pticks", onlineTicks);
         line.addProperty("thread", producerThread);
         line.add("data", data);
         line.addProperty("prev", head);

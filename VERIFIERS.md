@@ -61,8 +61,10 @@ Every `session_start` line embeds the startup verdict:
 - Quest timestamps are ±3 s (BetterQuesting detects completions on a 60-tick poll).
 - Multiblock formation timestamps lag real placement by up to a few seconds (structure checks are periodic).
 - AE2 censuses only cover loaded grids — which is fine: an unloaded grid cannot change.
-- Timing: every line carries both `wall` (epoch ms, for RTA) and `ticks` (cumulative server ticks, for
-  in-game time). The tick clock rewinds with a rollback; wall time never does.
+- Timing — three clocks, every line carries all of them: `wall` (epoch ms; RTA = wall minus the anchored
+  timing_started moment), `ticks` (cumulative server ticks = IGT, the main metric; AFK machine time counts),
+  and `pticks` (ticks with at least one player connected). The tick clocks rewind with a rollback; wall time
+  never does. Lines written before v0.2.4 lack `pticks`.
 - IGT starts at the first player movement, not at world creation (worldgen lag doesn't count) — the
   `timing_started` line marks the moment. The server can't see keypresses, so "movement" means the first
   horizontal position change > 0.03 blocks in a tick; being pushed by a mob before ever walking would

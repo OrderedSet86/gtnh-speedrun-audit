@@ -26,6 +26,7 @@ public final class AuditLogger {
                 data,
                 System.currentTimeMillis(),
                 clock.get(),
+                clock.getOnline(),
                 Thread.currentThread()
                     .getName()));
     }
@@ -35,7 +36,14 @@ public final class AuditLogger {
      * never over live game state.
      */
     public void logSnapshot(String type, String fileName, Supplier<JsonElement> content, JsonObject refData) {
-        writer.submitSnapshot(type, fileName, content, refData, System.currentTimeMillis(), clock.get());
+        writer.submitSnapshot(
+            type,
+            fileName,
+            content,
+            refData,
+            System.currentTimeMillis(),
+            clock.get(),
+            clock.getOnline());
     }
 
     public TickClock clock() {

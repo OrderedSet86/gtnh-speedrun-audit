@@ -46,9 +46,12 @@ and mistakes detectable. Board rules should treat it as a high bar, not proof.
 
 ## Timing
 
-Undecided boards need both clocks, so every line carries both: `wall` (epoch ms — RTA) and `ticks`
-(cumulative server ticks across all sessions — in-game time; pauses with the integrated server, rewinds
-with a rollback).
+Three clocks on every line, all frozen until the first player movement (worldgen lag doesn't count):
+
+- `ticks` — IGT, the main metric: cumulative server ticks across all sessions. Pauses with the integrated
+  server, keeps counting while a dedicated server runs unattended, rewinds with a rollback.
+- `pticks` — player-online ticks: only counts while at least one player is connected.
+- `wall` — epoch ms; RTA is the span since the `timing_started` moment.
 
 ## Building
 

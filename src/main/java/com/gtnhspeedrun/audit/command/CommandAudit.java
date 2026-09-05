@@ -56,16 +56,27 @@ public class CommandAudit extends CommandBase {
 
     private void status(ICommandSender sender, SessionManager session) {
         reply(sender, "session #" + session.sessionIndex() + "  startup verdict: " + session.verifyVerdict());
+        final long startWall = session.anchor().timingStartWallMs;
         reply(
             sender,
             "chain head seq " + session.logger()
                 .writer()
                 .publishedSeq()
-                + ", run clock "
+                + "  |  igt "
                 + formatTicks(
                     session.logger()
                         .clock()
-                        .get()));
+                        .get())
+                + "  |  online "
+                + formatTicks(
+                    session.logger()
+                        .clock()
+                        .getOnline())
+                + "  |  rta "
+                + (startWall == 0 ? "not started"
+                    : ((System.currentTimeMillis() - startWall) / 1000 / 3600) + "h"
+                        + ((System.currentTimeMillis() - startWall) / 1000 % 3600 / 60)
+                        + "m"));
         reply(
             sender,
             session.logger()

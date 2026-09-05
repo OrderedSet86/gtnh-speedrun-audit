@@ -34,15 +34,19 @@ public final class AuditExport {
     private final String worldAuditUuid;
     private final long anchorSeq;
     private final long anchorTicks;
+    private final long anchorOnlineTicks;
+    private final long timingStartWallMs;
 
     public AuditExport(File auditDir, File logDir, File snapshotDir, String worldAuditUuid, long anchorSeq,
-        long anchorTicks) {
+        long anchorTicks, long anchorOnlineTicks, long timingStartWallMs) {
         this.auditDir = auditDir;
         this.logDir = logDir;
         this.snapshotDir = snapshotDir;
         this.worldAuditUuid = worldAuditUuid;
         this.anchorSeq = anchorSeq;
         this.anchorTicks = anchorTicks;
+        this.anchorOnlineTicks = anchorOnlineTicks;
+        this.timingStartWallMs = timingStartWallMs;
     }
 
     /** @return the created zip */
@@ -72,6 +76,8 @@ public final class AuditExport {
         o.addProperty("worldAuditUuid", worldAuditUuid);
         o.addProperty("anchorSeq", anchorSeq);
         o.addProperty("anchorTicks", anchorTicks);
+        o.addProperty("anchorOnlineTicks", anchorOnlineTicks);
+        o.addProperty("timingStartWallMs", timingStartWallMs);
         o.addProperty("exportedAtWallMs", System.currentTimeMillis());
         return JsonUtil.GSON.toJson(o);
     }
@@ -143,8 +149,18 @@ public final class AuditExport {
             .append("..")
             .append(verify.lastSeq)
             .append(")\n");
-        sb.append("run clock        : ")
+        sb.append("IGT (main)       : ")
             .append(ticksHuman(anchorTicks))
+            .append('\n');
+        sb.append("player-online    : ")
+            .append(ticksHuman(anchorOnlineTicks))
+            .append('\n');
+        sb.append("RTA              : ")
+            .append(
+                timingStartWallMs == 0 ? "not started"
+                    : msHuman(System.currentTimeMillis() - timingStartWallMs) + " (timer started "
+                        + fmt.format(new Date(timingStartWallMs))
+                        + ")")
             .append('\n');
         sb.append('\n');
 

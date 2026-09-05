@@ -55,6 +55,7 @@ public final class SessionManager {
     private String sessionId;
     private int sessionIndex;
     private long sessionStartTicks;
+    private long sessionStartOnlineTicks;
     private String verifyVerdict = "UNKNOWN";
 
     public SessionManager(Logger log, MinecraftServer server) {
@@ -84,8 +85,9 @@ public final class SessionManager {
         sessionIndex = tail.maxIndex + 1;
         final File logFile = newLogFile();
 
-        clock = new TickClock(anchor.cumulativeTicks);
+        clock = new TickClock(anchor.cumulativeTicks, anchor.cumulativeOnlineTicks);
         sessionStartTicks = anchor.cumulativeTicks;
+        sessionStartOnlineTicks = anchor.cumulativeOnlineTicks;
         final String head = tail.seq < 0 ? genesisHash() : tail.hash;
         writer = new LogWriter(log, logFile, snapshotDir, sessionId, sessionIndex, tail.seq + 1, head);
         writer.start();
@@ -112,6 +114,7 @@ public final class SessionManager {
         }
         final JsonObject data = new JsonObject();
         data.addProperty("uptimeTicks", clock.get() - sessionStartTicks);
+        data.addProperty("onlineUptimeTicks", clock.getOnline() - sessionStartOnlineTicks);
         data.addProperty("reason", "stop");
         logger.log("session_end", data);
         writer.drain(15_000);
@@ -148,7 +151,7 @@ public final class SessionManager {
             checkFirstMovement();
             return;
         }
-        final long ticks = clock.increment();
+        final long ticks = clock.increment(!server.getConfigurationManager().playerEntityList.isEmpty());
         if (ticks % ANCHOR_EVERY_TICKS == 0) {
             publishAnchor(false);
         }
@@ -177,6 +180,7 @@ public final class SessionManager {
             prev[1] = player.posZ;
             if (dx * dx + dz * dz > 0.0009) {
                 anchor.timingStarted = true;
+                anchor.timingStartWallMs = System.currentTimeMillis();
                 preTimingPositions.clear();
                 final JsonObject data = new JsonObject();
                 data.addProperty(
@@ -197,6 +201,7 @@ public final class SessionManager {
         anchor.lastSeq = writer.publishedSeq();
         anchor.lastHash = writer.publishedHead();
         anchor.cumulativeTicks = clock.get();
+        anchor.cumulativeOnlineTicks = clock.getOnline();
         anchor.lastWallMs = System.currentTimeMillis();
         anchor.cleanShutdown = clean;
         anchor.markDirty();
@@ -326,6 +331,8 @@ public final class SessionManager {
         data.addProperty("worldAuditUuid", anchor.worldAuditUuid);
         data.addProperty("verifyVerdict", verifyVerdict);
         data.addProperty("timingStarted", anchor.timingStarted);
+        data.addProperty("timingStartWallMs", anchor.timingStartWallMs);
+        data.addProperty("onlineTicks", anchor.cumulativeOnlineTicks);
         data.addProperty("previousCrashed", previousCrashed);
         data.addProperty("dedicated", server.isDedicatedServer());
         data.addProperty("worldFolder", server.getFolderName());
@@ -434,7 +441,9 @@ public final class SessionManager {
             snapshotDir,
             anchor.worldAuditUuid,
             writer.publishedSeq(),
-            clock.get());
+            clock.get(),
+            clock.getOnline(),
+            anchor.timingStartWallMs);
         com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "building export bundle…");
         final Thread t = new Thread(() -> {
             try {
