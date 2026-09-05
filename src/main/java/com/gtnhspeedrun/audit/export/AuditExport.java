@@ -150,6 +150,7 @@ public final class AuditExport {
 
         sb.append("== SESSIONS ==\n");
         final Map<String, Integer> counts = new HashMap<>();
+        long lastStartWall = -1;
         for (JsonObject line : lines) {
             final String type = line.get("t")
                 .getAsString();
@@ -157,6 +158,8 @@ public final class AuditExport {
             final JsonObject data = line.getAsJsonObject("data");
             switch (type) {
                 case "session_start" -> {
+                    lastStartWall = line.get("wall")
+                        .getAsLong();
                     sb.append(
                         String.format(
                             "#%-4d start %s  verdict=%s",
@@ -185,16 +188,18 @@ public final class AuditExport {
                     }
                     sb.append('\n');
                 }
-                case "session_end" -> sb.append(
-                    String.format(
-                        "      end   %s  uptime %s%n",
-                        fmt.format(
-                            new Date(
-                                line.get("wall")
-                                    .getAsLong())),
-                        ticksHuman(
-                            data.get("uptimeTicks")
-                                .getAsLong())));
+                case "session_end" -> {
+                    final long endWall = line.get("wall")
+                        .getAsLong();
+                    sb.append(
+                        String.format(
+                            "      end   %s  uptime %s%s%n",
+                            fmt.format(new Date(endWall)),
+                            ticksHuman(
+                                data.get("uptimeTicks")
+                                    .getAsLong()),
+                            lastStartWall < 0 ? "" : " / " + msHuman(endWall - lastStartWall) + " real"));
+                }
                 default -> {}
             }
         }
@@ -213,6 +218,12 @@ public final class AuditExport {
                     line.get("ticks")
                         .getAsLong());
             switch (type) {
+                case "timing_started" -> sb.append(when)
+                    .append("  TIMER      IGT started — first movement by ")
+                    .append(
+                        data.get("name")
+                            .getAsString())
+                    .append('\n');
                 case "quest_complete" -> sb.append(when)
                     .append("  QUEST      ")
                     .append(

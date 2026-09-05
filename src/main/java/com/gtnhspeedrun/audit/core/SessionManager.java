@@ -142,9 +142,54 @@ public final class SessionManager {
         if (event.phase != TickEvent.Phase.END || anchor == null) {
             return;
         }
+        if (!anchor.timingStarted) {
+            // IGT convention: the clock is frozen until the first player movement — worldgen lag, spawn
+            // staring and menu time don't count. Wall timestamps keep flowing regardless (RTA is unaffected).
+            checkFirstMovement();
+            return;
+        }
         final long ticks = clock.increment();
         if (ticks % ANCHOR_EVERY_TICKS == 0) {
             publishAnchor(false);
+        }
+    }
+
+    private final java.util.Map<UUID, double[]> preTimingPositions = new java.util.HashMap<>();
+
+    /**
+     * The server can't see keypresses; deliberate horizontal movement is the proxy for "first WASD". One tick
+     * of walking is ~0.21 blocks — the 0.03 threshold clears server jitter while catching a single step.
+     * Vertical is ignored so a spawn-platform drop can't start the timer.
+     */
+    private void checkFirstMovement() {
+        for (Object o : server.getConfigurationManager().playerEntityList) {
+            final net.minecraft.entity.player.EntityPlayerMP player = (net.minecraft.entity.player.EntityPlayerMP) o;
+            final UUID id = player.getGameProfile()
+                .getId();
+            final double[] prev = preTimingPositions.get(id);
+            if (prev == null) {
+                preTimingPositions.put(id, new double[] { player.posX, player.posZ });
+                continue;
+            }
+            final double dx = player.posX - prev[0];
+            final double dz = player.posZ - prev[1];
+            prev[0] = player.posX;
+            prev[1] = player.posZ;
+            if (dx * dx + dz * dz > 0.0009) {
+                anchor.timingStarted = true;
+                preTimingPositions.clear();
+                final JsonObject data = new JsonObject();
+                data.addProperty(
+                    "uuid",
+                    player.getGameProfile()
+                        .getId()
+                        .toString());
+                data.addProperty("name", player.getCommandSenderName());
+                data.addProperty("dim", player.dimension);
+                logger.log("timing_started", data);
+                publishAnchor(false);
+                return;
+            }
         }
     }
 
@@ -280,6 +325,7 @@ public final class SessionManager {
         final JsonObject data = new JsonObject();
         data.addProperty("worldAuditUuid", anchor.worldAuditUuid);
         data.addProperty("verifyVerdict", verifyVerdict);
+        data.addProperty("timingStarted", anchor.timingStarted);
         data.addProperty("previousCrashed", previousCrashed);
         data.addProperty("dedicated", server.isDedicatedServer());
         data.addProperty("worldFolder", server.getFolderName());

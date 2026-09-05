@@ -26,6 +26,8 @@ public final class ChainAnchorData extends WorldSavedData {
     public long cumulativeTicks;
     public long lastWallMs;
     public boolean cleanShutdown = true;
+    /** IGT convention: the run clock is frozen until the first player movement (worldgen lag doesn't count). */
+    public boolean timingStarted = false;
 
     public final Set<String> visitedDims = new HashSet<>();
     public final Set<String> seenKeyItems = new HashSet<>();
@@ -56,6 +58,8 @@ public final class ChainAnchorData extends WorldSavedData {
         cumulativeTicks = nbt.getLong("cumulativeTicks");
         lastWallMs = nbt.getLong("lastWallMs");
         cleanShutdown = nbt.getBoolean("cleanShutdown");
+        // Migration: worlds audited before this field existed already have ticks on the clock.
+        timingStarted = nbt.getBoolean("timingStarted") || cumulativeTicks > 0;
         readSet(nbt, "visitedDims", visitedDims);
         readSet(nbt, "seenKeyItems", seenKeyItems);
         readSet(nbt, "earnedAchievements", earnedAchievements);
@@ -70,6 +74,7 @@ public final class ChainAnchorData extends WorldSavedData {
         nbt.setLong("cumulativeTicks", cumulativeTicks);
         nbt.setLong("lastWallMs", lastWallMs);
         nbt.setBoolean("cleanShutdown", cleanShutdown);
+        nbt.setBoolean("timingStarted", timingStarted);
         writeSet(nbt, "visitedDims", visitedDims);
         writeSet(nbt, "seenKeyItems", seenKeyItems);
         writeSet(nbt, "earnedAchievements", earnedAchievements);

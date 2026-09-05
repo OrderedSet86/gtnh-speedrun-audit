@@ -63,3 +63,7 @@ Every `session_start` line embeds the startup verdict:
 - AE2 censuses only cover loaded grids — which is fine: an unloaded grid cannot change.
 - Timing: every line carries both `wall` (epoch ms, for RTA) and `ticks` (cumulative server ticks, for
   in-game time). The tick clock rewinds with a rollback; wall time never does.
+- IGT starts at the first player movement, not at world creation (worldgen lag doesn't count) — the
+  `timing_started` line marks the moment. The server can't see keypresses, so "movement" means the first
+  horizontal position change > 0.03 blocks in a tick; being pushed by a mob before ever walking would
+  technically start it, which errs in the honest direction (earlier start = longer time).
