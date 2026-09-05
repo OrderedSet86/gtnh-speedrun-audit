@@ -23,7 +23,7 @@ import com.google.gson.JsonParser;
  */
 public final class Verifier {
 
-    private static final Pattern LOG_NAME = Pattern.compile("audit-\\d{6}(?:-r\\d+)?\\.jsonl");
+    private static final Pattern LOG_NAME = Pattern.compile("audit-\\d{6}(?:-r\\d+)?(?:-p\\d+)?\\.jsonl");
 
     public static final class Result {
 

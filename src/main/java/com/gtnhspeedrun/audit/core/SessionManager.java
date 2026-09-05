@@ -36,7 +36,7 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  */
 public final class SessionManager {
 
-    private static final Pattern LOG_NAME = Pattern.compile("audit-(\\d{6})(?:-r(\\d+))?\\.jsonl");
+    private static final Pattern LOG_NAME = Pattern.compile("audit-(\\d{6})(?:-r(\\d+))?(?:-p(\\d+))?\\.jsonl");
     /** Anchor persistence cadence; bounds how far the anchor can lag the log after a crash. */
     private static final int ANCHOR_EVERY_TICKS = 100;
 
@@ -379,8 +379,27 @@ public final class SessionManager {
             .reply(sender, snapshotHooks.size() + " snapshot(s) queued (written in background)");
     }
 
+    /** Zips months of logs + snapshots and re-verifies the whole chain — background thread, files only. */
     public void export(net.minecraft.command.ICommandSender sender) {
-        com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "export not implemented yet");
+        writer.drain(5_000);
+        final com.gtnhspeedrun.audit.export.AuditExport export = new com.gtnhspeedrun.audit.export.AuditExport(
+            auditDir,
+            logDir,
+            snapshotDir,
+            anchor.worldAuditUuid,
+            writer.publishedSeq(),
+            clock.get());
+        com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "building export bundle…");
+        final Thread t = new Thread(() -> {
+            try {
+                final File zip = export.run();
+                com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "export ready: " + zip.getAbsolutePath());
+            } catch (Exception e) {
+                com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "export FAILED: " + e);
+            }
+        }, "SpeedrunAudit-Export");
+        t.setDaemon(true);
+        t.start();
     }
 
     // ------------------------------------------------------------------ accessors

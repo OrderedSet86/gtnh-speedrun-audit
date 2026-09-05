@@ -39,9 +39,14 @@ public final class LogWriter implements Runnable {
     private final LinkedBlockingQueue<Object> queue = new LinkedBlockingQueue<>();
     private final Thread thread;
 
+    /** Intra-session split so one marathon 24/7 session can't grow a single unwieldy file. Chain-neutral. */
+    private static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
+
     private FileOutputStream out;
     private Writer writer;
     private long lastForceMs;
+    private long bytesWritten;
+    private int partIndex = 1;
 
     private long seq;
     private String head;
@@ -87,10 +92,30 @@ public final class LogWriter implements Runnable {
     }
 
     public void start() throws IOException {
-        // Append mode: a session file survives writer restarts within one JVM; new sessions get new files.
-        out = new FileOutputStream(logFile, true);
-        writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
+        open(logFile);
         thread.start();
+    }
+
+    private void open(File file) throws IOException {
+        // Append mode: a session file survives writer restarts within one JVM; new sessions get new files.
+        bytesWritten = file.length();
+        out = new FileOutputStream(file, true);
+        writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
+    }
+
+    /** Writer thread only. The chain is file-agnostic, so a split is invisible to verification. */
+    private void rollIfNeeded() throws IOException {
+        if (bytesWritten < MAX_FILE_BYTES) {
+            return;
+        }
+        finish();
+        partIndex++;
+        final String base = logFile.getName()
+            .substring(
+                0,
+                logFile.getName()
+                    .length() - ".jsonl".length());
+        open(new File(logFile.getParentFile(), base + "-p" + partIndex + ".jsonl"));
     }
 
     public void submit(PendingEvent event) {
@@ -201,16 +226,19 @@ public final class LogWriter implements Runnable {
         line.addProperty("prev", head);
 
         final String json = JsonUtil.GSON.toJson(line);
+        final byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         writer.write(json);
         writer.write('\n');
         writer.flush();
+        bytesWritten += bytes.length + 1;
 
-        head = JsonUtil.sha256Hex(json.getBytes(StandardCharsets.UTF_8));
+        head = JsonUtil.sha256Hex(bytes);
         publishedHead = head;
         publishedSeq = seq;
         seq++;
 
         maybeForce(isUrgent(type));
+        rollIfNeeded();
     }
 
     private static boolean isUrgent(String type) {

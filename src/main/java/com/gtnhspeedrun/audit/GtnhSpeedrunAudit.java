@@ -98,6 +98,14 @@ public class GtnhSpeedrunAudit {
             }
 
             event.registerServerCommand(new CommandAudit());
+
+            new com.gtnhspeedrun.audit.trackers.FingerprintTracker(
+                sm.logger(),
+                sm.auditDir(),
+                event.getServer()
+                    .getFile("config"),
+                event.getServer()
+                    .getFile("scripts")).start();
         } catch (Exception e) {
             // A broken audit trail must be loud but must not brick someone's server mid-run.
             LOG.error("Speedrun audit failed to start — THIS RUN IS NOT BEING AUDITED", e);

@@ -20,5 +20,5 @@ dependencies {
     compileOnly('com.github.GTNewHorizons:Railcraft:9.17.29:dev') { transitive = false }
 
     testImplementation('org.junit.jupiter:junit-jupiter:5.10.2')
-    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher:1.10.2')
 }
