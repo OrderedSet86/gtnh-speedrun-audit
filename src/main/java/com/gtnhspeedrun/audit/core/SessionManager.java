@@ -54,6 +54,7 @@ public final class SessionManager {
     private AuditLogger logger;
     private String sessionId;
     private int sessionIndex;
+    private long sessionStartTicks;
     private String verifyVerdict = "UNKNOWN";
 
     public SessionManager(Logger log, MinecraftServer server) {
@@ -83,6 +84,7 @@ public final class SessionManager {
         final File logFile = newLogFile();
 
         clock = new TickClock(anchor.cumulativeTicks);
+        sessionStartTicks = anchor.cumulativeTicks;
         final String head = tail.seq < 0 ? genesisHash() : tail.hash;
         writer = new LogWriter(log, logFile, snapshotDir, sessionId, sessionIndex, tail.seq + 1, head);
         writer.start();
@@ -103,7 +105,7 @@ public final class SessionManager {
             return;
         }
         final JsonObject data = new JsonObject();
-        data.addProperty("uptimeTicks", clock.get() - anchor.cumulativeTicks);
+        data.addProperty("uptimeTicks", clock.get() - sessionStartTicks);
         data.addProperty("reason", "stop");
         logger.log("session_end", data);
         writer.drain(15_000);
@@ -321,6 +323,31 @@ public final class SessionManager {
         marker.addProperty("sessionIndex", sessionIndex);
         marker.addProperty("startWallMs", System.currentTimeMillis());
         Files.write(dirtyMarker.toPath(), JsonUtil.GSON.toJson(marker).getBytes(StandardCharsets.UTF_8));
+    }
+
+    // ------------------------------------------------------------------ on-demand actions
+
+    /** Snapshot triggers registered by the snapshotters (phase 3/4); run on the server thread. */
+    private final java.util.List<Runnable> snapshotHooks = new java.util.ArrayList<>();
+
+    public void addSnapshotHook(Runnable hook) {
+        snapshotHooks.add(hook);
+    }
+
+    public void snapshotNow(net.minecraft.command.ICommandSender sender) {
+        if (snapshotHooks.isEmpty()) {
+            com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "no snapshotters active");
+            return;
+        }
+        for (Runnable hook : snapshotHooks) {
+            hook.run();
+        }
+        com.gtnhspeedrun.audit.command.CommandAudit.reply(sender,
+            snapshotHooks.size() + " snapshot(s) queued (written in background)");
+    }
+
+    public void export(net.minecraft.command.ICommandSender sender) {
+        com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "export not implemented yet");
     }
 
     // ------------------------------------------------------------------ accessors

@@ -58,6 +58,7 @@ public class GtnhSpeedrunAudit {
             playerTracker = new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp);
             MinecraftForge.EVENT_BUS.register(commandTracker);
             FMLCommonHandler.instance().bus().register(playerTracker);
+            event.registerServerCommand(new com.gtnhspeedrun.audit.command.CommandAudit());
         } catch (Exception e) {
             // A broken audit trail must be loud but must not brick someone's server mid-run.
             LOG.error("Speedrun audit failed to start — THIS RUN IS NOT BEING AUDITED", e);
