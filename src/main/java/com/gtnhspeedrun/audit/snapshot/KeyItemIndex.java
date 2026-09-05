@@ -67,7 +67,7 @@ public final class KeyItemIndex {
         final JsonObject data = new JsonObject();
         data.addProperty("itemKey", base);
         data.addProperty("watchEntry", matched);
-        data.addProperty("displayName", displayName);
+        data.addProperty("displayName", com.gtnhspeedrun.audit.core.JsonUtil.stripFormatting(displayName));
         data.addProperty("source", source);
         if (playerUuid != null) {
             data.addProperty("playerUuid", playerUuid);

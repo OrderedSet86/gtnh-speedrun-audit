@@ -43,6 +43,11 @@ public final class JsonUtil {
         return sha256Hex(s.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Minecraft §-format codes have no business in an audit record. */
+    public static String stripFormatting(String s) {
+        return s == null ? null : s.replaceAll("§.", "");
+    }
+
     public static String toHex(byte[] bytes) {
         final StringBuilder sb = new StringBuilder(bytes.length * 2);
         for (byte b : bytes) {

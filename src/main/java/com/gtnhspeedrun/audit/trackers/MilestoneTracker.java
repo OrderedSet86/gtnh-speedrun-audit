@@ -29,12 +29,23 @@ public final class MilestoneTracker {
         this.keyItems = keyItems;
     }
 
+    /** The spawn dimension counts too — without this, "Overworld" would first appear on the return trip. */
+    @SubscribeEvent
+    public void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.player instanceof EntityPlayerMP player) {
+            firstVisit(player, player.dimension, "login");
+        }
+    }
+
     @SubscribeEvent
     public void onDimensionChange(PlayerEvent.PlayerChangedDimensionEvent event) {
-        if (!(event.player instanceof EntityPlayerMP player)) {
-            return;
+        if (event.player instanceof EntityPlayerMP player) {
+            firstVisit(player, event.toDim, "travel");
         }
-        if (!anchor.visitedDims.add(String.valueOf(event.toDim))) {
+    }
+
+    private void firstVisit(EntityPlayerMP player, int dim, String cause) {
+        if (!anchor.visitedDims.add(String.valueOf(dim))) {
             return;
         }
         anchor.markDirty();
@@ -45,9 +56,9 @@ public final class MilestoneTracker {
                 .getId()
                 .toString());
         data.addProperty("name", player.getCommandSenderName());
-        data.addProperty("fromDim", event.fromDim);
-        data.addProperty("dim", event.toDim);
+        data.addProperty("dim", dim);
         data.addProperty("dimName", player.worldObj.provider.getDimensionName());
+        data.addProperty("cause", cause);
         logger.log("dim_first_visit", data);
     }
 

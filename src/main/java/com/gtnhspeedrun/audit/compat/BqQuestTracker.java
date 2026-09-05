@@ -49,7 +49,8 @@ public final class BqQuestTracker {
     private static String questName(UUID questId) {
         try {
             final IQuest quest = QuestDatabase.INSTANCE.get(questId);
-            return quest == null ? "?" : quest.getProperty(NativeProps.NAME);
+            return quest == null ? "?"
+                : com.gtnhspeedrun.audit.core.JsonUtil.stripFormatting(quest.getProperty(NativeProps.NAME));
         } catch (RuntimeException | LinkageError e) {
             return "?";
         }

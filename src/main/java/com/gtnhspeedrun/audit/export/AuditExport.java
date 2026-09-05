@@ -216,8 +216,9 @@ public final class AuditExport {
                 case "quest_complete" -> sb.append(when)
                     .append("  QUEST      ")
                     .append(
-                        data.get("questName")
-                            .getAsString())
+                        plain(
+                            data.get("questName")
+                                .getAsString()))
                     .append('\n');
                 case "dim_first_visit" -> sb.append(when)
                     .append("  DIMENSION  ")
@@ -247,8 +248,9 @@ public final class AuditExport {
                 case "key_item_first_seen" -> sb.append(when)
                     .append("  KEY ITEM   ")
                     .append(
-                        data.get("displayName")
-                            .getAsString())
+                        plain(
+                            data.get("displayName")
+                                .getAsString()))
                     .append(" (")
                     .append(
                         data.get("source")
@@ -298,12 +300,20 @@ public final class AuditExport {
 
     private static String ticksHuman(long ticks) {
         final long seconds = ticks / 20;
-        return String.format("[%dh%02dm ig]", seconds / 3600, seconds % 3600 / 60);
+        return String.format("[%dh%02dm%02ds igt]", seconds / 3600, seconds % 3600 / 60, seconds % 60);
     }
 
     private static String msHuman(long ms) {
-        final long minutes = ms / 60000;
-        return minutes >= 60 ? (minutes / 60) + "h" + (minutes % 60) + "m" : minutes + "m";
+        final long seconds = ms / 1000;
+        if (seconds >= 3600) {
+            return String.format("%dh%02dm%02ds", seconds / 3600, seconds % 3600 / 60, seconds % 60);
+        }
+        return String.format("%dm%02ds", seconds / 60, seconds % 60);
+    }
+
+    /** Old logs may carry §-codes; render-time stripping keeps SUMMARY clean regardless of log vintage. */
+    private static String plain(String s) {
+        return s == null ? null : s.replaceAll("§.", "");
     }
 
     // ------------------------------------------------------------------ zip plumbing
