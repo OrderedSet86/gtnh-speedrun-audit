@@ -76,6 +76,7 @@ public class GtnhSpeedrunAudit {
             onForgeBus(new CommandTracker(sm.logger()));
             onForgeBus(inventory); // LivingDeathEvent
             onForgeBus(milestones); // AchievementEvent
+            onForgeBus(new com.gtnhspeedrun.audit.trackers.MachinePlacementTracker(sm.logger()));
             onFmlBus(inventory); // login/logout snapshots
             onFmlBus(milestones); // dim change, crafts
             onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp));

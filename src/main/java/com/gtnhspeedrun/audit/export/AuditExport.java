@@ -287,6 +287,8 @@ public final class AuditExport {
             }
         }
 
+        machineStats(sb, lines);
+
         sb.append("\n== FLAGS FOR REVIEW ==\n");
         flagCount(sb, counts, "nei_cheat", "NEI cheat actions");
         flagCount(sb, counts, "nei_packet", "NEI cheat-channel packets");
@@ -319,6 +321,91 @@ public final class AuditExport {
 
         sb.append("\nRead VERIFIERS.md in the mod repository for how to independently re-verify this bundle.\n");
         return sb.toString();
+    }
+
+    /**
+     * The fun numbers: how many machines a run actually placed. Placements count every deliberate placement
+     * (a machine moved with a wrench counts twice — it was placed twice); multiblocks count distinct formed
+     * positions across the whole run, so chunk-reload re-formations don't inflate them.
+     */
+    private static void machineStats(StringBuilder sb, List<JsonObject> lines) {
+        long machines = 0;
+        long pipes = 0;
+        final Map<String, Integer> byType = new HashMap<>();
+        final Map<String, java.util.Set<String>> multiSpots = new HashMap<>();
+        for (JsonObject line : lines) {
+            final String type = line.get("t")
+                .getAsString();
+            final JsonObject data = line.getAsJsonObject("data");
+            if (type.equals("machine_placed")) {
+                if ("pipe".equals(
+                    data.get("kind")
+                        .getAsString())) {
+                    pipes++;
+                } else {
+                    machines++;
+                    final String name = data.has("displayName") ? data.get("displayName")
+                        .getAsString()
+                        : data.has("itemKey") ? data.get("itemKey")
+                            .getAsString() : "?";
+                    byType.merge(name, 1, Integer::sum);
+                }
+            } else if (type.equals("multiblock_formed")) {
+                multiSpots.computeIfAbsent(
+                    data.get("class")
+                        .getAsString(),
+                    k -> new java.util.HashSet<>())
+                    .add(
+                        data.get("dim")
+                            .getAsInt() + ":"
+                            + data.get("x")
+                                .getAsInt()
+                            + ","
+                            + data.get("y")
+                                .getAsInt()
+                            + ","
+                            + data.get("z")
+                                .getAsInt());
+            }
+        }
+        if (machines == 0 && pipes == 0 && multiSpots.isEmpty()) {
+            return;
+        }
+        sb.append("\n== MACHINE STATS ==\n");
+        final long multiTotal = multiSpots.values()
+            .stream()
+            .mapToLong(java.util.Set::size)
+            .sum();
+        sb.append(
+            String.format(
+                "GT machines placed: %d (%d types)   pipes/cables placed: %d   multiblocks formed: %d (%d classes)%n",
+                machines,
+                byType.size(),
+                pipes,
+                multiTotal,
+                multiSpots.size()));
+        byType.entrySet()
+            .stream()
+            .sorted(
+                Map.Entry.<String, Integer>comparingByValue()
+                    .reversed())
+            .limit(10)
+            .forEach(e -> sb.append(String.format("  %-40s %d%n", e.getKey(), e.getValue())));
+        multiSpots.entrySet()
+            .stream()
+            .sorted(
+                (a, b) -> b.getValue()
+                    .size()
+                    - a.getValue()
+                        .size())
+            .limit(10)
+            .forEach(
+                e -> sb.append(
+                    String.format(
+                        "  %-40s %d formed%n",
+                        e.getKey(),
+                        e.getValue()
+                            .size())));
     }
 
     private static void flagCount(StringBuilder sb, Map<String, Integer> counts, String key, String label) {
