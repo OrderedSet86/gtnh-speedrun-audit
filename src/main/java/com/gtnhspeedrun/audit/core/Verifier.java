@@ -75,7 +75,8 @@ public final class Verifier {
                 final byte[] bytes = fl.lines.get(i);
                 final JsonObject obj;
                 try {
-                    obj = new JsonParser().parse(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
+                    obj = new JsonParser().parse(new String(bytes, StandardCharsets.UTF_8))
+                        .getAsJsonObject();
                 } catch (RuntimeException e) {
                     final boolean lastLineOfLastFile = fl == ordered.get(ordered.size() - 1)
                         && i == fl.lines.size() - 1;
@@ -84,7 +85,8 @@ public final class Verifier {
                     }
                     continue;
                 }
-                final long seq = obj.get("seq").getAsLong();
+                final long seq = obj.get("seq")
+                    .getAsLong();
                 if (upToSeq >= 0 && seq > upToSeq) {
                     continue;
                 }
@@ -92,12 +94,15 @@ public final class Verifier {
                     result.firstSeq = seq;
                 }
                 if (expectSeq >= 0 && seq != expectSeq) {
-                    result.problem("SEQ_GAP", "expected seq " + expectSeq + ", found " + seq + " in "
-                        + fl.file.getName());
+                    result.problem(
+                        "SEQ_GAP",
+                        "expected seq " + expectSeq + ", found " + seq + " in " + fl.file.getName());
                 }
-                final String prev = obj.get("prev").getAsString();
+                final String prev = obj.get("prev")
+                    .getAsString();
                 if (!prev.equals(expectPrev)) {
-                    result.problem(seq == 0 ? "BAD_GENESIS" : "CHAIN_BREAK",
+                    result.problem(
+                        seq == 0 ? "BAD_GENESIS" : "CHAIN_BREAK",
                         "seq " + seq + " in " + fl.file.getName() + ": prev-hash mismatch");
                 }
                 expectPrev = JsonUtil.sha256Hex(bytes);
@@ -115,7 +120,8 @@ public final class Verifier {
         final File[] all = logDir.listFiles();
         if (all != null) {
             for (File f : all) {
-                if (LOG_NAME.matcher(f.getName()).matches()) {
+                if (LOG_NAME.matcher(f.getName())
+                    .matches()) {
                     files.add(f);
                 }
             }
@@ -160,8 +166,10 @@ public final class Verifier {
         }
         long firstSeq = Long.MAX_VALUE;
         try {
-            firstSeq = new JsonParser().parse(new String(lines.get(0), StandardCharsets.UTF_8)).getAsJsonObject()
-                .get("seq").getAsLong();
+            firstSeq = new JsonParser().parse(new String(lines.get(0), StandardCharsets.UTF_8))
+                .getAsJsonObject()
+                .get("seq")
+                .getAsLong();
         } catch (RuntimeException ignored) {
             // Unparseable first line sorts last and gets flagged during the walk.
         }

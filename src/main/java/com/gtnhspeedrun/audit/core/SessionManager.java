@@ -79,7 +79,8 @@ public final class SessionManager {
         final Tail tail = findTail();
         verifyVerdict = classify(tail, previousCrashed);
 
-        sessionId = UUID.randomUUID().toString();
+        sessionId = UUID.randomUUID()
+            .toString();
         sessionIndex = tail.maxIndex + 1;
         final File logFile = newLogFile();
 
@@ -95,8 +96,13 @@ public final class SessionManager {
         anchor.markDirty();
 
         logger.log("session_start", sessionStartData(overworld, tail, previousCrashed));
-        FMLCommonHandler.instance().bus().register(this);
-        log.info("Speedrun audit session {} started (verdict: {}), logging to {}", sessionIndex, verifyVerdict,
+        FMLCommonHandler.instance()
+            .bus()
+            .register(this);
+        log.info(
+            "Speedrun audit session {} started (verdict: {}), logging to {}",
+            sessionIndex,
+            verifyVerdict,
             logFile);
     }
 
@@ -115,7 +121,9 @@ public final class SessionManager {
     }
 
     public void stopped() {
-        FMLCommonHandler.instance().bus().unregister(this);
+        FMLCommonHandler.instance()
+            .bus()
+            .unregister(this);
         if (writer != null) {
             writer.close(5_000);
             if (!writer.isDead()) {
@@ -183,7 +191,8 @@ public final class SessionManager {
             try {
                 final JsonObject obj = new JsonParser().parse(new String(lastLine, StandardCharsets.UTF_8))
                     .getAsJsonObject();
-                final long seq = obj.get("seq").getAsLong();
+                final long seq = obj.get("seq")
+                    .getAsLong();
                 if (seq > tail.seq) {
                     tail.seq = seq;
                     tail.hash = JsonUtil.sha256Hex(lastLine);
@@ -277,7 +286,11 @@ public final class SessionManager {
         data.addProperty("seed", overworld.getSeed());
         data.addProperty("mcVersion", server.getMinecraftVersion());
         data.addProperty("javaVersion", System.getProperty("java.version"));
-        data.addProperty("modCount", Loader.instance().getActiveModList().size());
+        data.addProperty(
+            "modCount",
+            Loader.instance()
+                .getActiveModList()
+                .size());
 
         final JsonObject anchorObj = new JsonObject();
         anchorObj.addProperty("seq", anchor.lastSeq);
@@ -298,19 +311,25 @@ public final class SessionManager {
         }
 
         final JsonArray ops = new JsonArray();
-        for (String op : server.getConfigurationManager().func_152606_n()) {
+        for (String op : server.getConfigurationManager()
+            .func_152606_n()) {
             ops.add(JsonUtil.GSON.toJsonTree(op));
         }
         data.add("ops", ops);
 
         final JsonObject gamerules = new JsonObject();
-        for (String rule : overworld.getGameRules().getRules()) {
-            gamerules.addProperty(rule, overworld.getGameRules().getGameRuleStringValue(rule));
+        for (String rule : overworld.getGameRules()
+            .getRules()) {
+            gamerules.addProperty(
+                rule,
+                overworld.getGameRules()
+                    .getGameRuleStringValue(rule));
         }
         data.add("gamerules", gamerules);
 
         final JsonArray mods = new JsonArray();
-        for (ModContainer mod : Loader.instance().getActiveModList()) {
+        for (ModContainer mod : Loader.instance()
+            .getActiveModList()) {
             mods.add(JsonUtil.GSON.toJsonTree(mod.getModId() + "@" + mod.getVersion()));
         }
         data.add("mods", mods);
@@ -322,7 +341,21 @@ public final class SessionManager {
         marker.addProperty("sessionId", sessionId);
         marker.addProperty("sessionIndex", sessionIndex);
         marker.addProperty("startWallMs", System.currentTimeMillis());
-        Files.write(dirtyMarker.toPath(), JsonUtil.GSON.toJson(marker).getBytes(StandardCharsets.UTF_8));
+        Files.write(
+            dirtyMarker.toPath(),
+            JsonUtil.GSON.toJson(marker)
+                .getBytes(StandardCharsets.UTF_8));
+    }
+
+    // ------------------------------------------------------------------ session-scoped dedupe
+
+    private final java.util.Set<String> onceKeys = new java.util.HashSet<>();
+
+    /** True the first time a key is seen this session. Synchronized: mixin sinks may call off-thread. */
+    public boolean once(String key) {
+        synchronized (onceKeys) {
+            return onceKeys.add(key);
+        }
     }
 
     // ------------------------------------------------------------------ on-demand actions
@@ -342,8 +375,8 @@ public final class SessionManager {
         for (Runnable hook : snapshotHooks) {
             hook.run();
         }
-        com.gtnhspeedrun.audit.command.CommandAudit.reply(sender,
-            snapshotHooks.size() + " snapshot(s) queued (written in background)");
+        com.gtnhspeedrun.audit.command.CommandAudit
+            .reply(sender, snapshotHooks.size() + " snapshot(s) queued (written in background)");
     }
 
     public void export(net.minecraft.command.ICommandSender sender) {

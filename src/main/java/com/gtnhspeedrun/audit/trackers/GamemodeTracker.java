@@ -41,7 +41,8 @@ public final class GamemodeTracker {
         }
         for (Object o : server.getConfigurationManager().playerEntityList) {
             final EntityPlayerMP player = (EntityPlayerMP) o;
-            final UUID uuid = player.getGameProfile().getId();
+            final UUID uuid = player.getGameProfile()
+                .getId();
             final WorldSettings.GameType now = player.theItemInWorldManager.getGameType();
             final WorldSettings.GameType before = lastSeen.put(uuid, now);
             if (before != null && before != now) {

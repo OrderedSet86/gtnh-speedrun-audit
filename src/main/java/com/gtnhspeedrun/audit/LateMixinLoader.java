@@ -28,7 +28,19 @@ public class LateMixinLoader implements ILateMixinLoader {
     @Override
     public List<String> getMixins(Set<String> loadedMods) {
         final List<String> mixins = new ArrayList<>();
-        // Phase 4 fills this in: NEI cheat logging, GT5U multiblock formation + explosions, Railcraft coke oven.
+        if (loadedMods.contains("NotEnoughItems")) {
+            mixins.add("nei.NEISPHMixin");
+            mixins.add("nei.NEIServerUtilsMixin");
+        }
+        if (loadedMods.contains("gregtech")) {
+            mixins.add("gt.MTEMultiBlockBaseMixin");
+            mixins.add("gt.MTEBrickedBlastFurnaceMixin");
+            mixins.add("gt.MetaTileEntityMixin");
+        }
+        if (loadedMods.contains("Railcraft")) {
+            mixins.add("railcraft.TileMultiBlockMixin");
+        }
+        // Coverage is only as wide as what loaded; every mixin is require=1, so each either applied or crashed loud.
         LOG.info("{} audit mixins selected for this pack: {}", mixins.size(), mixins);
         return mixins;
     }

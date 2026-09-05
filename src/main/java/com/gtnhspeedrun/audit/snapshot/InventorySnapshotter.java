@@ -8,11 +8,11 @@ import net.minecraft.inventory.IInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
 
 import org.apache.commons.codec.binary.Base64;
 
 import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.compat.BaublesAccess;
 import com.gtnhspeedrun.audit.core.AuditLogger;
@@ -20,7 +20,6 @@ import com.gtnhspeedrun.audit.core.JsonUtil;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
-import net.minecraftforge.event.entity.living.LivingDeathEvent;
 
 /**
  * Full-NBT player inventory snapshots: main, armor, baubles, ender chest. Captured on the server thread as
@@ -60,7 +59,11 @@ public final class InventorySnapshotter {
     public void onDeath(LivingDeathEvent event) {
         if (event.entityLiving instanceof EntityPlayerMP player) {
             final JsonObject data = new JsonObject();
-            data.addProperty("uuid", player.getGameProfile().getId().toString());
+            data.addProperty(
+                "uuid",
+                player.getGameProfile()
+                    .getId()
+                    .toString());
             data.addProperty("name", player.getCommandSenderName());
             data.addProperty("damageSource", event.source.damageType);
             data.addProperty("dim", player.dimension);
@@ -83,7 +86,9 @@ public final class InventorySnapshotter {
 
         checkKeyItems(player);
 
-        final String uuid = player.getGameProfile().getId().toString();
+        final String uuid = player.getGameProfile()
+            .getId()
+            .toString();
         final JsonObject snapshot = new JsonObject();
         snapshot.addProperty("uuid", uuid);
         snapshot.addProperty("name", player.getCommandSenderName());
@@ -94,8 +99,8 @@ public final class InventorySnapshotter {
         ref.addProperty("uuid", uuid);
         ref.addProperty("name", player.getCommandSenderName());
         ref.addProperty("trigger", trigger);
-        final String fileName = "inv-" + logger.clock().get() + "-" + uuid.substring(0, 8) + "-" + trigger
-            + ".json.gz";
+        final String fileName = "inv-" + logger.clock()
+            .get() + "-" + uuid.substring(0, 8) + "-" + trigger + ".json.gz";
         logger.logSnapshot("inv_snapshot", fileName, () -> snapshot, ref);
     }
 
@@ -103,7 +108,9 @@ public final class InventorySnapshotter {
         if (keyItems.isEmpty()) {
             return;
         }
-        final String uuid = player.getGameProfile().getId().toString();
+        final String uuid = player.getGameProfile()
+            .getId()
+            .toString();
         for (ItemStack stack : player.inventory.mainInventory) {
             keyItems.checkStack(stack, "inventory", uuid);
         }
@@ -137,7 +144,10 @@ public final class InventorySnapshotter {
             o.addProperty("key", ItemKey.base(stack));
             o.addProperty("count", stack.stackSize);
             if (stack.hasTagCompound()) {
-                o.addProperty("nbtHash", JsonUtil.canonicalNbtHash(stack.getTagCompound()).substring(0, 16));
+                o.addProperty(
+                    "nbtHash",
+                    JsonUtil.canonicalNbtHash(stack.getTagCompound())
+                        .substring(0, 16));
                 o.addProperty("nbtB64", nbtB64(stack.getTagCompound()));
             }
             arr.add(o);

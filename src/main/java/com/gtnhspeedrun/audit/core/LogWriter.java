@@ -130,7 +130,8 @@ public final class LogWriter implements Runnable {
             try {
                 Thread.sleep(20);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                Thread.currentThread()
+                    .interrupt();
                 return false;
             }
         }
@@ -142,7 +143,8 @@ public final class LogWriter implements Runnable {
         try {
             thread.join(timeoutMs);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            Thread.currentThread()
+                .interrupt();
         }
     }
 
@@ -172,7 +174,8 @@ public final class LogWriter implements Runnable {
 
     private void writeSnapshot(SnapshotJob snap) throws IOException {
         final File file = new File(snapshotDir, snap.fileName);
-        final byte[] json = JsonUtil.GSON.toJson(snap.content.get()).getBytes(StandardCharsets.UTF_8);
+        final byte[] json = JsonUtil.GSON.toJson(snap.content.get())
+            .getBytes(StandardCharsets.UTF_8);
         try (GZIPOutputStream gz = new GZIPOutputStream(new FileOutputStream(file))) {
             gz.write(json);
         }
@@ -220,14 +223,16 @@ public final class LogWriter implements Runnable {
         final long now = System.currentTimeMillis();
         if (urgent || now - lastForceMs > FORCE_INTERVAL_MS) {
             writer.flush();
-            out.getChannel().force(false);
+            out.getChannel()
+                .force(false);
             lastForceMs = now;
         }
     }
 
     private void finish() throws IOException {
         writer.flush();
-        out.getChannel().force(false);
+        out.getChannel()
+            .force(false);
         writer.close();
     }
 }

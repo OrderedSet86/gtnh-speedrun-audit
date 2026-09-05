@@ -1,6 +1,5 @@
 package com.gtnhspeedrun.audit.command;
 
-import java.util.Arrays;
 import java.util.List;
 
 import net.minecraft.command.CommandBase;
@@ -32,8 +31,7 @@ public class CommandAudit extends CommandBase {
 
     @Override
     public List<String> addTabCompletionOptions(ICommandSender sender, String[] args) {
-        return args.length == 1
-            ? getListOfStringsMatchingLastWord(args, "status", "verify", "snapshot", "export")
+        return args.length == 1 ? getListOfStringsMatchingLastWord(args, "status", "verify", "snapshot", "export")
             : null;
     }
 
@@ -58,17 +56,36 @@ public class CommandAudit extends CommandBase {
 
     private void status(ICommandSender sender, SessionManager session) {
         reply(sender, "session #" + session.sessionIndex() + "  startup verdict: " + session.verifyVerdict());
-        reply(sender, "chain head seq " + session.logger().writer().publishedSeq() + ", run clock "
-            + formatTicks(session.logger().clock().get()));
-        reply(sender, session.logger().writer().isDead()
-            ? "WRITER DEAD — logging has stopped, check the server log!"
-            : "writer alive, queue depth " + session.logger().writer().queueDepth());
-        reply(sender, "audit dir: " + session.auditDir().getAbsolutePath());
+        reply(
+            sender,
+            "chain head seq " + session.logger()
+                .writer()
+                .publishedSeq()
+                + ", run clock "
+                + formatTicks(
+                    session.logger()
+                        .clock()
+                        .get()));
+        reply(
+            sender,
+            session.logger()
+                .writer()
+                .isDead()
+                    ? "WRITER DEAD — logging has stopped, check the server log!"
+                    : "writer alive, queue depth " + session.logger()
+                        .writer()
+                        .queueDepth());
+        reply(
+            sender,
+            "audit dir: " + session.auditDir()
+                .getAbsolutePath());
     }
 
     /** The walk re-hashes months of log; keep the server thread out of it. */
     private void verify(ICommandSender sender, SessionManager session) {
-        final long upToSeq = session.logger().writer().publishedSeq();
+        final long upToSeq = session.logger()
+            .writer()
+            .publishedSeq();
         final String uuid = session.anchor().worldAuditUuid;
         reply(sender, "verifying chain up to seq " + upToSeq + "…");
         final Thread t = new Thread(() -> {
@@ -81,14 +98,23 @@ public class CommandAudit extends CommandBase {
                 for (String p : result.problems) {
                     reply(sender, "  " + p);
                 }
-                reply(sender, "chain " + result.verdict + " (" + result.lines + " lines, seq " + result.firstSeq
-                    + ".." + result.lastSeq + ")");
+                reply(
+                    sender,
+                    "chain " + result.verdict
+                        + " ("
+                        + result.lines
+                        + " lines, seq "
+                        + result.firstSeq
+                        + ".."
+                        + result.lastSeq
+                        + ")");
             } catch (Exception e) {
                 data.addProperty("verdict", "VERIFY_ERROR");
                 data.addProperty("error", String.valueOf(e));
                 reply(sender, "verify failed: " + e);
             }
-            session.logger().log("verify_report", data);
+            session.logger()
+                .log("verify_report", data);
         }, "SpeedrunAudit-Verify");
         t.setDaemon(true);
         t.start();

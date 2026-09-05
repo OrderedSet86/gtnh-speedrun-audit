@@ -19,7 +19,9 @@ public final class ItemKey {
         if (!stack.hasTagCompound()) {
             return base;
         }
-        return base + "#" + JsonUtil.canonicalNbtHash(stack.getTagCompound()).substring(0, 16);
+        return base + "#"
+            + JsonUtil.canonicalNbtHash(stack.getTagCompound())
+                .substring(0, 16);
     }
 
     /** Key without the NBT discriminator — what the config's keyItems list matches against. */

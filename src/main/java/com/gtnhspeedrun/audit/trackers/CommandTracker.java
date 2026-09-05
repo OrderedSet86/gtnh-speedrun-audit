@@ -7,6 +7,7 @@ import net.minecraft.network.rcon.RConConsoleSource;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.world.World;
+import net.minecraftforge.event.CommandEvent;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -14,7 +15,6 @@ import com.gtnhspeedrun.audit.core.AuditLogger;
 
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import net.minecraftforge.event.CommandEvent;
 
 /**
  * Logs every command DISPATCH — player, console, RCON and command block all funnel through CommandEvent in
@@ -58,7 +58,11 @@ public final class CommandTracker {
         if (sender instanceof EntityPlayerMP player) {
             data.addProperty("senderType", "player");
             data.addProperty("sender", player.getCommandSenderName());
-            data.addProperty("senderUuid", player.getGameProfile().getId().toString());
+            data.addProperty(
+                "senderUuid",
+                player.getGameProfile()
+                    .getId()
+                    .toString());
             data.addProperty("dim", player.dimension);
             addPos(data, sender.getPlayerCoordinates());
         } else if (sender instanceof CommandBlockLogic) {
@@ -74,7 +78,11 @@ public final class CommandTracker {
         } else {
             data.addProperty("senderType", "other");
             data.addProperty("sender", sender == null ? "null" : sender.getCommandSenderName());
-            data.addProperty("senderClass", sender == null ? "null" : sender.getClass().getName());
+            data.addProperty(
+                "senderClass",
+                sender == null ? "null"
+                    : sender.getClass()
+                        .getName());
         }
     }
 

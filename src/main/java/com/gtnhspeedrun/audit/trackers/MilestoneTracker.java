@@ -2,6 +2,7 @@ package com.gtnhspeedrun.audit.trackers;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
+import net.minecraftforge.event.entity.player.AchievementEvent;
 
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.core.AuditLogger;
@@ -11,7 +12,6 @@ import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
-import net.minecraftforge.event.entity.player.AchievementEvent;
 
 /**
  * The pace chart: dimension first-visits (moon% is dim 28), achievements and key-item crafts, all deduped
@@ -39,7 +39,11 @@ public final class MilestoneTracker {
         }
         anchor.markDirty();
         final JsonObject data = new JsonObject();
-        data.addProperty("uuid", player.getGameProfile().getId().toString());
+        data.addProperty(
+            "uuid",
+            player.getGameProfile()
+                .getId()
+                .toString());
         data.addProperty("name", player.getCommandSenderName());
         data.addProperty("fromDim", event.fromDim);
         data.addProperty("dim", event.toDim);
@@ -58,15 +62,25 @@ public final class MilestoneTracker {
             return;
         }
         final String id = event.achievement.statId;
-        if (!anchor.earnedAchievements.add(player.getGameProfile().getId() + ":" + id)) {
+        if (!anchor.earnedAchievements.add(
+            player.getGameProfile()
+                .getId() + ":"
+                + id)) {
             return;
         }
         anchor.markDirty();
         final JsonObject data = new JsonObject();
-        data.addProperty("uuid", player.getGameProfile().getId().toString());
+        data.addProperty(
+            "uuid",
+            player.getGameProfile()
+                .getId()
+                .toString());
         data.addProperty("name", player.getCommandSenderName());
         data.addProperty("achId", id);
-        data.addProperty("achName", event.achievement.func_150951_e().getUnformattedText());
+        data.addProperty(
+            "achName",
+            event.achievement.func_150951_e()
+                .getUnformattedText());
         logger.log("achievement", data);
     }
 
@@ -75,13 +89,22 @@ public final class MilestoneTracker {
         if (!(event.player instanceof EntityPlayerMP player) || event.crafting == null) {
             return;
         }
-        keyItems.checkStack(event.crafting, "craft", player.getGameProfile().getId().toString());
+        keyItems.checkStack(
+            event.crafting,
+            "craft",
+            player.getGameProfile()
+                .getId()
+                .toString());
         // Also log crafts of watched items even after first-seen: cheap and gives verifiers count context.
         final ItemStack stack = event.crafting;
         final String base = ItemKey.base(stack);
         if (anchor.seenKeyItems.contains(base) || anchor.seenKeyItems.contains(base.substring(0, base.indexOf('@')))) {
             final JsonObject data = new JsonObject();
-            data.addProperty("uuid", player.getGameProfile().getId().toString());
+            data.addProperty(
+                "uuid",
+                player.getGameProfile()
+                    .getId()
+                    .toString());
             data.addProperty("itemKey", base);
             data.addProperty("count", stack.stackSize);
             logger.log("key_item_craft", data);

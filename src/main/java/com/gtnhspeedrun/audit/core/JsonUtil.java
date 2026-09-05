@@ -21,13 +21,15 @@ public final class JsonUtil {
      * HTML escaping off — {@code toString()} on a JsonObject preserves insertion order, which is what pins the
      * envelope field order.
      */
-    public static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
+    public static final Gson GSON = new GsonBuilder().disableHtmlEscaping()
+        .create();
 
     private JsonUtil() {}
 
     public static byte[] sha256(byte[] bytes) {
         try {
-            return MessageDigest.getInstance("SHA-256").digest(bytes);
+            return MessageDigest.getInstance("SHA-256")
+                .digest(bytes);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
@@ -44,7 +46,8 @@ public final class JsonUtil {
     public static String toHex(byte[] bytes) {
         final StringBuilder sb = new StringBuilder(bytes.length * 2);
         for (byte b : bytes) {
-            sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            sb.append(Character.forDigit((b >> 4) & 0xF, 16))
+                .append(Character.forDigit(b & 0xF, 16));
         }
         return sb.toString();
     }
@@ -67,7 +70,8 @@ public final class JsonUtil {
             Collections.sort(keys);
             sb.append('{');
             for (String key : keys) {
-                sb.append(key).append(':');
+                sb.append(key)
+                    .append(':');
                 appendCanonical(sb, compound.getTag(key));
                 sb.append(',');
             }

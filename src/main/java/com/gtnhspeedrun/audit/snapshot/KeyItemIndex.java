@@ -44,12 +44,20 @@ public final class KeyItemIndex {
         if (stack == null || isEmpty()) {
             return;
         }
-        final String base = ItemKey.base(stack);
+        checkBase(ItemKey.base(stack), stack.getDisplayName(), source, playerUuid);
+    }
+
+    /** Key-only variant for scans that already have the string (AE2 census entries). */
+    public void checkBase(String base, String displayName, String source, String playerUuid) {
+        if (isEmpty()) {
+            return;
+        }
         final String matched;
         if (exact.contains(base)) {
             matched = base;
         } else {
-            final String noMeta = base.substring(0, base.indexOf('@'));
+            final int at = base.indexOf('@');
+            final String noMeta = at < 0 ? base : base.substring(0, at);
             matched = anyMeta.contains(noMeta) ? noMeta : null;
         }
         if (matched == null || !anchor.seenKeyItems.add(matched)) {
@@ -59,7 +67,7 @@ public final class KeyItemIndex {
         final JsonObject data = new JsonObject();
         data.addProperty("itemKey", base);
         data.addProperty("watchEntry", matched);
-        data.addProperty("displayName", stack.getDisplayName());
+        data.addProperty("displayName", displayName);
         data.addProperty("source", source);
         if (playerUuid != null) {
             data.addProperty("playerUuid", playerUuid);

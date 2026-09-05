@@ -40,7 +40,8 @@ public final class ChainAnchorData extends WorldSavedData {
         ChainAnchorData data = (ChainAnchorData) overworld.mapStorage.loadData(ChainAnchorData.class, KEY);
         if (data == null) {
             data = new ChainAnchorData(KEY);
-            data.worldAuditUuid = UUID.randomUUID().toString();
+            data.worldAuditUuid = UUID.randomUUID()
+                .toString();
             overworld.mapStorage.setData(KEY, data);
             data.markDirty();
         }

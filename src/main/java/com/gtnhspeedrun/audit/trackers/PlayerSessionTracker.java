@@ -40,10 +40,17 @@ public final class PlayerSessionTracker {
 
     private JsonObject describe(EntityPlayerMP player, boolean joining) {
         final JsonObject data = new JsonObject();
-        data.addProperty("uuid", player.getGameProfile().getId().toString());
+        data.addProperty(
+            "uuid",
+            player.getGameProfile()
+                .getId()
+                .toString());
         data.addProperty("name", player.getCommandSenderName());
         data.addProperty("dim", player.dimension);
-        data.addProperty("gamemode", player.theItemInWorldManager.getGameType().getName());
+        data.addProperty(
+            "gamemode",
+            player.theItemInWorldManager.getGameType()
+                .getName());
         final JsonArray pos = new JsonArray();
         pos.add(JsonUtil.GSON.toJsonTree((int) player.posX));
         pos.add(JsonUtil.GSON.toJsonTree((int) player.posY));

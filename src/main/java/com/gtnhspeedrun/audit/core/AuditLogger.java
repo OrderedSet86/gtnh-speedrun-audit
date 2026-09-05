@@ -21,7 +21,13 @@ public final class AuditLogger {
 
     public void log(String type, JsonObject data) {
         writer.submit(
-            new PendingEvent(type, data, System.currentTimeMillis(), clock.get(), Thread.currentThread().getName()));
+            new PendingEvent(
+                type,
+                data,
+                System.currentTimeMillis(),
+                clock.get(),
+                Thread.currentThread()
+                    .getName()));
     }
 
     /**

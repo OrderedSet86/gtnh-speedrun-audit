@@ -66,7 +66,9 @@ public class GtnhSpeedrunAudit {
 
             final KeyItemIndex keyItems = new KeyItemIndex(AuditConfig.keyItems, sm.logger(), sm.anchor());
             final InventorySnapshotter inventory = new InventorySnapshotter(sm.logger(), keyItems);
-            final SnapshotScheduler scheduler = new SnapshotScheduler(event.getServer(), inventory,
+            final SnapshotScheduler scheduler = new SnapshotScheduler(
+                event.getServer(),
+                inventory,
                 AuditConfig.invSnapshotMinutes);
             sm.addSnapshotHook(() -> scheduler.snapshotAllPlayers("manual"));
 
@@ -79,6 +81,21 @@ public class GtnhSpeedrunAudit {
             onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp));
             onFmlBus(new GamemodeTracker(sm.logger(), inventory, event.getServer()));
             onFmlBus(scheduler);
+
+            // The compat classes reference modded types — only touch them behind the presence gate.
+            if (com.gtnhspeedrun.audit.compat.Compat.BETTER_QUESTING.isLoaded()) {
+                onForgeBus(new com.gtnhspeedrun.audit.compat.BqQuestTracker(sm.logger()));
+            }
+            if (com.gtnhspeedrun.audit.compat.Compat.AE2.isLoaded()) {
+                final com.gtnhspeedrun.audit.compat.Ae2Snapshotter ae2 = new com.gtnhspeedrun.audit.compat.Ae2Snapshotter(
+                    sm.logger(),
+                    keyItems,
+                    event.getServer(),
+                    AuditConfig.ae2SnapshotActiveMinutes,
+                    AuditConfig.ae2SnapshotIdleMinutes);
+                onFmlBus(ae2);
+                sm.addSnapshotHook(ae2::requestCensus);
+            }
 
             event.registerServerCommand(new CommandAudit());
         } catch (Exception e) {
@@ -94,7 +111,9 @@ public class GtnhSpeedrunAudit {
     }
 
     private void onFmlBus(Object listener) {
-        FMLCommonHandler.instance().bus().register(listener);
+        FMLCommonHandler.instance()
+            .bus()
+            .register(listener);
         fmlBusListeners.add(listener);
     }
 
@@ -117,7 +136,9 @@ public class GtnhSpeedrunAudit {
             MinecraftForge.EVENT_BUS.unregister(l);
         }
         for (Object l : fmlBusListeners) {
-            FMLCommonHandler.instance().bus().unregister(l);
+            FMLCommonHandler.instance()
+                .bus()
+                .unregister(l);
         }
         forgeBusListeners.clear();
         fmlBusListeners.clear();
