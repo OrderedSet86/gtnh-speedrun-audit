@@ -291,6 +291,7 @@ public final class AuditExport {
 
         sb.append("\n== FLAGS FOR REVIEW ==\n");
         flagCount(sb, counts, "nei_cheat", "NEI cheat actions");
+        flagCount(sb, counts, "nbt_edit", "/nbtedit applications");
         flagCount(sb, counts, "nei_packet", "NEI cheat-channel packets");
         flagCount(sb, counts, "gamemode_change", "gamemode changes");
         flagCount(sb, counts, "gt_explosion", "GT machine explosions");
@@ -298,7 +299,19 @@ public final class AuditExport {
         for (JsonObject line : lines) {
             final String type = line.get("t")
                 .getAsString();
-            if (type.equals("gamemode_change") || type.equals("nei_cheat")) {
+            if (type.equals("gamemode_change") || type.equals("nei_cheat") || type.equals("nbt_edit")) {
+                // The nbt_edit payload stays in the JSONL; SUMMARY shows the line without the base64 blob.
+                // (Copied by entry — MC's gson 2.2.4 predates a public deepCopy.)
+                JsonObject printable = line.getAsJsonObject("data");
+                if (printable.has("nbtB64")) {
+                    final JsonObject trimmed = new JsonObject();
+                    for (Map.Entry<String, com.google.gson.JsonElement> e : printable.entrySet()) {
+                        if (!"nbtB64".equals(e.getKey())) {
+                            trimmed.add(e.getKey(), e.getValue());
+                        }
+                    }
+                    printable = trimmed;
+                }
                 sb.append("  ")
                     .append(
                         fmt.format(
@@ -308,7 +321,7 @@ public final class AuditExport {
                     .append("  ")
                     .append(type)
                     .append("  ")
-                    .append(JsonUtil.GSON.toJson(line.getAsJsonObject("data")))
+                    .append(JsonUtil.GSON.toJson(printable))
                     .append('\n');
             }
         }

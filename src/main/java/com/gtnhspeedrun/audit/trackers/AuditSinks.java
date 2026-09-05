@@ -118,6 +118,32 @@ public final class AuditSinks {
         return name != null ? name : "UNKNOWN_" + type;
     }
 
+    // ------------------------------------------------------------------ ServerUtilities /nbtedit
+
+    /**
+     * The applied half of /nbtedit. The command dispatch is already in the command log; this is the packet
+     * that actually writes NBT into a player/block/entity/item, logged with the full payload (or its hash
+     * alone when oversized) so verifiers can see exactly what was set.
+     */
+    public static void nbtEdit(String targetType, String targetDesc, String uuid, String name, String nbtHash,
+        String nbtB64) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null) {
+            return;
+        }
+        final JsonObject data = new JsonObject();
+        data.addProperty("targetType", targetType);
+        data.addProperty("target", targetDesc);
+        data.addProperty("uuid", uuid);
+        data.addProperty("name", name);
+        data.addProperty("nbtHash", nbtHash);
+        if (nbtB64 != null) {
+            data.addProperty("nbtB64", nbtB64);
+        }
+        session.logger()
+            .log("nbt_edit", data);
+    }
+
     // ------------------------------------------------------------------ multiblocks
 
     /**

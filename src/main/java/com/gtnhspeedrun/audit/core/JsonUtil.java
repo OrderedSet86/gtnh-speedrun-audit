@@ -43,6 +43,16 @@ public final class JsonUtil {
         return sha256Hex(s.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Compressed base64 of a full NBT tag — the exact-evidence form used by snapshots and nbt_edit lines. */
+    public static String nbtToB64(NBTTagCompound tag) {
+        try {
+            return org.apache.commons.codec.binary.Base64
+                .encodeBase64String(net.minecraft.nbt.CompressedStreamTools.compress(tag));
+        } catch (Exception e) {
+            return "ERROR:" + e;
+        }
+    }
+
     /** Minecraft §-format codes have no business in an audit record. */
     public static String stripFormatting(String s) {
         return s == null ? null : s.replaceAll("§.", "");
