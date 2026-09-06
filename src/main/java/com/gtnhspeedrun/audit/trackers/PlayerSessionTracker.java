@@ -18,16 +18,81 @@ public final class PlayerSessionTracker {
 
     private final AuditLogger logger;
     private final boolean logIp;
+    private final String[] flagClientMods;
 
-    public PlayerSessionTracker(AuditLogger logger, boolean logIp) {
+    public PlayerSessionTracker(AuditLogger logger, boolean logIp, String[] flagClientMods) {
         this.logger = logger;
         this.logIp = logIp;
+        this.flagClientMods = flagClientMods;
     }
 
     @SubscribeEvent
     public void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.player instanceof EntityPlayerMP player) {
-            logger.log("player_join", describe(player, true));
+            final JsonObject data = describe(player, true);
+            attachClientMods(player, data);
+            logger.log("player_join", data);
+        }
+    }
+
+    /**
+     * The client's self-reported handshake mod list — the only visibility a server-only mod has into
+     * client-side tooling like Schematica's printer or a WorldEdit client. Self-reported: a modified client
+     * can lie, so absence proves nothing; presence is the honest-runner signal verifiers act on. The full
+     * list is logged once per (player, list-hash); joins carry the hash and any watchlist matches.
+     */
+    private void attachClientMods(EntityPlayerMP player, JsonObject data) {
+        final Object dispatcher = cpw.mods.fml.common.network.handshake.NetworkDispatcher
+            .get(player.playerNetServerHandler.netManager);
+        final java.util.Map<String, String> mods = AuditSinks.takeClientMods(dispatcher);
+        if (mods == null) {
+            // Integrated-server local channel or vanilla client: no FML mod handshake happened.
+            data.addProperty("clientMods", "none_reported");
+            return;
+        }
+        final java.util.List<String> sorted = new java.util.ArrayList<>(mods.size());
+        for (java.util.Map.Entry<String, String> e : mods.entrySet()) {
+            sorted.add(e.getKey() + "@" + e.getValue());
+        }
+        java.util.Collections.sort(sorted);
+        final String hash = JsonUtil.sha256Hex(String.join("\n", sorted))
+            .substring(0, 16);
+        data.addProperty("clientModCount", mods.size());
+        data.addProperty("clientModsHash", hash);
+
+        final JsonArray suspicious = new JsonArray();
+        for (String entry : sorted) {
+            final String lower = entry.toLowerCase(java.util.Locale.ROOT);
+            for (String flagged : flagClientMods) {
+                if (!flagged.isEmpty() && lower.contains(flagged.toLowerCase(java.util.Locale.ROOT))) {
+                    suspicious.add(JsonUtil.GSON.toJsonTree(entry));
+                    break;
+                }
+            }
+        }
+        if (suspicious.size() > 0) {
+            data.add("flaggedClientMods", suspicious);
+        }
+
+        final String uuid = player.getGameProfile()
+            .getId()
+            .toString();
+        final com.gtnhspeedrun.audit.core.SessionManager session = com.gtnhspeedrun.audit.GtnhSpeedrunAudit.session();
+        if (session != null && session.once("clientmods:" + uuid + ":" + hash)) {
+            final JsonObject full = new JsonObject();
+            full.addProperty("uuid", uuid);
+            full.addProperty("name", player.getCommandSenderName());
+            full.addProperty("hash", hash);
+            full.addProperty("count", mods.size());
+            if (suspicious.size() > 0) {
+                full.add("flagged", suspicious);
+            }
+            final JsonArray arr = new JsonArray();
+            for (String entry : sorted) {
+                arr.add(JsonUtil.GSON.toJsonTree(entry));
+            }
+            full.add("mods", arr);
+            logger.log("client_mods", full);
         }
     }
 

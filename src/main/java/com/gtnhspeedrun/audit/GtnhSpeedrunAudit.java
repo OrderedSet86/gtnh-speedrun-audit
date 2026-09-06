@@ -79,8 +79,9 @@ public class GtnhSpeedrunAudit {
             onForgeBus(new com.gtnhspeedrun.audit.trackers.MachinePlacementTracker(sm.logger()));
             onFmlBus(inventory); // login/logout snapshots
             onFmlBus(milestones); // dim change, crafts
-            onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp));
+            onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp, AuditConfig.flagClientMods));
             onFmlBus(new GamemodeTracker(sm.logger(), inventory, event.getServer()));
+            onFmlBus(new com.gtnhspeedrun.audit.trackers.DifficultyTracker(sm.logger(), event.getServer()));
             onFmlBus(scheduler);
 
             // The compat classes reference modded types — only touch them behind the presence gate.

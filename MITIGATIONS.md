@@ -67,6 +67,29 @@ Chunk reload re-forms are deduped per session, but a machine that is wrenched, m
 again legitimately — and every later session re-logs a formation once per position. Only
 `firstOfClass: true` entries are milestones; the rest are texture.
 
+## `difficulty_change` to peaceful
+
+1.7.10 has no /difficulty command: in singleplayer the options menu changes it silently (the per-tick
+poll catches it the moment it happens), and on servers it changes via offline server.properties edits
+(visible as a delta between one session_start's `difficulty` and the next). Peaceful clears hostile
+mobs instantly, so once the board bans it, even a brief dip is material. Innocent-ish case: a dip
+while nobody is online (compare against player_join/leave) changed nothing a player could exploit —
+but under a ban the clean answer is "never during the run".
+
+## `client_mods` / `flaggedClientMods` (Schematica, WorldEdit, …)
+
+Joining clients report their mod list in the FML handshake; the watchlist flags matches (default:
+schematica, worldedit). Two honesty caveats, both load-bearing:
+
+- **Self-reported.** A modified client can omit anything. A flag here catches honest runners with a
+  gray-area mod installed; a clean list proves nothing. Do not treat absence as evidence.
+- **Presence is not usage.** Schematica installed ≠ printer used. Corroborate with effect: printer
+  abuse shows as inhumanly fast/regular block placement (machine_placed timestamps at tick
+  resolution), WorldEdit usage shows in the command log (its commands dispatch like any other).
+
+Boards should write down which client mods are outright banned vs allowed-but-flagged, so a runner
+with Schematica for schematic *viewing* (if allowed) isn't rejected on presence alone.
+
 ## Timing quirks
 
 - `timing_started` fires on first *horizontal movement*, not literal keypresses — a mob shoving the

@@ -337,6 +337,7 @@ public final class SessionManager {
         data.addProperty("dedicated", server.isDedicatedServer());
         data.addProperty("worldFolder", server.getFolderName());
         data.addProperty("seed", overworld.getSeed());
+        data.addProperty("difficulty", String.valueOf(overworld.difficultySetting));
         data.addProperty("mcVersion", server.getMinecraftVersion());
         data.addProperty("javaVersion", System.getProperty("java.version"));
         data.addProperty(

@@ -118,6 +118,27 @@ public final class AuditSinks {
         return name != null ? name : "UNKNOWN_" + type;
     }
 
+    // ------------------------------------------------------------------ FML handshake client mod list
+
+    /**
+     * 1.7.10 FML logs the client's handshake mod list and discards it; the handshake mixin parks it here,
+     * keyed by connection, until PlayerLoggedInEvent can attach it to a player. Weak keys: a dropped
+     * connection takes its entry with it. Netty-thread writes, server-thread reads — synchronized.
+     */
+    private static final Map<Object, Map<String, String>> CLIENT_MODS = java.util.Collections
+        .synchronizedMap(new java.util.WeakHashMap<>());
+
+    public static void clientModList(Object dispatcher, Map<String, String> mods) {
+        if (dispatcher != null && mods != null) {
+            CLIENT_MODS.put(dispatcher, new HashMap<>(mods));
+        }
+    }
+
+    /** Null when the connection did no FML mod handshake (integrated-server local channel, vanilla client). */
+    public static Map<String, String> takeClientMods(Object dispatcher) {
+        return dispatcher == null ? null : CLIENT_MODS.get(dispatcher);
+    }
+
     // ------------------------------------------------------------------ ServerUtilities /nbtedit
 
     /**

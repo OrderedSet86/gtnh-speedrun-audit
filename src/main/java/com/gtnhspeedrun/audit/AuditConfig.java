@@ -11,6 +11,7 @@ public final class AuditConfig {
     public static int ae2SnapshotIdleMinutes = 240;
     public static boolean logPlayerIp = false;
     public static String[] keyItems = new String[0];
+    public static String[] flagClientMods = { "schematica", "worldedit" };
 
     private AuditConfig() {}
 
@@ -44,6 +45,12 @@ public final class AuditConfig {
             "privacy",
             logPlayerIp,
             "Include player IP addresses in join lines. Off by default: the bundle is submitted publicly.");
+        flagClientMods = cfg.getStringList(
+            "flagClientMods",
+            "milestones",
+            flagClientMods,
+            "Case-insensitive substrings matched against joining clients' handshake mod lists; matches are "
+                + "flagged in player_join lines and SUMMARY. Self-reported by the client — absence proves nothing.");
         keyItems = cfg.getStringList(
             "keyItems",
             "milestones",
