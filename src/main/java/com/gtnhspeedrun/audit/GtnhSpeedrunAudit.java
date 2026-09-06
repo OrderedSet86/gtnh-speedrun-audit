@@ -60,6 +60,10 @@ public class GtnhSpeedrunAudit {
     @Mod.EventHandler
     public void serverStarting(FMLServerStartingEvent event) {
         try {
+            // The self-test shapes its own preconditions: it needs a watched key item to assert on.
+            if (System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY) != null) {
+                AuditConfig.keyItems = new String[] { "minecraft:diamond" };
+            }
             final SessionManager sm = new SessionManager(LOG, event.getServer());
             sm.start();
             session = sm;
@@ -108,6 +112,13 @@ public class GtnhSpeedrunAudit {
                     .getFile("config"),
                 event.getServer()
                     .getFile("scripts")).start();
+
+            final String selftestDir = System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY);
+            if (selftestDir != null && !selftestDir.isEmpty()) {
+                LOG.warn("SELFTEST MODE ACTIVE — this server run is a harness scenario, not a real session");
+                onFmlBus(
+                    new com.gtnhspeedrun.audit.selftest.SelfTest(event.getServer(), sm, new java.io.File(selftestDir)));
+            }
         } catch (Exception e) {
             // A broken audit trail must be loud but must not brick someone's server mid-run.
             LOG.error("Speedrun audit failed to start — THIS RUN IS NOT BEING AUDITED", e);

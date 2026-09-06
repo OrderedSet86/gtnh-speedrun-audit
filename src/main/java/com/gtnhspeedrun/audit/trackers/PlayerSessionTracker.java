@@ -42,8 +42,21 @@ public final class PlayerSessionTracker {
      * list is logged once per (player, list-hash); joins carry the hash and any watchlist matches.
      */
     private void attachClientMods(EntityPlayerMP player, JsonObject data) {
-        final Object dispatcher = cpw.mods.fml.common.network.handshake.NetworkDispatcher
-            .get(player.playerNetServerHandler.netManager);
+        // FakePlayers (and anything else without a real connection) have no net handler, or one whose
+        // manager never opened a channel — either way there was no handshake.
+        Object dispatcher = null;
+        try {
+            if (player.playerNetServerHandler != null && player.playerNetServerHandler.netManager != null) {
+                dispatcher = cpw.mods.fml.common.network.handshake.NetworkDispatcher
+                    .get(player.playerNetServerHandler.netManager);
+            }
+        } catch (RuntimeException ignored) {
+            // Unconnected NetworkManager: channel() is null.
+        }
+        if (dispatcher == null) {
+            data.addProperty("clientMods", "none_reported");
+            return;
+        }
         final java.util.Map<String, String> mods = AuditSinks.takeClientMods(dispatcher);
         if (mods == null) {
             // Integrated-server local channel or vanilla client: no FML mod handshake happened.

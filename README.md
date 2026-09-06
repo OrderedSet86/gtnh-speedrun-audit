@@ -56,3 +56,20 @@ Three clocks on every line, all frozen until the first player movement (worldgen
 ## Building
 
 Standard GTNH mod template: `./gradlew build`. Dev server: `./gradlew runServer`.
+
+## Self-test
+
+`scripts/selftest.sh` (~5–7 min) is the full headless harness: one scenario boot where two fake players
+perform every loggable action (join, movement→timer start, gamemode flips, snapshots, key items,
+commands, difficulty changes, death, milestones, sink-layer events) with in-JVM assertions against the
+actual JSONL, followed by the tamper drills — restart→OK, world-restore→WORLD_ROLLBACK, hidden
+log→LOG_TRUNCATED, byte-edit→chain break at the exact line, kill -9→CRASH_RECOVERY. Ends with
+`ALL DRILLS PASSED` or a named failing check.
+
+Scenario boot alone: `./gradlew runServer -Pselftest=selftest-out` → grep for `SELFTEST PASSED`, details
+in `run/server/selftest-out/selftest.json`. The same scenario runs on a **real dedicated pack server**
+(mixin integrations live) by adding `-Dspeedrunaudit.selftest=<dir>` to its java command line — never do
+this on a run's real world; it writes scenario events into the audit trail by design.
+
+Not covered headless (needs one real client join on a pack server): FML-handshake client-mod capture and
+NEI packets over the wire.
