@@ -76,10 +76,14 @@ mobs instantly, so once the board bans it, even a brief dip is material. Innocen
 while nobody is online (compare against player_join/leave) changed nothing a player could exploit —
 but under a ban the clean answer is "never during the run".
 
-## `client_mods` / `flaggedClientMods` (Schematica, WorldEdit, …)
+## `client_mods` / `flaggedClientMods`
 
-Joining clients report their mod list in the FML handshake; the watchlist flags matches (default:
-schematica, worldedit). Two honesty caveats, both load-bearing:
+Joining clients report their mod list in the FML handshake; the full list is logged once per
+(player, list-hash) and the `flagClientMods` watchlist marks matches on join lines. The watchlist is
+**empty by default** — GTNH ships Schematica and WorldEdit with the pack, so flagging their presence
+would tar every honest runner. Boards should only list what they actually ban; verifiers can always
+search the logged `client_mods` lists after the fact for anything else. Two honesty caveats, both
+load-bearing:
 
 - **Self-reported.** A modified client can omit anything. A flag here catches honest runners with a
   gray-area mod installed; a clean list proves nothing. Do not treat absence as evidence.
@@ -98,6 +102,25 @@ with Schematica for schematic *viewing* (if allowed) isn't rejected on presence 
 - Multiblock formation timestamps lag placement by up to a few seconds (periodic structure checks).
 - On a lagging server (TPS < 20) IGT and player-online ticks run slower than real time; RTA is the
   only lag-immune clock. All three are on every line — cross-check, don't assume.
+
+## Runs adopted mid-run
+
+Installing the mod on an already-running world is supported and produces a specific, honest shape:
+
+- The first audited session reads `NEW_WORLD` (there was no anchor to verify against) and everything
+  before it is a **dark period** — no commands, snapshots or milestones exist for it, and the audit
+  makes no claims about it. Boards decide what pre-adoption evidence (VODs, screenshots) substitutes.
+- The audit IGT clock starts at zero **from adoption** (frozen until the next player movement, which
+  in an active run is seconds away). The pre-adoption baseline is `worldTotalTime` in the first
+  `session_start` — vanilla's lifetime tick counter for the world, which is the defensible estimate
+  of pre-audit IGT. It lives in level.dat and is offline-editable like everything pre-adoption, so
+  treat it as an estimate, not proof.
+- From adoption onward, `worldTotalTime` (re-logged every session_start) advances in lockstep with
+  the audit clock; divergence between the two is itself a tamper signal.
+- Milestones already achieved before adoption will never appear; milestones re-detected after
+  adoption (key items already in inventory, multiblocks re-forming on chunk load) carry adoption-era
+  timestamps that are obviously later than the real achievement — read them as "no later than", not
+  as pace.
 
 ## Session gaps
 

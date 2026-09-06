@@ -11,7 +11,8 @@ public final class AuditConfig {
     public static int ae2SnapshotIdleMinutes = 240;
     public static boolean logPlayerIp = false;
     public static String[] keyItems = new String[0];
-    public static String[] flagClientMods = { "schematica", "worldedit" };
+    /** Empty by default: GTNH ships Schematica and WorldEdit with the pack, so presence-flagging them is noise. */
+    public static String[] flagClientMods = new String[0];
 
     private AuditConfig() {}
 
@@ -50,7 +51,9 @@ public final class AuditConfig {
             "milestones",
             flagClientMods,
             "Case-insensitive substrings matched against joining clients' handshake mod lists; matches are "
-                + "flagged in player_join lines and SUMMARY. Self-reported by the client — absence proves nothing.");
+                + "flagged in player_join lines and SUMMARY. Empty by default — the pack ships Schematica and "
+                + "WorldEdit, so only list what the board actually bans. The full client mod list is logged "
+                + "regardless (client_mods events), so verifiers can search it after the fact.");
         keyItems = cfg.getStringList(
             "keyItems",
             "milestones",

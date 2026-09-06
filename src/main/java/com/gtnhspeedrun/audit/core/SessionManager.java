@@ -338,6 +338,10 @@ public final class SessionManager {
         data.addProperty("worldFolder", server.getFolderName());
         data.addProperty("seed", overworld.getSeed());
         data.addProperty("difficulty", String.valueOf(overworld.difficultySetting));
+        // Vanilla's own lifetime tick counter. For a world adopted mid-run this is the defensible pre-audit
+        // IGT baseline, and thereafter it advances in lockstep with the audit clock (unaffected by /time set)
+        // — divergence between the two is a cross-check.
+        data.addProperty("worldTotalTime", overworld.getTotalWorldTime());
         data.addProperty("mcVersion", server.getMinecraftVersion());
         data.addProperty("javaVersion", System.getProperty("java.version"));
         data.addProperty(
