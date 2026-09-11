@@ -102,6 +102,9 @@ with Schematica for schematic *viewing* (if allowed) isn't rejected on presence 
 - Multiblock formation timestamps lag placement by up to a few seconds (periodic structure checks).
 - On a lagging server (TPS < 20) IGT and player-online ticks run slower than real time; RTA is the
   only lag-immune clock. All three are on every line — cross-check, don't assume.
+- Two AE2 censuses an hour apart will disagree by whatever a running factory moved in that hour. That is
+  normal automation, not evidence of anything. (The census itself is taken in a single tick, so the
+  disagreement is entirely real movement between them, not reader smear.)
 
 ## Runs adopted mid-run
 

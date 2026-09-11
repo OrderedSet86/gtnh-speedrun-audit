@@ -101,6 +101,12 @@ public class GtnhSpeedrunAudit {
                     AuditConfig.ae2SnapshotIdleMinutes);
                 onFmlBus(ae2);
                 sm.addSnapshotHook(ae2::requestCensus);
+
+                final String benchDir = System.getProperty(com.gtnhspeedrun.audit.compat.Ae2Bench.PROPERTY);
+                if (benchDir != null && !benchDir.isEmpty()) {
+                    LOG.warn("AE2 BENCH MODE ACTIVE — this server run measures the census and then shuts down");
+                    onFmlBus(new com.gtnhspeedrun.audit.compat.Ae2Bench(event.getServer(), new java.io.File(benchDir)));
+                }
             }
 
             event.registerServerCommand(new CommandAudit());

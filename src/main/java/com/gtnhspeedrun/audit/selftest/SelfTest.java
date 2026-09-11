@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
@@ -27,6 +28,7 @@ import net.minecraftforge.event.world.BlockEvent;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
+import com.gtnhspeedrun.audit.compat.Compat;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.core.Verifier;
@@ -162,6 +164,7 @@ public final class SelfTest {
             case 3 -> {
                 alice.theItemInWorldManager.setGameType(WorldSettings.GameType.SURVIVAL);
                 alice.inventory.setInventorySlotContents(0, new ItemStack(Items.diamond, 3));
+                placeAe2GridHost(overworld);
             }
             case 4 -> session.snapshotNow(server);
             case 5 -> {
@@ -241,6 +244,24 @@ public final class SelfTest {
         }
     }
 
+    /**
+     * Give the AE2 census a grid to count, so {@code ae2_snapshot} is exercised rather than merely compiled.
+     * One ME Interface is enough — any grid host forms a grid, and a grid holding nothing still produces a
+     * census record. Resolved by registry name on purpose: SelfTest has to stay loadable on a server without
+     * AE2, which is the whole reason AE2-typed code lives in the compat package.
+     */
+    private void placeAe2GridHost(WorldServer world) {
+        if (!Compat.AE2.isLoaded()) {
+            return;
+        }
+        final Object block = Block.blockRegistry.getObject("appliedenergistics2:tile.BlockInterface");
+        if (!(block instanceof Block b)) {
+            check("ae2 grid host block present", false, "appliedenergistics2:tile.BlockInterface not registered");
+            return;
+        }
+        world.setBlock(10, 70, 10, b);
+    }
+
     // ------------------------------------------------------------------ verification
 
     private static final String[] EXPECTED_TYPES = { "session_start", "player_join", "timing_started",
@@ -290,6 +311,14 @@ public final class SelfTest {
             "multiblock dedupe",
             counts.getOrDefault("multiblock_formed", 0) == 1,
             "count=" + counts.getOrDefault("multiblock_formed", 0));
+        // Conditional rather than in EXPECTED_TYPES: without AE2 there is no census to assert on, and the
+        // jar is meant to run on servers that do not have it.
+        if (Compat.AE2.isLoaded()) {
+            check(
+                "event logged: ae2_snapshot",
+                counts.getOrDefault("ae2_snapshot", 0) > 0,
+                "count=" + counts.getOrDefault("ae2_snapshot", 0));
+        }
 
         boolean sawNonzeroBeforeTiming = false;
         boolean timingSeen = false;

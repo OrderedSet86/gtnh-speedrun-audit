@@ -62,6 +62,17 @@ Every `session_start` line embeds the startup verdict:
 - Quest timestamps are ±3 s (BetterQuesting detects completions on a 60-tick poll).
 - Multiblock formation timestamps lag real placement by up to a few seconds (structure checks are periodic).
 - AE2 censuses only cover loaded grids — which is fine: an unloaded grid cannot change.
+- An AE2 census **is** instantaneous: every loaded grid is read to completion within a single server tick,
+  so all the `ae2_snapshot` lines of one `census` index describe the same instant. Two censuses that
+  disagree disagree because something actually moved in between, not because the reader was mid-walk.
+  (Versions before this one spread the walk over ~50 ticks and recorded a `walkTicks` field; if you are
+  handed a bundle that has one, treat any count as ±whatever a factory moves in `walkTicks` ticks.)
+- AE2 census keys are `modid:name@meta`. NBT is **not** part of the key, so variants of one item — a tool at
+  a different durability, a suit of armor at a different charge — are **summed into a single entry**. Totals
+  are exact regardless, because merging only ever adds counts together; what you lose is the ability to tell
+  two otherwise-identical stacks apart by their tags, which is not a quantity anyone audits. If
+  `nbtVariantsCollapsed` is present and non-zero, that many entries merged. NBT-level evidence, where it
+  matters, lives in the inventory snapshots and `nbt_edit` lines.
 - Timing — three clocks, every line carries all of them: `wall` (epoch ms; RTA = wall minus the anchored
   timing_started moment), `ticks` (cumulative server ticks = IGT, the main metric; AFK machine time counts),
   and `pticks` (ticks with at least one player connected). The tick clocks rewind with a rollback; wall time
