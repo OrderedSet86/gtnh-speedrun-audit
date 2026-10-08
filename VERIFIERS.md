@@ -77,6 +77,11 @@ Every `session_start` line embeds the startup verdict:
   sets, so each line also has the slot's previous contents. Net `item` against `previousKey` over a player's
   lines to find what was spawned. `inCreative: false` means a packet vanilla ignored, which only a modified
   client sends.
+- `nbt_edit` lines are `/nbtedit` saves. `nbtB64` is what the save wrote and `beforeB64` is the target just
+  before it, so the two show what the edit changed; above 64 KB only the hashes (`nbtHash`, `beforeHash`) are
+  kept. `beforeMissing` says why there is no before state (`chunk not loaded`, `no tile entity`, `empty hand`,
+  …). Older bundles have no before fields. A block opened with `/nbtedit` but never saved has only the
+  command line.
 - `death` lines name the `killer` (`player:Name` or the entity name, such as `Zombie`), the `directKiller`
   when it differs (an arrow), and the death `message`. Older bundles have only `damageSource`.
 - `world_saving` lines mark overworld saving turning off (`enabled: false`) and back on. ServerUtilities turns

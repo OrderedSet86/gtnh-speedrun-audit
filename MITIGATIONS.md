@@ -13,13 +13,37 @@ A runner following the questbook produces an `nbt_edit` line on their own player
 itself.
 
 **How to confirm innocence:** the `nbt_edit` line carries the full applied NBT (`nbtB64`, gzip+base64
-of the player tag). Decode it and compare against the nearest earlier `inv_snapshot` of the same
-player: an innocent GGR edit changes only `Scale`/`Growth`/`Gain`/`Resistance`-style values inside a
+of the player tag) and, in newer bundles, the player tag just before the save (`beforeB64`). Diff the two;
+in older bundles, compare `nbtB64` against the nearest earlier `inv_snapshot` of the same player: an innocent GGR edit changes only `Scale`/`Growth`/`Gain`/`Resistance`-style values inside a
 seed-bag item's tag. Anything else that changed in the same edit — item ids, counts, new items,
 machine charge values — is not covered by the questbook and goes to the rules.
 
 **Escalate when:** the edit targets a `block` (machine inventories/state), another player, or the
 diff touches anything beyond seed-bag stats.
+
+## `/gt global_energy_add` and `global_energy_set` — wireless EU from a command
+
+These create or overwrite wireless EU outright. GregTech stores wireless EU per team leader, and
+`global_energy_join` only changes which team a player is in: the joining player's own balance stays under
+their name, out of reach. A team that merges networks may therefore re-add the joined player's balance by
+hand.
+
+**How to confirm innocence:** the merge pattern is a `global_energy_display` of the joining player, then
+`global_energy_join <player> <leader>`, then a `global_energy_add <leader> <amount>`, minutes apart. The log
+records commands, not their output, so the displayed balance has to come from a screenshot or VOD and match
+the added amount. The joined player's old balance still exists afterwards; it counts twice if they later
+rejoin their own network.
+
+**Escalate when:** an add or set has no join before it, the amount cannot be matched to a displayed balance,
+or a set raises a balance.
+
+## `/gt cleanroom_bypass` — recipe checks switched off
+
+A GregTech developer switch: `on cleanroom` makes every machine count as inside a perfect cleanroom, `on
+lowgrav` lets single-block machines run low-gravity recipes anywhere, `on all` does both. It is server-wide
+and resets on restart, so each session that uses it needs its own `on` line. It places nothing in the world.
+
+**Escalate when:** any `on` line appears during a run. There is no known innocent use outside development.
 
 ## `WORLD_ROLLBACK` — backup restore after a disaster
 

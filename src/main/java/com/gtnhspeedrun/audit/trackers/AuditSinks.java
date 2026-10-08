@@ -156,10 +156,12 @@ public final class AuditSinks {
     /**
      * The applied half of /nbtedit. The command dispatch is already in the command log; this is the packet
      * that actually writes NBT into a player/block/entity/item, logged with the full payload (or its hash
-     * alone when oversized) so verifiers can see exactly what was set.
+     * alone when oversized) so verifiers can see exactly what was set — and, the same way, the target's NBT
+     * just before the write, so they can see what it replaced. beforeMissing says why there is no before
+     * state (chunk not loaded, no tile entity, ...); it is null whenever beforeHash is set.
      */
     public static void nbtEdit(String targetType, String targetDesc, String uuid, String name, String nbtHash,
-        String nbtB64) {
+        String nbtB64, String beforeHash, String beforeB64, String beforeMissing) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
             return;
@@ -172,6 +174,15 @@ public final class AuditSinks {
         data.addProperty("nbtHash", nbtHash);
         if (nbtB64 != null) {
             data.addProperty("nbtB64", nbtB64);
+        }
+        if (beforeHash != null) {
+            data.addProperty("beforeHash", beforeHash);
+        }
+        if (beforeB64 != null) {
+            data.addProperty("beforeB64", beforeB64);
+        }
+        if (beforeMissing != null) {
+            data.addProperty("beforeMissing", beforeMissing);
         }
         session.logger()
             .log("nbt_edit", data);

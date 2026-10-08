@@ -14,6 +14,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.stats.AchievementList;
 import net.minecraft.util.DamageSource;
@@ -28,6 +29,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.compat.Compat;
+import com.gtnhspeedrun.audit.compat.NbtEditDrill;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.core.Verifier;
@@ -81,6 +83,8 @@ public final class SelfTest {
     private boolean done;
     private long pticksAtLogout = -1;
     private long ticksAtLogout = -1;
+    /** { before, after } hashes of the live /nbtedit drill; null when ServerUtilities is absent. */
+    private String[] nbtEditHashes;
 
     public SelfTest(MinecraftServer server, SessionManager session, File resultDir, List<Object> auditListeners) {
         this.server = server;
@@ -231,7 +235,20 @@ public final class SelfTest {
                 AuditSinks.multiblockFormed("gt", "SelfTestMulti", "test.multi", 0, 7, 8, 9, lv);
                 AuditSinks.multiblockFormed("gt", "SelfTestMulti", "test.multi", 0, 7, 8, 9, uv);
                 AuditSinks.gtExplosion("SelfTestMachine", "test.machine", 0, 4, 5, 6, 42);
-                AuditSinks.nbtEdit("player", "player SelfTestAlice", uuid(alice), "SelfTestAlice", "deadbeef", null);
+                final NBTTagCompound beforeEdit = new NBTTagCompound();
+                beforeEdit.setInteger("charge", 5);
+                AuditSinks.nbtEdit(
+                    "player",
+                    "player SelfTestAlice",
+                    uuid(alice),
+                    "SelfTestAlice",
+                    "deadbeef",
+                    null,
+                    "cafebabe",
+                    JsonUtil.nbtToB64(beforeEdit),
+                    null);
+                // The mixin itself, through ServerUtilities' own packet handler — only on a pack server.
+                nbtEditHashes = NbtEditDrill.editChest(overworld, alice, 5, 63, 0);
                 // Census-failure path: the real census only fails on API drift, so drive the reporter directly.
                 AuditSinks.announceAe2CensusFailure(
                     java.util.Collections.singletonList(
@@ -401,6 +418,52 @@ public final class SelfTest {
                                 .get("energyTier")
                                 .getAsString())),
             null);
+        check(
+            "nbt_edit carries the before state",
+            lines.stream()
+                .anyMatch(
+                    line -> "nbt_edit".equals(
+                        line.get("t")
+                            .getAsString())
+                        && line.getAsJsonObject("data")
+                            .has("beforeB64")
+                        && "cafebabe".equals(
+                            line.getAsJsonObject("data")
+                                .get("beforeHash")
+                                .getAsString())),
+            null);
+        if (nbtEditHashes == null) {
+            check("nbt_edit mixin drill", true, "skipped: ServerUtilities not loaded");
+        } else {
+            check(
+                "nbt_edit mixin drill: before and after hashes",
+                lines.stream()
+                    .anyMatch(
+                        line -> "nbt_edit".equals(
+                            line.get("t")
+                                .getAsString())
+                            && "block 5,63,0".equals(
+                                line.getAsJsonObject("data")
+                                    .get("target")
+                                    .getAsString())
+                            && line.getAsJsonObject("data")
+                                .has("beforeHash")
+                            && nbtEditHashes[0].equals(
+                                line.getAsJsonObject("data")
+                                    .get("beforeHash")
+                                    .getAsString())
+                            && nbtEditHashes[1].equals(
+                                line.getAsJsonObject("data")
+                                    .get("nbtHash")
+                                    .getAsString())),
+                "expected before=" + nbtEditHashes[0] + " after=" + nbtEditHashes[1]);
+            final ItemStack edited = ((net.minecraft.tileentity.TileEntityChest) server.worldServers[0]
+                .getTileEntity(5, 63, 0)).getStackInSlot(0);
+            check(
+                "nbt_edit mixin drill: edit applied",
+                edited != null && edited.stackSize == 2,
+                edited == null ? "slot empty" : "count=" + edited.stackSize);
+        }
         // Conditional rather than in EXPECTED_TYPES: without AE2 there is no census to assert on, and the
         // jar is meant to run on servers that do not have it.
         if (Compat.AE2.isLoaded()) {

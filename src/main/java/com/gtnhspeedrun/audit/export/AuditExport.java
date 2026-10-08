@@ -344,10 +344,11 @@ public final class AuditExport {
                 // Bulky payloads stay in the JSONL; SUMMARY shows the line without them.
                 // (Copied by entry — MC's gson 2.2.4 predates a public deepCopy.)
                 JsonObject printable = line.getAsJsonObject("data");
-                if (printable.has("nbtB64") || printable.has("mods")) {
+                if (printable.has("nbtB64") || printable.has("beforeB64") || printable.has("mods")) {
                     final JsonObject trimmed = new JsonObject();
                     for (Map.Entry<String, com.google.gson.JsonElement> e : printable.entrySet()) {
-                        if (!"nbtB64".equals(e.getKey()) && !"mods".equals(e.getKey())) {
+                        if (!"nbtB64".equals(e.getKey()) && !"beforeB64".equals(e.getKey())
+                            && !"mods".equals(e.getKey())) {
                             trimmed.add(e.getKey(), e.getValue());
                         }
                     }
