@@ -8,6 +8,7 @@
     "compatibilityLevel": "JAVA_8",
     "mixins": [
         "fml.FMLHandshakeServerStateMixin",
+        "minecraft.NetHandlerPlayServerMixin",
         "nei.NEISPHMixin",
         "nei.NEIServerUtilsMixin"
     ]

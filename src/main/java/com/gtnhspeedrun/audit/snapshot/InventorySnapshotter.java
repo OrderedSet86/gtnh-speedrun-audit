@@ -17,6 +17,7 @@ import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.compat.BaublesAccess;
 import com.gtnhspeedrun.audit.core.AuditLogger;
 import com.gtnhspeedrun.audit.core.JsonUtil;
+import com.gtnhspeedrun.audit.trackers.AuditSinks;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
@@ -66,6 +67,18 @@ public final class InventorySnapshotter {
                     .toString());
             data.addProperty("name", player.getCommandSenderName());
             data.addProperty("damageSource", event.source.damageType);
+            final String killer = AuditSinks.entityName(event.source.getEntity());
+            if (killer != null) {
+                data.addProperty("killer", killer);
+            }
+            final String direct = AuditSinks.entityName(event.source.getSourceOfDamage());
+            if (direct != null && !direct.equals(killer)) {
+                data.addProperty("directKiller", direct);
+            }
+            data.addProperty(
+                "message",
+                event.source.func_151519_b(player)
+                    .getUnformattedText());
             data.addProperty("dim", player.dimension);
             logger.log("death", data);
             capture(player, "death");

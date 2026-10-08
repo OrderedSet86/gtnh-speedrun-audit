@@ -37,9 +37,27 @@ public final class MilestoneTracker {
         }
     }
 
+    /**
+     * Every dimension change, with where the player arrived. A teleport command's line and the dim_change it
+     * caused share a tick or two; a portal or rocket has no command before it. Teleports between dimensions
+     * matter to the rules, so this is logged every time, not only on a first visit.
+     */
     @SubscribeEvent
     public void onDimensionChange(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (event.player instanceof EntityPlayerMP player) {
+            final JsonObject data = new JsonObject();
+            data.addProperty(
+                "uuid",
+                player.getGameProfile()
+                    .getId()
+                    .toString());
+            data.addProperty("name", player.getCommandSenderName());
+            data.addProperty("fromDim", event.fromDim);
+            data.addProperty("toDim", event.toDim);
+            data.addProperty("x", (int) Math.floor(player.posX));
+            data.addProperty("y", (int) Math.floor(player.posY));
+            data.addProperty("z", (int) Math.floor(player.posZ));
+            logger.log("dim_change", data);
             firstVisit(player, event.toDim, "travel");
         }
     }

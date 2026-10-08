@@ -1,0 +1,35 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "inventory-browser",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--directory",
+        "/home/order/Dropbox/OrderedSetCode/cloned-gtnh/gtnh-speedrun-analyzer/tools",
+        "python",
+        "-m",
+        "inventory_browser",
+        "/home/order/Downloads/archive-2026-10-06T104219-0400",
+        "--port",
+        "8765"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "report-folder",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8766",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/home/order/Downloads/archive-2026-10-06T104219-0400/report"
+      ],
+      "port": 8766
+    }
+  ]
+}

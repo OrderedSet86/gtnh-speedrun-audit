@@ -7,7 +7,8 @@ flag-looking events have questbook-endorsed or otherwise innocent explanations.
 ## What the bundle contains
 
 - `SUMMARY.txt` — session ledger, milestone timeline (quests, dimension first-visits, multiblock
-  formations, key items), and a flags section (gamemode changes, NEI cheat actions, explosions, rollbacks).
+  formations, key items, first placement of each tracked block), and a flags section (gamemode changes,
+  NEI cheat actions, explosions, rollbacks).
 - `verify-report.json` — the mod's own full-chain verification at export time.
 - `anchor.json` — the world-side chain anchor at export time.
 - `log/audit-*.jsonl` — the hash-chained event ledger, one file per server session.
@@ -61,7 +62,31 @@ Every `session_start` line embeds the startup verdict:
 - `command` lines record *dispatch*, not success — a permission-denied `/give` still appears (uncanceled).
 - Quest timestamps are ±3 s (BetterQuesting detects completions on a 60-tick poll).
 - Multiblock formation timestamps lag real placement by up to a few seconds (structure checks are periodic).
+- GT `multiblock_formed` lines carry `energyHatches`/`energyTier` and `dynamoHatches`/`dynamoTier`: how many
+  hatches the structure had when it formed and the highest voltage tier among them (`LV` … `MAX+`), from each
+  hatch's own voltage. A multiblock logs once per position per session, and again when its hatch tier
+  changes, so a hatch upgrade is a new line. Some TecTech and GT++ multiblocks keep hatches in their own
+  lists and can report fewer hatches or no tier. Railcraft multiblocks, the bricked blast furnace and lines
+  from earlier versions have no hatch fields.
+- `dim_change` lines record every dimension change (`fromDim`, `toDim`, arrival position). A teleport
+  command and the `dim_change` it causes are a tick or two apart; a portal or rocket has no command before
+  it. Use them to check rules on cross-dimension teleports. Older bundles have only `dim_first_visit`, which
+  also re-fires after a world rollback.
+- `creative_slot` lines are creative-inventory packets: the client setting one of its own slots (or
+  dropping, slot < 0). Moving an item between slots and taking one from the creative tabs both arrive as slot
+  sets, so each line also has the slot's previous contents. Net `item` against `previousKey` over a player's
+  lines to find what was spawned. `inCreative: false` means a packet vanilla ignored, which only a modified
+  client sends.
+- `death` lines name the `killer` (`player:Name` or the entity name, such as `Zombie`), the `directKiller`
+  when it differs (an arrow), and the death `message`. Older bundles have only `damageSource`.
+- `block_placed` lines are player placements of the server's `trackedPlacements` blocks, with coordinates
+  (default: the Stargate structure — base, ring/chevron, DHD, power units). GT machines log as
+  `machine_placed` instead. SUMMARY shows only the first of each block; the JSONL has every one.
 - AE2 censuses only cover loaded grids — which is fine: an unloaded grid cannot change.
+- Bundles from v0.5.0 and earlier contain **no automatic AE2 censuses**: an overflow in the interval check
+  meant only a manual `/audit snapshot` ever produced one. An absent census in those bundles is the mod's
+  fault, not the runner's. From the fix on, a census that fails logs `ae2_census_failed` (flagged in
+  SUMMARY) instead of failing silently.
 - An AE2 census **is** instantaneous: every loaded grid is read to completion within a single server tick,
   so all the `ae2_snapshot` lines of one `census` index describe the same instant. Two censuses that
   disagree disagree because something actually moved in between, not because the reader was mid-walk.

@@ -221,6 +221,8 @@ public final class AuditExport {
         }
 
         sb.append("\n== MILESTONES ==\n");
+        // A Stargate is ~20 tracked blocks: the timeline shows the first of each, TRACKED PLACEMENTS the rest.
+        final java.util.Set<String> placedSeen = new java.util.HashSet<>();
         for (JsonObject line : lines) {
             final String type = line.get("t")
                 .getAsString();
@@ -283,11 +285,42 @@ public final class AuditExport {
                         data.get("source")
                             .getAsString())
                     .append(")\n");
+                case "block_placed" -> {
+                    if (placedSeen.add(
+                        data.get("block")
+                            .getAsString())) {
+                        sb.append(when)
+                            .append("  PLACED     ")
+                            .append(placedLabel(data))
+                            .append(" at dim ")
+                            .append(
+                                data.get("dim")
+                                    .getAsInt())
+                            .append(" (")
+                            .append(
+                                data.get("x")
+                                    .getAsInt())
+                            .append(", ")
+                            .append(
+                                data.get("y")
+                                    .getAsInt())
+                            .append(", ")
+                            .append(
+                                data.get("z")
+                                    .getAsInt())
+                            .append(") by ")
+                            .append(
+                                data.get("name")
+                                    .getAsString())
+                            .append('\n');
+                    }
+                }
                 default -> {}
             }
         }
 
         machineStats(sb, lines);
+        trackedPlacements(sb, lines);
 
         sb.append("\n== FLAGS FOR REVIEW ==\n");
         flagCount(sb, counts, "nei_cheat", "NEI cheat actions");
@@ -296,6 +329,7 @@ public final class AuditExport {
         flagCount(sb, counts, "nei_packet", "NEI cheat-channel packets");
         flagCount(sb, counts, "gamemode_change", "gamemode changes");
         flagCount(sb, counts, "gt_explosion", "GT machine explosions");
+        flagCount(sb, counts, "ae2_census_failed", "AE2 census failures (missing AE2 evidence)");
         flagCount(sb, counts, "death", "player deaths");
         for (JsonObject line : lines) {
             final String type = line.get("t")
@@ -425,6 +459,31 @@ public final class AuditExport {
                         e.getKey(),
                         e.getValue()
                             .size())));
+    }
+
+    /** Counts per tracked block (configured trackedPlacements); each line's coordinates stay in the JSONL. */
+    private static void trackedPlacements(StringBuilder sb, List<JsonObject> lines) {
+        final Map<String, Integer> byBlock = new java.util.TreeMap<>();
+        for (JsonObject line : lines) {
+            if (line.get("t")
+                .getAsString()
+                .equals("block_placed")) {
+                byBlock.merge(placedLabel(line.getAsJsonObject("data")), 1, Integer::sum);
+            }
+        }
+        if (byBlock.isEmpty()) {
+            return;
+        }
+        sb.append("\n== TRACKED PLACEMENTS ==\n");
+        byBlock.forEach((name, n) -> sb.append(String.format("  %-40s %d%n", name, n)));
+    }
+
+    private static String placedLabel(JsonObject data) {
+        return data.has("displayName") ? plain(
+            data.get("displayName")
+                .getAsString())
+            : data.get("block")
+                .getAsString();
     }
 
     private static void flagCount(StringBuilder sb, Map<String, Integer> counts, String key, String label) {

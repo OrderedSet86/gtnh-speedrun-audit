@@ -33,6 +33,19 @@ the log retains the entire rolled-back window, so nothing is hidden.
 frequent and always "profitable", or post-restore snapshots contain items the pre-restore snapshots
 can't explain.
 
+## `ae2_census_failed` — the audit mod could not read an AE2 network
+
+This is a fault in the audit mod (usually an AE2 version it was not built against), not in the run.
+Every player saw a red chat line when it happened. The run is missing AE2 census evidence for that
+census; it does not suggest the runner did anything.
+
+**How to confirm innocence:** the `error` field names an exception from AE2 or the mod, and the same
+failure repeats on every census until the mod is updated. Inventory snapshots and milestones still
+cover the period.
+
+**Escalate when:** failures start right after a large AE2 gain and stop right after it, with no mod or
+pack change (`fingerprint` lines) in between.
+
 ## `CRASH_RECOVERY` / `ANCHOR_MISSING`
 
 Crashes are a fact of modded 1.7.10. `CRASH_RECOVERY` with the anchor lagging the log tail by up to

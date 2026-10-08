@@ -11,6 +11,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.core.AuditLogger;
 import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
+import com.gtnhspeedrun.audit.trackers.AuditSinks;
 
 import appeng.api.networking.storage.IStorageGrid;
 import appeng.api.storage.data.IAEFluidStack;
@@ -60,7 +61,14 @@ public final class Ae2Snapshotter {
 
     private final KeyCache keyCache = new KeyCache();
     private long tickCounter;
-    private long lastCensusTick = Long.MIN_VALUE;
+    /**
+     * Zero, not Long.MIN_VALUE: {@code tickCounter - Long.MIN_VALUE} overflows negative, so a MIN_VALUE start
+     * made the interval check permanently false and no automatic census ever ran (v0.5.0 and earlier). The
+     * first census is one interval into the session.
+     */
+    static final long INITIAL_LAST_CENSUS_TICK = 0;
+
+    private long lastCensusTick = INITIAL_LAST_CENSUS_TICK;
     private int censusIndex;
     private Method getMyStorage;
     private boolean reflectionFailed;
@@ -82,15 +90,22 @@ public final class Ae2Snapshotter {
         tickCounter++;
         final boolean anyoneOn = !server.getConfigurationManager().playerEntityList.isEmpty();
         final long interval = anyoneOn ? activeIntervalTicks : idleIntervalTicks;
-        if (tickCounter - lastCensusTick >= interval) {
+        if (censusDue(tickCounter, lastCensusTick, interval)) {
             requestCensus();
         }
+    }
+
+    static boolean censusDue(long tickCounter, long lastCensusTick, long interval) {
+        return tickCounter - lastCensusTick >= interval;
     }
 
     /** Also wired to /audit snapshot. */
     public void requestCensus() {
         lastCensusTick = tickCounter;
         censusIndex++;
+        // A failure here is announced to every player, not swallowed: a census that silently never happens
+        // leaves a run with no AE2 evidence and nobody finds out until a verifier opens the export.
+        final List<String> failures = new ArrayList<>();
         // Copied out first. Not strictly required — nothing here adds or removes a network — but it is a
         // handful of entries, and it keeps the walk off AE2's own live collection.
         final List<Grid> grids = new ArrayList<>();
@@ -99,15 +114,23 @@ public final class Ae2Snapshotter {
                 grids.add(grid);
             }
         } catch (RuntimeException | LinkageError e) {
-            // AE2 not ticking yet (or API drift): skip this census, try again next interval.
+            // AE2 not ticking yet, or API drift: no grid can be read, so the whole census is lost.
+            failures.add(AuditSinks.ae2CensusFailed(censusIndex, "grid list", null, e));
+            AuditSinks.announceAe2CensusFailure(failures);
             return;
         }
         for (Grid grid : grids) {
+            String id = null;
             try {
-                censusGrid(grid);
+                id = gridId(grid);
+                censusGrid(grid, id);
             } catch (RuntimeException | LinkageError e) {
                 // One broken grid must not void the rest of the census.
+                failures.add(AuditSinks.ae2CensusFailed(censusIndex, "grid", id, e));
             }
+        }
+        if (!failures.isEmpty()) {
+            AuditSinks.announceAe2CensusFailure(failures);
         }
     }
 
@@ -115,7 +138,7 @@ public final class Ae2Snapshotter {
      * One grid's whole census, start to finish, inside the calling tick. Nothing else runs between the reads,
      * so the item and fluid lists are consistent with each other and with the node count.
      */
-    private void censusGrid(Grid grid) {
+    private void censusGrid(Grid grid, String gridId) {
         if (grid.isEmpty()) {
             return;
         }
@@ -133,7 +156,7 @@ public final class Ae2Snapshotter {
             storage.getFluidInventory()
                 .getStorageList());
         emit(
-            gridId(grid),
+            gridId,
             grid.getNodes()
                 .size(),
             censusIndex,

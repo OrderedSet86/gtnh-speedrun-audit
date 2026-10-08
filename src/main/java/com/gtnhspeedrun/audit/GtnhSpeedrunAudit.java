@@ -63,6 +63,7 @@ public class GtnhSpeedrunAudit {
             // The self-test shapes its own preconditions: it needs a watched key item to assert on.
             if (System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY) != null) {
                 AuditConfig.keyItems = new String[] { "minecraft:diamond" };
+                AuditConfig.trackedPlacements = new String[] { "minecraft:diamond_block" };
             }
             final SessionManager sm = new SessionManager(LOG, event.getServer());
             sm.start();
@@ -80,7 +81,10 @@ public class GtnhSpeedrunAudit {
             onForgeBus(new CommandTracker(sm.logger()));
             onForgeBus(inventory); // LivingDeathEvent
             onForgeBus(milestones); // AchievementEvent
-            onForgeBus(new com.gtnhspeedrun.audit.trackers.MachinePlacementTracker(sm.logger()));
+            onForgeBus(
+                new com.gtnhspeedrun.audit.trackers.MachinePlacementTracker(
+                    sm.logger(),
+                    nonBlank(AuditConfig.trackedPlacements)));
             onFmlBus(inventory); // login/logout snapshots
             onFmlBus(milestones); // dim change, crafts
             onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp, AuditConfig.flagClientMods));
@@ -122,8 +126,14 @@ public class GtnhSpeedrunAudit {
             final String selftestDir = System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY);
             if (selftestDir != null && !selftestDir.isEmpty()) {
                 LOG.warn("SELFTEST MODE ACTIVE — this server run is a harness scenario, not a real session");
+                final List<Object> auditListeners = new ArrayList<>(forgeBusListeners);
+                auditListeners.addAll(fmlBusListeners);
                 onFmlBus(
-                    new com.gtnhspeedrun.audit.selftest.SelfTest(event.getServer(), sm, new java.io.File(selftestDir)));
+                    new com.gtnhspeedrun.audit.selftest.SelfTest(
+                        event.getServer(),
+                        sm,
+                        new java.io.File(selftestDir),
+                        auditListeners));
             }
         } catch (Exception e) {
             // A broken audit trail must be loud but must not brick someone's server mid-run.
@@ -169,5 +179,16 @@ public class GtnhSpeedrunAudit {
         }
         forgeBusListeners.clear();
         fmlBusListeners.clear();
+    }
+
+    private static java.util.Set<String> nonBlank(String[] entries) {
+        final java.util.Set<String> out = new java.util.HashSet<>();
+        for (String entry : entries) {
+            if (!entry.trim()
+                .isEmpty()) {
+                out.add(entry.trim());
+            }
+        }
+        return out;
     }
 }

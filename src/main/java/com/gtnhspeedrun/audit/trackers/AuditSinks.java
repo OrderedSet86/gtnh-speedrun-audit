@@ -3,11 +3,23 @@ package com.gtnhspeedrun.audit.trackers;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.EntityList;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.ChatStyle;
+import net.minecraft.util.EnumChatFormatting;
 
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.SessionManager;
+import com.gtnhspeedrun.audit.snapshot.ItemKey;
 
 /**
  * Static entry points for the late mixins. Signatures use only vanilla/JDK types — the mixin computes any
@@ -167,17 +179,25 @@ public final class AuditSinks {
 
     // ------------------------------------------------------------------ multiblocks
 
+    /** A formation with no hatch information (Railcraft, the bricked blast furnace). */
+    public static void multiblockFormed(String kind, String className, String localName, int dim, int x, int y, int z) {
+        multiblockFormed(kind, className, localName, dim, x, y, z, null);
+    }
+
     /**
      * A multiblock "forms" again every time its chunk reloads (the MTE is recreated unformed and rechecks), so
-     * formations are deduped per (class, position) per session; the cross-session first-per-class milestone is
+     * formations are deduped per (class, position, hatch tiers) per session: swapping LV energy hatches for UV
+     * ones re-logs the formation, a chunk reload does not. The cross-session first-per-class milestone is
      * deduped through the anchor and rewinds with the world.
      */
-    public static void multiblockFormed(String kind, String className, String localName, int dim, int x, int y, int z) {
+    public static void multiblockFormed(String kind, String className, String localName, int dim, int x, int y, int z,
+        MultiblockPower power) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
             return;
         }
-        if (!session.once("mb:" + className + "@" + dim + ":" + x + "," + y + "," + z)) {
+        final String key = "mb:" + className + "@" + dim + ":" + x + "," + y + "," + z;
+        if (!session.once(power == null ? key : key + power.dedupeSuffix())) {
             return;
         }
         final boolean firstOfClass = session.anchor().formedMultiblocks.add(className);
@@ -196,6 +216,16 @@ public final class AuditSinks {
         data.addProperty("y", y);
         data.addProperty("z", z);
         data.addProperty("firstOfClass", firstOfClass);
+        if (power != null) {
+            data.addProperty("energyHatches", power.energyHatches);
+            if (power.energyTier != null) {
+                data.addProperty("energyTier", power.energyTier);
+            }
+            data.addProperty("dynamoHatches", power.dynamoHatches);
+            if (power.dynamoTier != null) {
+                data.addProperty("dynamoTier", power.dynamoTier);
+            }
+        }
         session.logger()
             .log("multiblock_formed", data);
     }
@@ -218,5 +248,104 @@ public final class AuditSinks {
         data.addProperty("power", power);
         session.logger()
             .log("gt_explosion", data);
+    }
+
+    // ------------------------------------------------------------------ deaths
+
+    /** "player:Name" for a player, the registered entity name ("Zombie") otherwise, null for no entity. */
+    public static String entityName(Entity entity) {
+        if (entity == null) {
+            return null;
+        }
+        if (entity instanceof EntityPlayer player) {
+            return "player:" + player.getCommandSenderName();
+        }
+        final String registered = EntityList.getEntityString(entity);
+        return registered != null ? registered
+            : entity.getClass()
+                .getSimpleName();
+    }
+
+    // ------------------------------------------------------------------ creative inventory
+
+    /**
+     * One creative-inventory packet: the client setting a slot of its own inventory to a stack, or dropping
+     * one (slot < 0). Taking an item from the creative tabs and moving an item between slots both arrive as
+     * slot sets, so the slot's previous contents are logged too: a verifier nets "previous" against "item"
+     * across a player's lines to tell a spawn from a move. A packet from a player not in creative is ignored
+     * by vanilla and can only come from a modified client — logged with inCreative=false. A packet that leaves
+     * the slot as it was is not logged.
+     */
+    public static void creativeSlot(EntityPlayerMP player, int slot, ItemStack stack, ItemStack previous,
+        boolean inCreative) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null || ItemStack.areItemStacksEqual(stack, previous)) {
+            return;
+        }
+        final JsonObject data = new JsonObject();
+        data.addProperty(
+            "uuid",
+            player.getGameProfile()
+                .getId()
+                .toString());
+        data.addProperty("name", player.getCommandSenderName());
+        data.addProperty("slot", slot);
+        if (stack != null && stack.getItem() != null) {
+            data.addProperty("itemKey", ItemKey.base(stack));
+            data.addProperty("count", stack.stackSize);
+        }
+        if (previous != null && previous.getItem() != null) {
+            data.addProperty("previousKey", ItemKey.base(previous));
+            data.addProperty("previousCount", previous.stackSize);
+        }
+        data.addProperty("inCreative", inCreative);
+        data.addProperty("dim", player.dimension);
+        session.logger()
+            .log("creative_slot", data);
+    }
+
+    // ------------------------------------------------------------------ AE2 census failures
+
+    /**
+     * One grid (or the whole grid list) the AE2 census could not read. Lives here rather than in the compat
+     * package so it stays AE2-free: SelfTest drives it on servers without AE2. Returns a one-line description
+     * for {@link #announceAe2CensusFailure}.
+     */
+    public static String ae2CensusFailed(int census, String where, String gridId, Throwable error) {
+        GtnhSpeedrunAudit.LOG
+            .error("AE2 census {} failed ({}{})", census, where, gridId == null ? "" : " " + gridId, error);
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session != null) {
+            final JsonObject data = new JsonObject();
+            data.addProperty("census", census);
+            data.addProperty("where", where);
+            if (gridId != null) {
+                data.addProperty("gridId", gridId);
+            }
+            data.addProperty("error", String.valueOf(error));
+            session.logger()
+                .log("ae2_census_failed", data);
+        }
+        return (gridId == null ? where : where + " " + gridId) + ": " + error;
+    }
+
+    /**
+     * Red chat line to every player, the way ServerUtilities announces a failed backup. Worded so nobody reads
+     * it as AE2 itself breaking: what failed is this mod's record of the network, not the network.
+     */
+    public static void announceAe2CensusFailure(List<String> failures) {
+        final MinecraftServer server = MinecraftServer.getServer();
+        if (server == null || failures.isEmpty()) {
+            return;
+        }
+        final String detail = failures.size() == 1 ? failures.get(0)
+            : failures.size() + " failures, first: " + failures.get(0);
+        server.getConfigurationManager()
+            .sendChatMsg(
+                new ChatComponentText(
+                    "[GTNH Speedrun Audit] The audit mod could not record its AE2 network snapshot (" + detail
+                        + "). Your AE2 network is not affected. This run is missing AE2 evidence: please report "
+                        + "this to @.order on Discord.")
+                            .setChatStyle(new ChatStyle().setColor(EnumChatFormatting.RED)));
     }
 }

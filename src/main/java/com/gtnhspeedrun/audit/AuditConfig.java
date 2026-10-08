@@ -13,6 +13,9 @@ public final class AuditConfig {
     public static String[] keyItems = new String[0];
     /** Empty by default: GTNH ships Schematica and WorldEdit with the pack, so presence-flagging them is noise. */
     public static String[] flagClientMods = new String[0];
+    /** The whole Stargate structure: base, ring/chevron (one block, meta 0/1), DHD, both power units. */
+    public static String[] trackedPlacements = new String[] { "SGCraft:stargateBase", "SGCraft:stargateRing",
+        "SGCraft:stargateController", "SGCraft:ic2PowerUnit", "SGCraft:rfPowerUnit" };
 
     private AuditConfig() {}
 
@@ -60,6 +63,13 @@ public final class AuditConfig {
             keyItems,
             "Items whose first appearance is a logged milestone, as registryName@meta (meta optional), e.g. "
                 + "gregtech:gt.blockmachines@1000. Checked during inventory/AE2 snapshots and on craft.");
+        trackedPlacements = cfg.getStringList(
+            "trackedPlacements",
+            "milestones",
+            trackedPlacements,
+            "Block registry names (modid:name, exact) whose player placements are logged as block_placed "
+                + "with coordinates. Defaults to the Stargate structure. GT machines need no entry — they "
+                + "are always logged as machine_placed.");
 
         if (cfg.hasChanged()) {
             cfg.save();
