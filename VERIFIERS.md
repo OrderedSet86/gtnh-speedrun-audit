@@ -79,6 +79,12 @@ Every `session_start` line embeds the startup verdict:
   client sends.
 - `death` lines name the `killer` (`player:Name` or the entity name, such as `Zombie`), the `directKiller`
   when it differs (an arrow), and the death `message`. Older bundles have only `damageSource`.
+- `world_saving` lines mark overworld saving turning off (`enabled: false`) and back on. ServerUtilities turns
+  it off on every world for the length of each backup, and `/save-off` turns it off too. `savingOffDims` lists
+  every world not saving at that moment; some never save (Gadomancy's Outer Lands, dim 173).
+  `session_end` has the same fields: dim 0 in `savingOffDims` means the shutdown save skipped the overworld and
+  the anchor with it, so the next start is a `WORLD_ROLLBACK` to the last save. `backupRunning` is present when
+  ServerUtilities is installed. Bundles before this version have none of these.
 - `block_placed` lines are player placements of the server's `trackedPlacements` blocks, with coordinates
   (default: the Stargate structure — base, ring/chevron, DHD, power units). GT machines log as
   `machine_placed` instead. SUMMARY shows only the first of each block; the JSONL has every one.

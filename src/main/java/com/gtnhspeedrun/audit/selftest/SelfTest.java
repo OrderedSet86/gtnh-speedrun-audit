@@ -180,8 +180,13 @@ public final class SelfTest {
                 server.getCommandManager()
                     .executeCommand(alice, "help");
                 overworld.difficultySetting = EnumDifficulty.PEACEFUL;
+                // what a ServerUtilities backup or /save-off does
+                overworld.levelSaving = true;
             }
-            case 6 -> overworld.difficultySetting = EnumDifficulty.NORMAL;
+            case 6 -> {
+                overworld.difficultySetting = EnumDifficulty.NORMAL;
+                overworld.levelSaving = false;
+            }
             case 7 -> {
                 // FakePlayer is invulnerable and no-ops onDeath by design, so real damage can never reach
                 // LivingDeathEvent — post the event itself; the bus is the tracker's contract.
@@ -297,8 +302,8 @@ public final class SelfTest {
     private static final String[] EXPECTED_TYPES = { "session_start", "player_join", "timing_started",
         "gamemode_change", "inv_snapshot", "key_item_first_seen", "command", "difficulty_change", "death",
         "achievement", "dim_first_visit", "key_item_craft", "nei_packet", "nei_cheat", "multiblock_formed",
-        "gt_explosion", "nbt_edit", "ae2_census_failed", "block_placed", "player_leave", "dim_change",
-        "creative_slot" };
+        "gt_explosion", "nbt_edit", "ae2_census_failed", "block_placed", "player_leave", "dim_change", "creative_slot",
+        "world_saving" };
 
     private void verifyLog() {
         session.logger()
@@ -350,6 +355,23 @@ public final class SelfTest {
             "creative_slot unchanged slot not logged",
             counts.getOrDefault("creative_slot", 0) == 1,
             "count=" + counts.getOrDefault("creative_slot", 0));
+        final List<JsonObject> savingLines = lines.stream()
+            .filter(
+                line -> "world_saving".equals(
+                    line.get("t")
+                        .getAsString()))
+            .collect(java.util.stream.Collectors.toList());
+        check(
+            "world_saving off then on",
+            savingLines.size() == 2 && !savingLines.get(0)
+                .getAsJsonObject("data")
+                .get("enabled")
+                .getAsBoolean()
+                && savingLines.get(1)
+                    .getAsJsonObject("data")
+                    .get("enabled")
+                    .getAsBoolean(),
+            "count=" + savingLines.size());
         check(
             "death killer logged",
             lines.stream()

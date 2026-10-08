@@ -33,6 +33,18 @@ the log retains the entire rolled-back window, so nothing is hidden.
 frequent and always "profitable", or post-restore snapshots contain items the pre-restore snapshots
 can't explain.
 
+## `WORLD_ROLLBACK` — stopped while world saving was off
+
+A stop during a ServerUtilities backup loses everything since the backup started. The backup turns world saving
+off until it finishes, and the shutdown save skips those worlds. The world then restarts as of the backup start.
+`/save-off` does the same.
+
+**How to confirm innocence:** the prior `session_end` has dim 0 in `savingOffDims` (SUMMARY: `world saving
+OFF`), and the rollback's anchor is at the `world_saving` line with `enabled: false` before it.
+
+**Escalate when:** the rollback lands before that `world_saving` line. Restoring an older save is a backup
+restore: judge it as one, by the section above.
+
 ## `ae2_census_failed` — the audit mod could not read an AE2 network
 
 This is a fault in the audit mod (usually an AE2 version it was not built against), not in the run.

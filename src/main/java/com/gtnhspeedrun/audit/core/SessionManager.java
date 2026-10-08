@@ -57,6 +57,7 @@ public final class SessionManager {
     private long sessionStartTicks;
     private long sessionStartOnlineTicks;
     private String verifyVerdict = "UNKNOWN";
+    private boolean savingWasOff;
 
     public SessionManager(Logger log, MinecraftServer server) {
         this.log = log;
@@ -116,6 +117,9 @@ public final class SessionManager {
         data.addProperty("uptimeTicks", clock.get() - sessionStartTicks);
         data.addProperty("onlineUptimeTicks", clock.getOnline() - sessionStartOnlineTicks);
         data.addProperty("reason", "stop");
+        // The shutdown save runs after this event and skips every world in savingOffDims. Dim 0 there means the
+        // anchor is not saved, so the next start is a WORLD_ROLLBACK
+        WorldSaving.describe(server, data);
         logger.log("session_end", data);
         writer.drain(15_000);
         // The world save that follows FMLServerStoppingEvent persists this — the anchor lands exactly on the
@@ -145,6 +149,7 @@ public final class SessionManager {
         if (event.phase != TickEvent.Phase.END || anchor == null) {
             return;
         }
+        checkWorldSaving();
         if (!anchor.timingStarted) {
             // IGT convention: the clock is frozen until the first player movement — worldgen lag, spawn
             // staring and menu time don't count. Wall timestamps keep flowing regardless (RTA is unaffected).
@@ -155,6 +160,19 @@ public final class SessionManager {
         if (ticks % ANCHOR_EVERY_TICKS == 0) {
             publishAnchor(false);
         }
+    }
+
+    /** Logs world_saving when overworld saving turns off (a backup starting) and when it is back on. */
+    private void checkWorldSaving() {
+        final boolean off = WorldSaving.overworldOff();
+        if (off == savingWasOff) {
+            return;
+        }
+        savingWasOff = off;
+        final JsonObject data = new JsonObject();
+        data.addProperty("enabled", !off);
+        WorldSaving.describe(server, data);
+        logger.log("world_saving", data);
     }
 
     private final java.util.Map<UUID, double[]> preTimingPositions = new java.util.HashMap<>();

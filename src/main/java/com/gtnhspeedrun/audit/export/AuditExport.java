@@ -209,12 +209,13 @@ public final class AuditExport {
                         .getAsLong();
                     sb.append(
                         String.format(
-                            "      end   %s  uptime %s%s%n",
+                            "      end   %s  uptime %s%s%s%n",
                             fmt.format(new Date(endWall)),
                             ticksHuman(
                                 data.get("uptimeTicks")
                                     .getAsLong()),
-                            lastStartWall < 0 ? "" : " / " + msHuman(endWall - lastStartWall) + " real"));
+                            lastStartWall < 0 ? "" : " / " + msHuman(endWall - lastStartWall) + " real",
+                            savingOffNote(data)));
                 }
                 default -> {}
             }
@@ -493,6 +494,22 @@ public final class AuditExport {
     private static String ticksHuman(long ticks) {
         final long seconds = ticks / 20;
         return String.format("[%dh%02dm%02ds igt]", seconds / 3600, seconds % 3600 / 60, seconds % 60);
+    }
+
+    /** Session ledger note for a stop with overworld saving off: the shutdown save skipped it and the anchor. */
+    private static String savingOffNote(JsonObject sessionEnd) {
+        boolean overworldOff = false;
+        if (sessionEnd.has("savingOffDims")) {
+            for (com.google.gson.JsonElement dim : sessionEnd.getAsJsonArray("savingOffDims")) {
+                overworldOff |= dim.getAsInt() == 0;
+            }
+        }
+        if (!overworldOff) {
+            return "";
+        }
+        final boolean backup = sessionEnd.has("backupRunning") && sessionEnd.get("backupRunning")
+            .getAsBoolean();
+        return "  [world saving OFF" + (backup ? ", backup running" : "") + ": not saved at stop]";
     }
 
     private static String msHuman(long ms) {

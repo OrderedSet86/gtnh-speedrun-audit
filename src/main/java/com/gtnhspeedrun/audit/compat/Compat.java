@@ -13,7 +13,8 @@ public enum Compat {
     BETTER_QUESTING("betterquesting"),
     BAUBLES("Baubles"),
     GT5("gregtech"),
-    RAILCRAFT("Railcraft");
+    RAILCRAFT("Railcraft"),
+    SERVER_UTILITIES("serverutilities");
 
     private final String modId;
     private Boolean loaded;
