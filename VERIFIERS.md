@@ -92,6 +92,9 @@ Every `session_start` line embeds the startup verdict:
   `session_end` has the same fields: dim 0 in `savingOffDims` means the shutdown save skipped the overworld and
   the anchor with it, so the next start is a `WORLD_ROLLBACK` to the last save. `backupRunning` is present when
   ServerUtilities is installed. Bundles before this version have none of these.
+- `/cofh tpx` (CoFHCore) teleports the sender or another player to any player, dimension id or position, so it
+  can skip a dimension entirely. SUMMARY counts and lists every use under FLAGS FOR REVIEW. The `command` line
+  logs the arguments as typed. The `dim_change` lines that follow show where the player arrived.
 - `block_placed` lines are player placements of the server's `trackedPlacements` blocks, with coordinates
   (default: the Stargate structure — base, ring/chevron, DHD, power units). GT machines log as
   `machine_placed` instead. SUMMARY shows only the first of each block; the JSONL has every one.

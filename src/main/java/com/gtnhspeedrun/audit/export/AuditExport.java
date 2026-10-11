@@ -332,6 +332,13 @@ public final class AuditExport {
         flagCount(sb, counts, "gt_explosion", "GT machine explosions");
         flagCount(sb, counts, "ae2_census_failed", "AE2 census failures (missing AE2 evidence)");
         flagCount(sb, counts, "death", "player deaths");
+        sb.append(
+            String.format(
+                "%-28s %d%n",
+                "/cofh tpx teleports:",
+                lines.stream()
+                    .filter(AuditExport::isCofhTeleport)
+                    .count()));
         for (JsonObject line : lines) {
             final String type = line.get("t")
                 .getAsString();
@@ -340,7 +347,8 @@ public final class AuditExport {
             if (type.equals("gamemode_change") || type.equals("nei_cheat")
                 || type.equals("nbt_edit")
                 || type.equals("difficulty_change")
-                || flaggedJoin) {
+                || flaggedJoin
+                || isCofhTeleport(line)) {
                 // Bulky payloads stay in the JSONL; SUMMARY shows the line without them.
                 // (Copied by entry — MC's gson 2.2.4 predates a public deepCopy.)
                 JsonObject printable = line.getAsJsonObject("data");
@@ -486,6 +494,26 @@ public final class AuditExport {
                 .getAsString())
             : data.get("block")
                 .getAsString();
+    }
+
+    /** CoFHCore's /cofh tpx: a teleport to any player, dimension or position, so a dimension can be skipped. */
+    private static boolean isCofhTeleport(JsonObject line) {
+        if (!"command".equals(
+            line.get("t")
+                .getAsString())) {
+            return false;
+        }
+        final JsonObject data = line.getAsJsonObject("data");
+        if (!data.has("cmd") || !"cofh".equals(
+            data.get("cmd")
+                .getAsString())
+            || !data.has("args")) {
+            return false;
+        }
+        final com.google.gson.JsonArray args = data.getAsJsonArray("args");
+        return args.size() > 0 && "tpx".equalsIgnoreCase(
+            args.get(0)
+                .getAsString());
     }
 
     private static void flagCount(StringBuilder sb, Map<String, Integer> counts, String key, String label) {
