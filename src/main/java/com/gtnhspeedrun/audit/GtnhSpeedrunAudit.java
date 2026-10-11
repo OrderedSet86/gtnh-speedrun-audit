@@ -117,7 +117,6 @@ public class GtnhSpeedrunAudit {
 
             new com.gtnhspeedrun.audit.trackers.FingerprintTracker(
                 sm.logger(),
-                sm.auditDir(),
                 event.getServer()
                     .getFile("config"),
                 event.getServer()

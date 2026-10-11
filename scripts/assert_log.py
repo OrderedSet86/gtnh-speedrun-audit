@@ -4,6 +4,8 @@
 Usage:
   assert_log.py <logDir> verdict <EXPECTED>       last session_start's verifyVerdict == EXPECTED
   assert_log.py <logDir> crashed                  last session_start has previousCrashed == true
+                                                  (the log before it had no session_end)
+  assert_log.py <logDir> unclean                  the last line is not session_end (no clean stop)
   assert_log.py <logDir> continuity               seqs are 0..N with no gaps and the chain links
   assert_log.py <logDir> rollback                 last session_start has rollback.eventsRewound > 0
 """
@@ -48,6 +50,10 @@ def main():
         if not starts[-1]["data"].get("previousCrashed"):
             fail("previousCrashed not set on last session_start")
         print("ok: previous session flagged as crashed")
+    elif cmd == "unclean":
+        if ls[-1][0]["t"] == "session_end":
+            fail(f"last line is session_end (seq {ls[-1][0]['seq']}): the server stopped cleanly")
+        print(f"ok: log ends without session_end (last line {ls[-1][0]['t']})")
     elif cmd == "rollback":
         rb = starts[-1]["data"].get("rollback", {})
         if rb.get("eventsRewound", 0) <= 0:

@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -46,7 +45,6 @@ public final class SessionManager {
     private File auditDir;
     private File logDir;
     private File snapshotDir;
-    private File dirtyMarker;
 
     private ChainAnchorData anchor;
     private TickClock clock;
@@ -75,10 +73,10 @@ public final class SessionManager {
         snapshotDir = new File(auditDir, "snapshots");
         logDir.mkdirs();
         snapshotDir.mkdirs();
-        dirtyMarker = new File(auditDir, "session.dirty");
 
-        final boolean previousCrashed = dirtyMarker.exists();
         final Tail tail = findTail();
+        // The log's own word, inside the chain: a clean stop always ends on session_end.
+        final boolean previousCrashed = tail.seq >= 0 && !"session_end".equals(tail.type);
         verifyVerdict = classify(tail, previousCrashed);
 
         sessionId = UUID.randomUUID()
@@ -94,9 +92,14 @@ public final class SessionManager {
         writer.start();
         logger = new AuditLogger(writer, clock);
 
-        writeDirtyMarker();
         anchor.cleanShutdown = false;
+        anchor.sessionId = sessionId;
         anchor.markDirty();
+        // Autosave only comes every 900 ticks. Save now, so that a crash at any point leaves an anchor naming this
+        // session — the evidence classify() needs to tell a crash from a restore.
+        if (!overworld.levelSaving) {
+            overworld.mapStorage.saveAllData();
+        }
 
         logger.log("session_start", sessionStartData(overworld, tail, previousCrashed));
         FMLCommonHandler.instance()
@@ -133,9 +136,6 @@ public final class SessionManager {
             .unregister(this);
         if (writer != null) {
             writer.close(5_000);
-            if (!writer.isDead()) {
-                dirtyMarker.delete();
-            }
         }
         writer = null;
         logger = null;
@@ -234,6 +234,8 @@ public final class SessionManager {
         long seq = -1;
         String hash = "";
         String json = "";
+        String sid = "";
+        String type = "";
     }
 
     /**
@@ -266,6 +268,10 @@ public final class SessionManager {
                     tail.hash = JsonUtil.sha256Hex(lastLine);
                     tail.latestFile = f;
                     tail.json = JsonUtil.GSON.toJson(obj);
+                    tail.sid = obj.get("sid")
+                        .getAsString();
+                    tail.type = obj.get("t")
+                        .getAsString();
                 }
             } catch (RuntimeException e) {
                 log.warn("Unparseable tail line in {} — verifier will flag it", f.getName());
@@ -313,13 +319,16 @@ public final class SessionManager {
         if (tail.seq < 0) {
             return anchor.lastSeq < 0 ? "NEW_WORLD" : "LOG_MISSING";
         }
-        if (anchor.lastSeq < 0) {
-            return "ANCHOR_MISSING";
-        }
         if (anchor.lastSeq < tail.seq) {
-            // Crash lag is bounded by the anchor cadence (100 ticks ≈ 5s of events); anything beyond one
-            // autosave of slack on a CLEAN previous stop means the world went backwards relative to the log.
-            return previousCrashed ? "CRASH_RECOVERY" : "WORLD_ROLLBACK";
+            // The world is behind the log. That is a crash only if the log has no clean stop, the world was last
+            // saved mid-session, and by the session that crashed (start() saves the anchor at once). A restore of a
+            // save from any earlier session, or of one made at a clean stop, fails this.
+            final boolean crashedSessionSavedLast = !anchor.cleanShutdown && !anchor.sessionId.isEmpty()
+                && anchor.sessionId.equals(tail.sid);
+            if (previousCrashed && crashedSessionSavedLast) {
+                return "CRASH_RECOVERY";
+            }
+            return anchor.lastSeq < 0 ? "ANCHOR_MISSING" : "WORLD_ROLLBACK";
         }
         if (anchor.lastSeq > tail.seq) {
             return "LOG_TRUNCATED";
@@ -410,17 +419,6 @@ public final class SessionManager {
         }
         data.add("mods", mods);
         return data;
-    }
-
-    private void writeDirtyMarker() throws IOException {
-        final JsonObject marker = new JsonObject();
-        marker.addProperty("sessionId", sessionId);
-        marker.addProperty("sessionIndex", sessionIndex);
-        marker.addProperty("startWallMs", System.currentTimeMillis());
-        Files.write(
-            dirtyMarker.toPath(),
-            JsonUtil.GSON.toJson(marker)
-                .getBytes(StandardCharsets.UTF_8));
     }
 
     // ------------------------------------------------------------------ session-scoped dedupe

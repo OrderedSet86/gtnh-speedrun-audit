@@ -26,6 +26,8 @@ public final class ChainAnchorData extends WorldSavedData {
     public long cumulativeTicks;
     public long lastWallMs;
     public boolean cleanShutdown = true;
+    /** The session that last saved the world. A crash leaves it equal to the crashed session's sid. */
+    public String sessionId = "";
     /** IGT convention: the run clocks are frozen until the first player movement (worldgen lag doesn't count). */
     public boolean timingStarted = false;
     /** Wall-clock moment timing started — the RTA epoch. */
@@ -62,6 +64,7 @@ public final class ChainAnchorData extends WorldSavedData {
         cumulativeTicks = nbt.getLong("cumulativeTicks");
         lastWallMs = nbt.getLong("lastWallMs");
         cleanShutdown = nbt.getBoolean("cleanShutdown");
+        sessionId = nbt.getString("sessionId");
         // Migration: worlds audited before this field existed already have ticks on the clock.
         timingStarted = nbt.getBoolean("timingStarted") || cumulativeTicks > 0;
         timingStartWallMs = nbt.getLong("timingStartWallMs");
@@ -80,6 +83,7 @@ public final class ChainAnchorData extends WorldSavedData {
         nbt.setLong("cumulativeTicks", cumulativeTicks);
         nbt.setLong("lastWallMs", lastWallMs);
         nbt.setBoolean("cleanShutdown", cleanShutdown);
+        nbt.setString("sessionId", sessionId);
         nbt.setBoolean("timingStarted", timingStarted);
         nbt.setLong("timingStartWallMs", timingStartWallMs);
         nbt.setLong("cumulativeOnlineTicks", cumulativeOnlineTicks);

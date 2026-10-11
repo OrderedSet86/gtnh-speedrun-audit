@@ -1,16 +1,17 @@
 package com.gtnhspeedrun.audit.trackers;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.gtnhspeedrun.audit.core.AuditLogger;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 
@@ -24,23 +25,18 @@ import cpw.mods.fml.common.ModContainer;
  *
  * <p>
  * Hashing ~300 jars plus a config tree is multi-GB of IO — it runs on a background thread and lands as a
- * fingerprint line a few seconds into the session. A (size, mtime)-keyed cache makes every boot after the
- * first nearly free.
+ * fingerprint line a few seconds into the session. Every file is hashed by content on every boot: there is no
+ * (size, mtime) cache, because an edit that keeps the size and resets the mtime would reuse the old hash.
  */
 public final class FingerprintTracker {
 
     private final AuditLogger logger;
-    private final File cacheFile;
     private final List<String[]> mods = new ArrayList<>(); // {id, version, sourcePath}
     private final File configDir;
     private final File scriptsDir;
 
-    private JsonObject cache = new JsonObject();
-    private boolean cacheDirty;
-
-    public FingerprintTracker(AuditLogger logger, File auditDir, File configDir, File scriptsDir) {
+    public FingerprintTracker(AuditLogger logger, File configDir, File scriptsDir) {
         this.logger = logger;
-        this.cacheFile = new File(auditDir, "jarhash-cache.json");
         this.configDir = configDir;
         this.scriptsDir = scriptsDir;
     }
@@ -61,7 +57,6 @@ public final class FingerprintTracker {
 
     private void run() {
         try {
-            loadCache();
             final JsonObject data = new JsonObject();
 
             final JsonArray modArr = new JsonArray();
@@ -75,7 +70,7 @@ public final class FingerprintTracker {
                     o.addProperty("jar", source.getName());
                     // Dev workspaces load mods from directories; only real files get content hashes.
                     if (source.isFile()) {
-                        o.addProperty("sha256", cachedHash(source));
+                        o.addProperty("sha256", hashFile(source));
                     }
                 }
                 modArr.add(o);
@@ -86,7 +81,6 @@ public final class FingerprintTracker {
             data.add("mods", modArr);
             data.addProperty("configDirHash", dirHash(configDir));
             data.addProperty("scriptsDirHash", dirHash(scriptsDir));
-            saveCache();
             logger.log("fingerprint", data);
         } catch (Exception e) {
             final JsonObject data = new JsonObject();
@@ -111,7 +105,7 @@ public final class FingerprintTracker {
                 f.getAbsolutePath()
                     .substring(prefix))
                 .append(':')
-                .append(cachedHash(f))
+                .append(hashFile(f))
                 .append('\n');
         }
         return JsonUtil.sha256Hex(sb.toString());
@@ -131,51 +125,21 @@ public final class FingerprintTracker {
         }
     }
 
-    private String cachedHash(File file) throws IOException {
-        final String key = file.getAbsolutePath();
-        final String stamp = file.length() + ":" + file.lastModified();
-        if (cache.has(key)) {
-            final JsonObject entry = cache.getAsJsonObject(key);
-            if (stamp.equals(
-                entry.get("stamp")
-                    .getAsString())) {
-                return entry.get("sha256")
-                    .getAsString();
+    private static String hashFile(File file) throws IOException {
+        final MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+        // Streamed, so a large jar is never held in memory whole.
+        final byte[] buffer = new byte[64 * 1024];
+        try (InputStream in = new FileInputStream(file)) {
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                digest.update(buffer, 0, n);
             }
         }
-        final String hash = JsonUtil.sha256Hex(Files.readAllBytes(file.toPath()));
-        final JsonObject entry = new JsonObject();
-        entry.addProperty("stamp", stamp);
-        entry.addProperty("sha256", hash);
-        cache.add(key, entry);
-        cacheDirty = true;
-        return hash;
+        return JsonUtil.toHex(digest.digest());
     }
-
-    private void loadCache() {
-        try {
-            if (cacheFile.isFile()) {
-                cache = new JsonParser()
-                    .parse(new String(Files.readAllBytes(cacheFile.toPath()), StandardCharsets.UTF_8))
-                    .getAsJsonObject();
-            }
-        } catch (IOException | RuntimeException e) {
-            cache = new JsonObject();
-        }
-    }
-
-    private void saveCache() {
-        if (!cacheDirty) {
-            return;
-        }
-        try {
-            Files.write(
-                cacheFile.toPath(),
-                JsonUtil.GSON.toJson(cache)
-                    .getBytes(StandardCharsets.UTF_8));
-        } catch (IOException ignored) {
-            // Cache is an optimization; next boot just rehashes.
-        }
-    }
-
 }

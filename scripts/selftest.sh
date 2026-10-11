@@ -23,7 +23,7 @@ boot() { # boot <label> <extra gradle args...>; console gets EULA answer + timed
 logdir() { ls -d $AUDIT_GLOB 2>/dev/null | head -1; }
 
 step "wipe scratch world + audit dir"
-rm -rf "$SERVER/world" "$SERVER"/speedrun-audit "$SERVER/selftest-out" "$SERVER/session.dirty"
+rm -rf "$SERVER/world" "$SERVER"/speedrun-audit "$SERVER/selftest-out"
 mkdir -p "$SERVER" && echo "eula=true" > "$SERVER/eula.txt"
 
 step "boot A: scenario (fake players, in-JVM checks)"
@@ -44,6 +44,21 @@ rm -rf "$SERVER/world" && cp -r "$SCRATCH/world-backup" "$SERVER/world"
 boot C
 python3 scripts/assert_log.py "$(logdir)" verdict WORLD_ROLLBACK
 python3 scripts/assert_log.py "$(logdir)" rollback
+python3 scripts/assert_log.py "$(logdir)" continuity
+
+step "boot C2: restore the backup again + strip the clean-stop line to fake a crash -> still WORLD_ROLLBACK"
+rm -rf "$SERVER/world" && cp -r "$SCRATCH/world-backup" "$SERVER/world"
+python3 - "$(ls -t "$(logdir)"/*.jsonl | head -1)" <<'EOF2'
+import json, sys
+p = sys.argv[1]
+lines = open(p, 'rb').read().rstrip(b'\n').split(b'\n')
+assert json.loads(lines[-1])['t'] == 'session_end', 'newest log does not end on session_end'
+open(p, 'wb').write(b'\n'.join(lines[:-1]) + b'\n')
+EOF2
+python3 scripts/assert_log.py "$(logdir)" unclean
+boot C2
+python3 scripts/assert_log.py "$(logdir)" verdict WORLD_ROLLBACK
+python3 scripts/assert_log.py "$(logdir)" crashed
 python3 scripts/assert_log.py "$(logdir)" continuity
 
 step "boot D: newest log file hidden -> LOG_TRUNCATED"
@@ -88,8 +103,7 @@ done
 kill -9 "$GRADLE_PID" 2>/dev/null || true
 wait "$GRADLE_PID" 2>/dev/null || true
 sleep 3
-ls "$SERVER"/speedrun-audit/*/session.dirty > /dev/null 2>&1 \
-    || { echo "FAILED: kill left no dirty marker (server exited cleanly?)"; exit 1; }
+python3 scripts/assert_log.py "$(logdir)" unclean
 boot F
 python3 scripts/assert_log.py "$(logdir)" verdict CRASH_RECOVERY
 python3 scripts/assert_log.py "$(logdir)" crashed

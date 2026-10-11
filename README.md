@@ -94,11 +94,12 @@ Standard GTNH mod template: `./gradlew build`. Dev server: `./gradlew runServer`
 
 ## Self-test
 
-`scripts/selftest.sh` (~5–7 min) is the full headless harness: one scenario boot where two fake players
+`scripts/selftest.sh` (~8 min) is the full headless harness: one scenario boot where two fake players
 perform every loggable action (join, movement→timer start, gamemode flips, snapshots, key items,
 commands, difficulty changes, death, milestones, sink-layer events) with in-JVM assertions against the
-actual JSONL, followed by the tamper drills — restart→OK, world-restore→WORLD_ROLLBACK, hidden
-log→LOG_TRUNCATED, byte-edit→chain break at the exact line, kill -9→CRASH_RECOVERY. Ends with
+actual JSONL, followed by the tamper drills — restart→OK, world-restore→WORLD_ROLLBACK, world-restore
+with a faked crash→still WORLD_ROLLBACK, hidden log→LOG_TRUNCATED, byte-edit→chain break at the exact
+line, kill -9→CRASH_RECOVERY. Ends with
 `ALL DRILLS PASSED` or a named failing check.
 
 The dev server loads AE2 (`devOnlyNonPublishable` in `dependencies.gradle` — the shipped jar still declares

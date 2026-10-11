@@ -47,7 +47,9 @@ Every `session_start` line embeds the startup verdict:
 
 - `NEW_WORLD` — first session ever.
 - `OK` — anchor and log tail agree.
-- `CRASH_RECOVERY` — previous session died dirty; the anchor may lag the tail by up to ~5s of events.
+- `CRASH_RECOVERY` — the previous session ended without a `session_end` line, and the world was last saved
+  mid-session by that same session. The anchor may lag the tail by up to one autosave (900 ticks, 45 s at
+  20 TPS), longer while world saving was off.
 - `WORLD_ROLLBACK` — the world was restored from a backup. **Allowed by the rules.** The `rollback` object
   says how many events and how much in-game time were rewound. Judge with context: a `gt_explosion` shortly
   before the stop is the normal story; a rollback that lands just before a milestone, without context, is not.

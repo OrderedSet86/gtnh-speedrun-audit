@@ -85,9 +85,20 @@ pack change (`fingerprint` lines) in between.
 ## `CRASH_RECOVERY` / `ANCHOR_MISSING`
 
 Crashes are a fact of modded 1.7.10. `CRASH_RECOVERY` with the anchor lagging the log tail by up to
-~100 ticks (the anchor write cadence) is the normal signature. `ANCHOR_MISSING` can appear once if
-the very first session of a world crashed before the world ever saved (seen in testing). Neither is
-suspicious alone; a *pattern* of crashes bracketing milestones is.
+one autosave (900 ticks, 45 s at 20 TPS) is the normal signature; the lag is longer if world saving
+was off at the crash (a `world_saving` line with `enabled: false` before it). The world must back the
+crash up: the verdict needs a log with no `session_end` *and* a world last saved mid-session by the
+session that crashed. The mod saves the world at every session start, so a crash in a world's first
+session also reads `CRASH_RECOVERY`, not `ANCHOR_MISSING`. Neither verdict is suspicious alone; a
+*pattern* of crashes bracketing milestones is.
+
+A large `eventsRewound` under `CRASH_RECOVERY` is worth a look: it can also be a live backup from the
+same session restored after the last line was cut from the log.
+
+## `WORLD_ROLLBACK` with `[previous session CRASHED]`
+
+The log ended without a clean stop, but the world was restored to an older save than the crash would
+leave. Usually a crash followed by a backup restore. Judge it as a rollback, by the sections above.
 
 ## `gamemode_change` to creative
 
