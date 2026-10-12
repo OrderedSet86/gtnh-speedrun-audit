@@ -119,6 +119,8 @@ public class GtnhSpeedrunAudit {
                 onFmlBus(storage);
                 sm.addSnapshotHook(() -> storage.census("manual"));
             }
+            // Vanilla types only; without ServerUtilities it never sees a view.
+            onFmlBus(new com.gtnhspeedrun.audit.trackers.InvseeViews()); // target logins, viewer logouts
             // Vanilla types only; without ServerUtilities it simply never sees a trash chest.
             onFmlBus(new com.gtnhspeedrun.audit.trackers.TrashCanCommandTracker(sm.logger()));
             if (com.gtnhspeedrun.audit.compat.Compat.GT5.isLoaded()) {

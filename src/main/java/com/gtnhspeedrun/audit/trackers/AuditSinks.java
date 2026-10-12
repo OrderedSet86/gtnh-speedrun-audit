@@ -342,14 +342,15 @@ public final class AuditSinks {
     }
 
     /** One /inv view click that changed something: the slots it changed, tagged viewer or target. */
-    public static void invseeClick(EntityPlayer viewer, String targetName, String targetUuid, boolean targetOnline,
-        int slotId, int button, int mode, com.google.gson.JsonArray changes, JsonObject cursorBefore,
-        JsonObject cursorAfter) {
+    public static void invseeClick(String viewId, EntityPlayer viewer, String targetName, String targetUuid,
+        boolean targetOnline, int slotId, int button, int mode, com.google.gson.JsonArray changes,
+        JsonObject cursorBefore, JsonObject cursorAfter) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
             return;
         }
         final JsonObject data = invseeBase(viewer, targetName, targetUuid);
+        data.addProperty("viewId", viewId);
         data.addProperty("targetOnline", targetOnline);
         data.addProperty("slotId", slotId);
         data.addProperty("button", button);
@@ -363,26 +364,6 @@ public final class AuditSinks {
         }
         session.logger()
             .log("invsee_click", data);
-    }
-
-    /**
-     * The view closed. ServerUtilities writes an offline target's copy back now; {@code targetJoinedDuringView}
-     * marks the case where that overwrites what the target did after logging in.
-     */
-    public static void invseeClose(EntityPlayer viewer, String targetName, String targetUuid, boolean onlineAtOpen,
-        boolean onlineAtClose) {
-        final SessionManager session = GtnhSpeedrunAudit.session();
-        if (session == null) {
-            return;
-        }
-        final JsonObject data = invseeBase(viewer, targetName, targetUuid);
-        data.addProperty("targetOnlineAtOpen", onlineAtOpen);
-        data.addProperty("targetOnlineAtClose", onlineAtClose);
-        if (!onlineAtOpen && onlineAtClose) {
-            data.addProperty("targetJoinedDuringView", true);
-        }
-        session.logger()
-            .log("invsee_close", data);
     }
 
     private static JsonObject invseeBase(EntityPlayer viewer, String targetName, String targetUuid) {

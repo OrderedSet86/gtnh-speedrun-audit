@@ -118,10 +118,22 @@ Every `session_start` line embeds the startup verdict:
 - `trash_insert` lines are stacks a player put into an Extra Utilities trash can by hand. They are voided at once.
   Pipe and hopper inserts are not logged. `trash_can_closed` lines are the contents of a ServerUtilities
   `/trash_can` when it closed, which is when they are destroyed.
-- `invsee_click` lines are single clicks in `/inv view` that changed a slot: each changed slot with `owner`
-  (`viewer` or `target`), inventory, index, before and after. The target's own moves during the view are not
-  in these lines. An offline target's inventory is a copy that is written back on close, so `invsee_close`
-  with `targetJoinedDuringView` means that write can have overwritten what the target did after logging in.
+- `/inv view` (ServerUtilities) is logged per view. `invsee_open` starts a view with a `viewId`, says whether
+  the target was online, and lists other open views of the same target (`concurrentViews`). `invsee_click`
+  lines are single clicks that changed a slot: each changed slot with `owner` (`viewer` or `target`),
+  inventory, index, before and after. The target's moves during the view are not in these lines.
+  `invsee_close` says how the view ended (`how`: `closed`, `replaced` by a new `/inv view` without a close, or
+  `viewerLogout`), counts the target's joins and leaves during the view, lists `overlappingViews`, and gives an
+  `outcome`.
+  The outcome follows ServerUtilities' rules. An offline target's inventories are a copy, written to the
+  target's file only by a normal close while the target is offline. If the target is online at close, or the view
+  ends without a close, that write is skipped: what the viewer took from the target then exists twice, and what
+  the viewer put in is lost (`changes lost …`). A view opened on an online target edits the live inventories
+  until the target logs out; later clicks go to a player object that is no longer saved (`changes after target
+  logout lost`). Two views of one offline target each save their own copy, and the one closed last overwrites the
+  other (`saved, last writer wins`). A save after the target logged in and out again overwrites the target's
+  session in between. The Backpack-mod and Adventure Backpack tabs save by different rules and are not covered
+  by the outcome; their clicks are listed apart in the analyzer.
 - `watched_block` lines are player place and break of the `watchedBlocks` list (Thaumcraft nodes, node jars,
   stabilizers and transducer, Ethereal Shards, Blood Magic altars and ritual stones). A break has the tile's
   NBT. Jarring a node with a wand fires no event; compare `node_census` files.

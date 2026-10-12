@@ -358,8 +358,7 @@ public final class AuditExport {
                 || type.equals("gamerule_change")
                 || type.equals("gt_global_energy")
                 || type.equals("quest_edit")
-                || type.equals("invsee_close") && line.getAsJsonObject("data")
-                    .has("targetJoinedDuringView")
+                || type.equals("invsee_close") && invseeNeedsReview(line.getAsJsonObject("data"))
                 || flaggedJoin
                 || isCofhTeleport(line)) {
                 // Bulky payloads stay in the JSONL; SUMMARY shows the line without them.
@@ -386,6 +385,13 @@ public final class AuditExport {
 
         sb.append("\nRead VERIFIERS.md in the mod repository for how to independently re-verify this bundle.\n");
         return sb.toString();
+    }
+
+    /** A view whose target-side changes were dropped or overwritten: duplicated or lost items. */
+    static boolean invseeNeedsReview(JsonObject close) {
+        final String outcome = close.has("outcome") ? close.get("outcome")
+            .getAsString() : "";
+        return outcome.startsWith("changes") || outcome.contains("overwritten") || outcome.contains("last writer");
     }
 
     private static final java.util.Set<String> BULKY_KEYS = new java.util.HashSet<>(

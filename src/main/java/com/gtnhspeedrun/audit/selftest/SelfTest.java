@@ -34,6 +34,7 @@ import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.core.Verifier;
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.InvseeViews;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
 import com.mojang.authlib.GameProfile;
 
@@ -285,8 +286,7 @@ public final class SelfTest {
                 AuditSinks.trashInsert(alice, null, new ItemStack(Items.diamond, 2));
                 final com.google.gson.JsonArray invseeChanges = new com.google.gson.JsonArray();
                 invseeChanges.add(new JsonObject());
-                AuditSinks.invseeClick(alice, "SelfTestBob", uuid(bob), true, 3, 0, 0, invseeChanges, null, null);
-                AuditSinks.invseeClose(alice, "SelfTestBob", uuid(bob), false, true);
+                driveInvseeViews(overworld, invseeChanges);
                 final JsonObject giveExtra = new JsonObject();
                 giveExtra.addProperty("inserted", 0);
                 AuditSinks.neiCheat("give", uuid(alice), "SelfTestAlice", "minecraft:diamond@0", 64, null, giveExtra);
@@ -347,6 +347,37 @@ public final class SelfTest {
     }
 
     /**
+     * /inv view outcomes, through the view registry below the mixin: a target who logs in mid-view, two views of one
+     * offline target, a view replaced by another, and (at step 9's logouts) a viewer who leaves with a view open.
+     */
+    private void driveInvseeViews(WorldServer overworld, com.google.gson.JsonArray changes) {
+        final UUID carolId = UUID.nameUUIDFromBytes("selftest-carol".getBytes(StandardCharsets.UTF_8));
+        final UUID daveId = UUID.nameUUIDFromBytes("selftest-dave".getBytes(StandardCharsets.UTF_8));
+        final UUID aliceId = alice.getUniqueID();
+        // target logs in mid-view: the write-back is skipped
+        final String joined = InvseeViews.open(aliceId, "SelfTestAlice", carolId, "SelfTestCarol", false);
+        AuditSinks.invseeClick(joined, alice, "SelfTestCarol", carolId.toString(), false, 3, 0, 0, changes, null, null);
+        InvseeViews.clicked(joined, true);
+        final EntityPlayerMP carol = FakePlayerFactory.get(overworld, new GameProfile(carolId, "SelfTestCarol"));
+        bus.post(new PlayerEvent.PlayerLoggedInEvent(carol));
+        InvseeViews.end(joined, "closed", aliceId, "SelfTestAlice", "SelfTestCarol", true);
+        // two views of one offline target: last writer wins
+        final String first = InvseeViews.open(aliceId, "SelfTestAlice", daveId, "SelfTestDave", false);
+        final String second = InvseeViews.open(bob.getUniqueID(), "SelfTestBob", daveId, "SelfTestDave", false);
+        InvseeViews.clicked(first, true);
+        InvseeViews.clicked(second, true);
+        InvseeViews.end(first, "closed", aliceId, "SelfTestAlice", "SelfTestDave", false);
+        InvseeViews.end(second, "closed", bob.getUniqueID(), "SelfTestBob", "SelfTestDave", false);
+        // replaced without a close
+        final String replaced = InvseeViews.open(aliceId, "SelfTestAlice", daveId, "SelfTestDave", false);
+        InvseeViews.clicked(replaced, true);
+        InvseeViews.end(replaced, "replaced", aliceId, "SelfTestAlice", null, false);
+        // left open: bob's logout at step 9 ends it
+        final String abandoned = InvseeViews.open(bob.getUniqueID(), "SelfTestBob", daveId, "SelfTestDave", false);
+        InvseeViews.clicked(abandoned, true);
+    }
+
+    /**
      * Give the AE2 census a grid to count, so {@code ae2_snapshot} is exercised rather than merely compiled.
      * One ME Interface is enough — any grid host forms a grid, and a grid holding nothing still produces a
      * census record. Resolved by registry name on purpose: SelfTest has to stay loadable on a server without
@@ -376,7 +407,8 @@ public final class SelfTest {
         "achievement", "dim_first_visit", "key_item_craft", "nei_packet", "nei_cheat", "multiblock_formed",
         "gt_explosion", "nbt_edit", "ae2_census_failed", "block_placed", "player_leave", "dim_change", "creative_slot",
         "world_saving", "gamerule_change", "command_output", "item_id_table", "gt_powerfail", "blood_altar_tier",
-        "trash_insert", "invsee_click", "invsee_close", "trash_can_closed", "watched_block", "node_census" };
+        "trash_insert", "invsee_open", "invsee_click", "invsee_close", "trash_can_closed", "watched_block",
+        "node_census" };
 
     private void verifyLog() {
         session.logger()
@@ -448,6 +480,26 @@ public final class SelfTest {
             "watched_block place ×2 + break",
             counts.getOrDefault("watched_block", 0) == 3,
             "count=" + counts.getOrDefault("watched_block", 0));
+        final java.util.Set<String> outcomes = new java.util.HashSet<>();
+        for (JsonObject line : lines) {
+            if ("invsee_close".equals(
+                line.get("t")
+                    .getAsString())) {
+                outcomes.add(
+                    line.getAsJsonObject("data")
+                        .get("outcome")
+                        .getAsString());
+            }
+        }
+        check(
+            "invsee view outcomes",
+            outcomes.containsAll(
+                java.util.Arrays.asList(
+                    "changes lost (target online at close)",
+                    "saved, last writer wins",
+                    "changes lost (view not closed)"))
+                && counts.getOrDefault("invsee_close", 0) == 5,
+            "outcomes=" + outcomes + " closes=" + counts.getOrDefault("invsee_close", 0));
         check(
             "trash_can_closed carries the chest's contents",
             lines.stream()

@@ -21,9 +21,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.snapshot.StackJson;
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.InvseeViewHolder;
+import com.gtnhspeedrun.audit.trackers.InvseeViews;
 
 import serverutils.invsee.InvseeContainer;
 import serverutils.lib.data.ForgePlayer;
+import serverutils.lib.gui.ContainerBase;
 
 /**
  * /inv view (alias /inv edit): an op moving items in and out of another player's inventories. The record is per
@@ -32,21 +35,22 @@ import serverutils.lib.data.ForgePlayer;
  * across it are exactly what that click moved; each is tagged with whose inventory it belongs to.
  *
  * <p>
- * An online target's main inventory is their live one. An offline target's is a copy that ServerUtilities writes
- * back to their saved data when the view closes, so a target who logs in meanwhile can have their own moves
- * overwritten — the close line flags that case. Same class shape from ServerUtilities 2.2.2 (pack 2.8.4) through
- * 2.4.13; both method names are listed because the class is unmapped while its Container overrides are SRG-named
- * in production.
+ * An online target's inventories are their live ones. An offline target's are a copy, written to their file only
+ * when the view closes normally and only if the target is offline at that moment. If the target logs in first,
+ * the write is skipped: what the viewer took is duplicated and what the viewer put in is lost. Each view therefore
+ * gets an id (InvseeViews), which follows the target's logins, other views of the same target, and how the view
+ * ended. Same class shape from ServerUtilities 2.2.2 (pack 2.8.4) through 2.4.13; both method names are listed
+ * because the class is unmapped while its Container overrides are SRG-named in production.
  */
 @Mixin(value = InvseeContainer.class, remap = false)
-public class InvseeContainerMixin {
+public class InvseeContainerMixin implements InvseeViewHolder {
 
     @Shadow
     @Final
     private ForgePlayer otherPlayer;
 
     @Unique
-    private boolean audit$targetOnlineAtOpen;
+    private String audit$viewId;
 
     @Unique
     private int audit$depth;
@@ -57,9 +61,36 @@ public class InvseeContainerMixin {
     @Unique
     private ItemStack audit$cursorBefore;
 
+    @Override
+    public String audit$viewId() {
+        return audit$viewId;
+    }
+
+    /**
+     * /inv view builds the container before assigning it to the viewer, so the viewer's open container here is the
+     * view this one replaces, if any. That one never gets onContainerClosed, so it is ended here.
+     */
     @Inject(method = "<init>", at = @At("RETURN"), require = 1)
     private void audit$open(CallbackInfo ci) {
-        audit$targetOnlineAtOpen = otherPlayer != null && otherPlayer.isOnline();
+        final EntityPlayer viewer = ((ContainerBase) (Object) this).player;
+        if (viewer == null || viewer.worldObj == null || viewer.worldObj.isRemote) {
+            return;
+        }
+        if (viewer.openContainer instanceof InvseeViewHolder previous && previous != (Object) this) {
+            InvseeViews.end(
+                previous.audit$viewId(),
+                "replaced",
+                viewer.getUniqueID(),
+                viewer.getCommandSenderName(),
+                null,
+                otherPlayer != null && otherPlayer.isOnline());
+        }
+        audit$viewId = InvseeViews.open(
+            viewer.getUniqueID(),
+            viewer.getCommandSenderName(),
+            otherPlayer == null ? null : otherPlayer.getId(),
+            otherPlayer == null ? null : otherPlayer.getName(),
+            otherPlayer != null && otherPlayer.isOnline());
     }
 
     @Inject(method = { "slotClick", "func_75144_a" }, at = @At("HEAD"), require = 1)
@@ -108,7 +139,17 @@ public class InvseeContainerMixin {
         final ItemStack cursorNow = player.inventory.getItemStack();
         final boolean cursorChanged = !ItemStack.areItemStacksEqual(audit$cursorBefore, cursorNow);
         if (changes.size() > 0 || cursorChanged) {
+            boolean touchedTarget = false;
+            for (int i = 0; i < changes.size(); i++) {
+                touchedTarget |= "target".equals(
+                    changes.get(i)
+                        .getAsJsonObject()
+                        .get("owner")
+                        .getAsString());
+            }
+            InvseeViews.clicked(audit$viewId, touchedTarget);
             AuditSinks.invseeClick(
+                audit$viewId,
                 player,
                 otherPlayer == null ? null : otherPlayer.getName(),
                 otherPlayer == null ? null : String.valueOf(otherPlayer.getId()),
@@ -129,12 +170,12 @@ public class InvseeContainerMixin {
         if (player.worldObj.isRemote) {
             return;
         }
-        final boolean onlineNow = otherPlayer != null && otherPlayer.isOnline();
-        AuditSinks.invseeClose(
-            player,
+        InvseeViews.end(
+            audit$viewId,
+            "closed",
+            player.getUniqueID(),
+            player.getCommandSenderName(),
             otherPlayer == null ? null : otherPlayer.getName(),
-            otherPlayer == null ? null : String.valueOf(otherPlayer.getId()),
-            audit$targetOnlineAtOpen,
-            onlineNow);
+            otherPlayer != null && otherPlayer.isOnline());
     }
 }

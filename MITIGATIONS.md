@@ -159,8 +159,11 @@ teammate.
 items from the viewer to the target; the matching loss is usually a `death` line or a rollback shortly before.
 
 **Escalate when:** items move from the target to the viewer and then show up in progression, or
-`invsee_close` has `targetJoinedDuringView` (the offline copy was written back over a live inventory, which
-can duplicate items).
+`invsee_close` has an `outcome` of `changes lost …`, `changes after target logout lost` or `last writer wins`.
+In those cases ServerUtilities never saved the viewer's changes to the target (or another view overwrote them),
+so what the viewer took is duplicated and what the viewer put in is lost. This is a ServerUtilities bug, not
+something the runner chose, but duplicated items that reach progression still count. The analyzer's Inventory
+views sheet lists the duplicated and lost items per view.
 
 ## `trash_insert` / `trash_can_closed` — items destroyed by hand
 
