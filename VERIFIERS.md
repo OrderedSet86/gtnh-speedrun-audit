@@ -66,8 +66,10 @@ Every `session_start` line embeds the startup verdict:
 - Multiblock formation timestamps lag real placement by up to a few seconds (structure checks are periodic).
 - GT `multiblock_formed` lines carry `energyHatches`/`energyTier` and `dynamoHatches`/`dynamoTier`: how many
   hatches the structure had when it formed and the highest voltage tier among them (`LV` … `MAX+`), from each
-  hatch's own voltage. A multiblock logs once per position per session, and again when its hatch tier
-  changes, so a hatch upgrade is a new line. Some TecTech and GT++ multiblocks keep hatches in their own
+  hatch's own voltage. A GT multiblock logs once when it forms, and again when its hatch tier changes, so a
+  hatch upgrade is a new line. The controller saves the tiers it last logged in its NBT, so a server restart
+  logs nothing new, and a restored backup that predates the formation logs it again. Logs from earlier
+  versions repeat every formed multiblock once per session. Some TecTech and GT++ multiblocks keep hatches in their own
   lists and can report fewer hatches or no tier. Railcraft multiblocks, the bricked blast furnace and lines
   from earlier versions have no hatch fields.
 - `dim_change` lines record every dimension change (`fromDim`, `toDim`, arrival position). A teleport
@@ -98,6 +100,11 @@ Every `session_start` line embeds the startup verdict:
 - `block_placed` lines are player placements of the server's `trackedPlacements` blocks, with coordinates
   (default: the Stargate structure — base, ring/chevron, DHD, power units). GT machines log as
   `machine_placed` instead. SUMMARY shows only the first of each block; the JSONL has every one.
+- `bulk_placed` lines are GT machines a Matter Manipulator placed: one line per player, dimension, manipulator
+  and tick, with `machines` and `pipes` as `[x, y, z, meta tile ID]`, `names` by meta tile ID, and `checked`,
+  the spots the manipulator went over that already held that machine. In logs from earlier versions, the
+  manipulator's `machine_placed` lines (`itemKey` `matter-manipulator:…`) are those already-built spots, not
+  placements, and what it placed is not logged.
 - `world_saving` lines with `enabled: false` also have `lastSave {seq, ticks, wall}`: the anchor values the
   overworld's latest save wrote. A backup saves every world and then turns saving off, so these are the anchor
   inside that backup. A `WORLD_ROLLBACK` whose `session_start.anchor` equals a `lastSave` restored that backup.

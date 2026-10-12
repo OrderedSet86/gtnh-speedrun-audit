@@ -209,8 +209,9 @@ public final class AuditSinks {
     /**
      * A multiblock "forms" again every time its chunk reloads (the MTE is recreated unformed and rechecks), so
      * formations are deduped per (class, position, hatch tiers) per session: swapping LV energy hatches for UV
-     * ones re-logs the formation, a chunk reload does not. The cross-session first-per-class milestone is
-     * deduped through the anchor and rewinds with the world.
+     * ones re-logs the formation, a chunk reload does not. A server restart logs every formed multiblock again;
+     * GT multiblocks avoid that through {@link #gtMultiblockFormed}. The cross-session first-per-class milestone
+     * is deduped through the anchor and rewinds with the world.
      */
     public static void multiblockFormed(String kind, String className, String localName, int dim, int x, int y, int z,
         MultiblockPower power) {
@@ -222,6 +223,31 @@ public final class AuditSinks {
         if (!session.once(power == null ? key : key + power.dedupeSuffix())) {
             return;
         }
+        logFormation(session, kind, className, localName, dim, x, y, z, power);
+    }
+
+    /**
+     * A GT multiblock formation, deduped by a marker its controller saves in its own NBT: the formation is logged
+     * once, and again only when the hatch, coil or structure tiers change. A server restart or chunk reload loads
+     * the marker back, so the re-check logs nothing. A restored backup restores the older marker, so a formation
+     * the backup undid logs again.
+     *
+     * @param loggedMarker the controller's marker, null when it has never logged a formation
+     * @return the marker to save, unchanged when nothing was logged
+     */
+    public static String gtMultiblockFormed(String loggedMarker, String className, String localName, int dim, int x,
+        int y, int z, MultiblockPower power) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        final String marker = power.dedupeSuffix();
+        if (session == null || marker.equals(loggedMarker)) {
+            return loggedMarker;
+        }
+        logFormation(session, "gt", className, localName, dim, x, y, z, power);
+        return marker;
+    }
+
+    private static void logFormation(SessionManager session, String kind, String className, String localName, int dim,
+        int x, int y, int z, MultiblockPower power) {
         final boolean firstOfClass = session.anchor().formedMultiblocks.add(className);
         if (firstOfClass) {
             session.anchor()

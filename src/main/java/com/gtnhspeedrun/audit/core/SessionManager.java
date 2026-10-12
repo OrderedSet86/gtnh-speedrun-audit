@@ -504,17 +504,39 @@ public final class SessionManager {
             clock.get(),
             clock.getOnline(),
             anchor.timingStartWallMs);
-        com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "building export bundle…");
+        com.gtnhspeedrun.audit.command.CommandAudit
+            .reply(sender, "building export (" + megabytes(directorySize(logDir)) + " MB of logs)…");
+        // a host panel shows paths from the server folder, not the absolute path inside its container
+        final String rootName = server.isDedicatedServer() ? "<server folder>" : "<instance folder>";
+        final String rootLandmark = server.isDedicatedServer() ? "the folder with server.properties"
+            : "the folder with mods/ and saves/";
         final Thread t = new Thread(() -> {
             try {
                 final File zip = export.run();
-                com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "export ready: " + zip.getAbsolutePath());
+                com.gtnhspeedrun.audit.command.CommandAudit
+                    .reply(sender, "export ready (" + megabytes(zip.length()) + " MB). Send only this file:");
+                com.gtnhspeedrun.audit.command.CommandAudit
+                    .reply(sender, rootName + "/speedrun-audit/" + anchor.worldAuditUuid + "/export/" + zip.getName());
+                com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, rootName + " = " + rootLandmark);
             } catch (Exception e) {
                 com.gtnhspeedrun.audit.command.CommandAudit.reply(sender, "export FAILED: " + e);
             }
         }, "SpeedrunAudit-Export");
         t.setDaemon(true);
         t.start();
+    }
+
+    private static long directorySize(File dir) {
+        final File[] files = dir.listFiles();
+        long bytes = 0;
+        for (File f : files == null ? new File[0] : files) {
+            bytes += f.length();
+        }
+        return bytes;
+    }
+
+    private static String megabytes(long bytes) {
+        return bytes < 500_000 ? "<1" : String.valueOf(Math.round(bytes / 1_000_000.0));
     }
 
     // ------------------------------------------------------------------ accessors

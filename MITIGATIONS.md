@@ -125,9 +125,10 @@ attempts.
 
 ## Repeated `multiblock_formed` at one position
 
-Chunk reload re-forms are deduped per session, but a machine that is wrenched, moved, or rebuilt forms
-again legitimately — and every later session re-logs a formation once per position. Only
-`firstOfClass: true` entries are milestones; the rest are texture.
+Chunk reloads and server restarts do not re-log a GT formation, but a machine that is wrenched, moved,
+rebuilt or re-tiered forms again legitimately, and a restored backup re-logs formations it undid. Logs
+from earlier versions re-log every formation once per session. Only `firstOfClass: true` entries are
+milestones; the rest are texture.
 
 ## `difficulty_change` to peaceful
 
@@ -198,7 +199,7 @@ load-bearing:
   gray-area mod installed; a clean list proves nothing. Do not treat absence as evidence.
 - **Presence is not usage.** Schematica installed ≠ printer used. Corroborate with effect: printer
   abuse shows as inhumanly fast/regular block placement (machine_placed timestamps at tick
-  resolution), WorldEdit usage shows in the command log (its commands dispatch like any other).
+  resolution; a Matter Manipulator build is `bulk_placed` instead), WorldEdit usage shows in the command log (its commands dispatch like any other).
 
 Boards should write down which client mods are outright banned vs allowed-but-flagged, so a runner
 with Schematica for schematic *viewing* (if allowed) isn't rejected on presence alone.

@@ -452,6 +452,20 @@ public final class AuditExport {
                             .getAsString() : "?";
                     byType.merge(name, 1, Integer::sum);
                 }
+            } else if (type.equals("bulk_placed")) {
+                // a Matter Manipulator build: [x, y, z, meta tile ID] per block, names by meta tile ID
+                pipes += data.getAsJsonArray("pipes")
+                    .size();
+                final JsonObject names = data.getAsJsonObject("names");
+                for (com.google.gson.JsonElement entry : data.getAsJsonArray("machines")) {
+                    machines++;
+                    final String id = entry.getAsJsonArray()
+                        .get(3)
+                        .getAsString();
+                    final String name = names.has(id) ? names.get(id)
+                        .getAsString() : "gregtech:gt.blockmachines@" + id;
+                    byType.merge(name, 1, Integer::sum);
+                }
             } else if (type.equals("multiblock_formed")) {
                 multiSpots.computeIfAbsent(
                     data.get("class")

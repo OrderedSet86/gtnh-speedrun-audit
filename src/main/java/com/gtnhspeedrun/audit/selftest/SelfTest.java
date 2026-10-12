@@ -62,6 +62,9 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 public final class SelfTest {
 
     public static final String PROPERTY = "speedrunaudit.selftest";
+    /** Stand-ins for the GT machine block and the Matter Manipulator, so the drill runs without either mod. */
+    public static final String STAND_IN_MACHINE_BLOCK = "minecraft:iron_block";
+    public static final String STAND_IN_MANIPULATOR_PREFIX = "minecraft:stick@";
 
     /** Ticks between steps — enough for every per-tick poll to observe the change made by the last step. */
     private static final int STEP_GAP = 5;
@@ -248,6 +251,7 @@ public final class SelfTest {
                 place(bus, overworld, alice, 2, Blocks.diamond_block);
                 // watched_block break (the self-test watches diamond_block)
                 bus.post(new BlockEvent.BreakEvent(2, 63, 0, overworld, Blocks.diamond_block, 0, alice));
+                driveManipulator(overworld);
 
                 // Sink layer — everything below the mixin line (the mixins themselves only bind on the pack).
                 AuditSinks.neiPacket(uuid(alice), "SelfTestAlice", 1);
@@ -281,6 +285,7 @@ public final class SelfTest {
                 AuditSinks.multiblockFormed("gt", "SelfTestEbf", "test.ebf", 0, 10, 11, 12, coilLv);
                 AuditSinks.multiblockFormed("gt", "SelfTestEbf", "test.ebf", 0, 10, 11, 12, coilLv);
                 AuditSinks.multiblockFormed("gt", "SelfTestEbf", "test.ebf", 0, 10, 11, 12, coilHv);
+                driveFormationMarker();
                 AuditSinks.gtPowerfail("SelfTestMachine", "test.machine", 0, 4, 5, 6);
                 AuditSinks.bloodAltarTier(0, 20, 64, 20, 1, 2);
                 AuditSinks.trashInsert(alice, null, new ItemStack(Items.diamond, 2));
@@ -378,6 +383,36 @@ public final class SelfTest {
     }
 
     /**
+     * A Matter Manipulator build, with a stick for the manipulator and iron blocks for GT machines. The manipulator
+     * fires PlaceEvent before it places, with the block already there, and places without an event. Spot 20 gets a
+     * machine (checked twice), spot 21 already had one, spot 22 stays air: one bulk_placed with one machine and one
+     * checked spot.
+     */
+    private void driveManipulator(WorldServer world) {
+        alice.inventory.setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Items.stick));
+        world.setBlock(21, 63, 0, Blocks.iron_block);
+        for (int x : new int[] { 20, 20, 21, 22 }) {
+            bus.post(new BlockEvent.PlaceEvent(BlockSnapshot.getBlockSnapshot(world, x, 63, 0), Blocks.stone, alice));
+        }
+        world.setBlock(20, 63, 0, Blocks.iron_block);
+    }
+
+    /**
+     * The GT formation marker, below the mixin: logged once, not again when the marker comes back with the chunk,
+     * again on a tier change, and again when a backup restores a controller without the marker. Three lines.
+     */
+    private void driveFormationMarker() {
+        final MultiblockPower ev = new MultiblockPower(1, "EV", 0, null);
+        final MultiblockPower iv = new MultiblockPower(1, "IV", 0, null);
+        final String marker = AuditSinks.gtMultiblockFormed(null, "SelfTestMarked", "test.marked", 0, 13, 14, 15, ev);
+        final String reloaded = AuditSinks
+            .gtMultiblockFormed(marker, "SelfTestMarked", "test.marked", 0, 13, 14, 15, ev);
+        check("formation marker unchanged when nothing logged", marker != null && marker.equals(reloaded), marker);
+        AuditSinks.gtMultiblockFormed(marker, "SelfTestMarked", "test.marked", 0, 13, 14, 15, iv);
+        AuditSinks.gtMultiblockFormed(null, "SelfTestMarked", "test.marked", 0, 13, 14, 15, ev);
+    }
+
+    /**
      * Give the AE2 census a grid to count, so {@code ae2_snapshot} is exercised rather than merely compiled.
      * One ME Interface is enough — any grid host forms a grid, and a grid holding nothing still produces a
      * census record. Resolved by registry name on purpose: SelfTest has to stay loadable on a server without
@@ -408,7 +443,7 @@ public final class SelfTest {
         "gt_explosion", "nbt_edit", "ae2_census_failed", "block_placed", "player_leave", "dim_change", "creative_slot",
         "world_saving", "gamerule_change", "command_output", "item_id_table", "gt_powerfail", "blood_altar_tier",
         "trash_insert", "invsee_open", "invsee_click", "invsee_close", "trash_can_closed", "watched_block",
-        "node_census" };
+        "node_census", "bulk_placed" };
 
     private void verifyLog() {
         session.logger()
@@ -453,9 +488,32 @@ public final class SelfTest {
         check("gamemode changes ×2", counts.getOrDefault("gamemode_change", 0) >= 2, null);
         check("difficulty changes ×2", counts.getOrDefault("difficulty_change", 0) >= 2, null);
         check(
-            "multiblock dedupe, hatch-tier and coil-tier changes re-log",
-            counts.getOrDefault("multiblock_formed", 0) == 5,
+            "multiblock dedupe, hatch-tier and coil-tier changes re-log, formation marker",
+            counts.getOrDefault("multiblock_formed", 0) == 8,
             "count=" + counts.getOrDefault("multiblock_formed", 0));
+        final List<JsonObject> bulk = lines.stream()
+            .filter(
+                line -> "bulk_placed".equals(
+                    line.get("t")
+                        .getAsString()))
+            .map(line -> line.getAsJsonObject("data"))
+            .collect(java.util.stream.Collectors.toList());
+        check(
+            "manipulator: one bulk_placed, the placed spot listed, the existing machine counted",
+            bulk.size() == 1 && bulk.get(0)
+                .getAsJsonArray("machines")
+                .toString()
+                .equals("[[20,63,0,0]]")
+                && bulk.get(0)
+                    .getAsJsonArray("pipes")
+                    .size() == 0
+                && bulk.get(0)
+                    .get("checked")
+                    .getAsInt() == 1
+                && bulk.get(0)
+                    .getAsJsonObject("names")
+                    .has("0"),
+            bulk.toString());
         check(
             "gamerule_change off then on",
             counts.getOrDefault("gamerule_change", 0) == 2,

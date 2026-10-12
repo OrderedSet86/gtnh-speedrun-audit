@@ -3,11 +3,14 @@ package com.gtnhspeedrun.audit.mixins.late.gt;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.nbt.NBTTagCompound;
+
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
@@ -30,6 +33,10 @@ import gregtech.api.util.GTUtility;
  * multiblock that just formed — that is where the voltage it can run at comes from. Coil and structure tiers
  * (StructureTiers) are read at the same moment. Swapping coils or a structure part breaks and re-forms the
  * structure, and the new tiers are part of the dedupe key, so an upgrade logs a fresh formation.
+ *
+ * <p>
+ * The tiers last logged are saved in the controller's NBT, so the re-check after a server restart or chunk
+ * reload logs nothing, and a restored backup brings back the marker the backup had.
  */
 @Mixin(value = MTEMultiBlockBase.class, remap = false)
 public class MTEMultiBlockBaseMixin {
@@ -47,7 +54,28 @@ public class MTEMultiBlockBaseMixin {
     protected List<MTEHatch> mExoticEnergyHatches;
 
     @Unique
+    private static final String AUDIT_FORMED_KEY = "speedrunAuditFormed";
+
+    @Unique
     private boolean audit$wasFormed;
+
+    /** The dedupe suffix of the formation last logged for this controller; null before the first. */
+    @Unique
+    private String audit$loggedFormation;
+
+    @Inject(method = "saveNBTData", at = @At("TAIL"), require = 1)
+    private void audit$saveFormation(NBTTagCompound aNBT, CallbackInfo ci) {
+        if (audit$loggedFormation != null) {
+            aNBT.setString(AUDIT_FORMED_KEY, audit$loggedFormation);
+        }
+    }
+
+    @Inject(method = "loadNBTData", at = @At("TAIL"), require = 1)
+    private void audit$loadFormation(NBTTagCompound aNBT, CallbackInfo ci) {
+        if (aNBT.hasKey(AUDIT_FORMED_KEY)) {
+            audit$loggedFormation = aNBT.getString(AUDIT_FORMED_KEY);
+        }
+    }
 
     @Inject(
         method = "checkStructure(ZLgregtech/api/interfaces/tileentity/IGregTechTileEntity;)Z",
@@ -68,8 +96,8 @@ public class MTEMultiBlockBaseMixin {
             return;
         }
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
-        AuditSinks.multiblockFormed(
-            "gt",
+        final String logged = AuditSinks.gtMultiblockFormed(
+            audit$loggedFormation,
             self.getClass()
                 .getSimpleName(),
             AuditSinks.gtLocalName(self),
@@ -78,6 +106,11 @@ public class MTEMultiBlockBaseMixin {
             aBaseMetaTileEntity.getYCoord(),
             aBaseMetaTileEntity.getZCoord(),
             audit$power());
+        if (logged != null && !logged.equals(audit$loggedFormation)) {
+            audit$loggedFormation = logged;
+            // the chunk must save for the marker to survive a restart
+            aBaseMetaTileEntity.markDirty();
+        }
     }
 
     /**

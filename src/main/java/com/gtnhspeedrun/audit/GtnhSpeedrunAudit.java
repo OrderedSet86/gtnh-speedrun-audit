@@ -84,11 +84,17 @@ public class GtnhSpeedrunAudit {
             onForgeBus(new CommandTracker(sm.logger()));
             onForgeBus(inventory); // LivingDeathEvent
             onForgeBus(milestones); // AchievementEvent
-            onForgeBus(
-                new com.gtnhspeedrun.audit.trackers.MachinePlacementTracker(
-                    sm.logger(),
-                    nonBlank(AuditConfig.trackedPlacements),
-                    nonBlank(AuditConfig.watchedBlocks)));
+            final boolean selftest = System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY) != null;
+            final com.gtnhspeedrun.audit.trackers.MachinePlacementTracker placements = new com.gtnhspeedrun.audit.trackers.MachinePlacementTracker(
+                sm.logger(),
+                nonBlank(AuditConfig.trackedPlacements),
+                nonBlank(AuditConfig.watchedBlocks),
+                selftest ? com.gtnhspeedrun.audit.selftest.SelfTest.STAND_IN_MACHINE_BLOCK
+                    : com.gtnhspeedrun.audit.trackers.MachinePlacementTracker.GT_MACHINE_BLOCK,
+                selftest ? com.gtnhspeedrun.audit.selftest.SelfTest.STAND_IN_MANIPULATOR_PREFIX
+                    : com.gtnhspeedrun.audit.trackers.MachinePlacementTracker.MANIPULATOR_PREFIX);
+            onForgeBus(placements); // PlaceEvent, BreakEvent
+            onFmlBus(placements); // end of tick: Matter Manipulator placements
             onFmlBus(inventory); // login/logout snapshots
             onFmlBus(milestones); // dim change, crafts
             onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp, AuditConfig.flagClientMods));
