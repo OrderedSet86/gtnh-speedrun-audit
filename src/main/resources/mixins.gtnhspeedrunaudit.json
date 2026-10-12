@@ -8,6 +8,9 @@
     "compatibilityLevel": "JAVA_8",
     "mixins": [
         "fml.FMLHandshakeServerStateMixin",
+        "minecraft.ChatReceiversMixin",
+        "minecraft.CommandHandlerMixin",
+        "minecraft.EntityPlayerMPChatMixin",
         "minecraft.NetHandlerPlayServerMixin",
         "nei.NEISPHMixin",
         "nei.NEIServerUtilsMixin"

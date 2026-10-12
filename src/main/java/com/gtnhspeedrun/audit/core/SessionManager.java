@@ -56,6 +56,9 @@ public final class SessionManager {
     private long sessionStartOnlineTicks;
     private String verifyVerdict = "UNKNOWN";
     private boolean savingWasOff;
+    private Boolean backupWasRunning;
+    /** Anchor values as of the overworld's latest save: {seq, ticks, wall}. Null until the first save. */
+    private long[] lastSavedAnchor;
 
     public SessionManager(Logger log, MinecraftServer server) {
         this.log = log;
@@ -105,6 +108,7 @@ public final class SessionManager {
         FMLCommonHandler.instance()
             .bus()
             .register(this);
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(this);
         log.info(
             "Speedrun audit session {} started (verdict: {}), logging to {}",
             sessionIndex,
@@ -134,6 +138,7 @@ public final class SessionManager {
         FMLCommonHandler.instance()
             .bus()
             .unregister(this);
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.unregister(this);
         if (writer != null) {
             writer.close(5_000);
         }
@@ -162,17 +167,51 @@ public final class SessionManager {
         }
     }
 
-    /** Logs world_saving when overworld saving turns off (a backup starting) and when it is back on. */
+    /**
+     * Logs world_saving when overworld saving turns off (a backup starting) and when it is back on, and
+     * backup_done when a ServerUtilities backup thread finishes.
+     *
+     * <p>
+     * The off edge carries {@code lastSave}: the anchor values the overworld's latest save wrote. A backup saves
+     * every world and then turns saving off, so these are exactly the anchor inside that backup's zip. A restore
+     * of it boots with session_start.anchor equal to them, which is how a reader tells which backup came back.
+     */
     private void checkWorldSaving() {
         final boolean off = WorldSaving.overworldOff();
-        if (off == savingWasOff) {
+        if (off != savingWasOff) {
+            savingWasOff = off;
+            final JsonObject data = new JsonObject();
+            data.addProperty("enabled", !off);
+            WorldSaving.describe(server, data);
+            if (off && lastSavedAnchor != null) {
+                final JsonObject save = new JsonObject();
+                save.addProperty("seq", lastSavedAnchor[0]);
+                save.addProperty("ticks", lastSavedAnchor[1]);
+                save.addProperty("wall", lastSavedAnchor[2]);
+                data.add("lastSave", save);
+            }
+            logger.log("world_saving", data);
+        }
+        final Boolean running = com.gtnhspeedrun.audit.compat.BackupAccess.running();
+        if (running != null && backupWasRunning != null && backupWasRunning && !running) {
+            final JsonObject data = new JsonObject();
+            com.gtnhspeedrun.audit.compat.BackupAccess.describeNewest(data);
+            logger.log("backup_done", data);
+        }
+        backupWasRunning = running;
+    }
+
+    /**
+     * Forge posts this after saveLevel wrote the overworld's map storage, the anchor included, and nothing
+     * republishes the anchor between the two (both run inside the same save call), so the fields read here are
+     * what that save put on disk.
+     */
+    @SubscribeEvent
+    public void onWorldSave(net.minecraftforge.event.world.WorldEvent.Save event) {
+        if (anchor == null || event.world.isRemote || event.world.provider.dimensionId != 0) {
             return;
         }
-        savingWasOff = off;
-        final JsonObject data = new JsonObject();
-        data.addProperty("enabled", !off);
-        WorldSaving.describe(server, data);
-        logger.log("world_saving", data);
+        lastSavedAnchor = new long[] { anchor.lastSeq, anchor.cumulativeTicks, anchor.lastWallMs };
     }
 
     private final java.util.Map<UUID, double[]> preTimingPositions = new java.util.HashMap<>();

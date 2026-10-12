@@ -171,6 +171,15 @@ public final class SelfTest {
                         .getOnline() > 0,
                     null);
                 alice.theItemInWorldManager.setGameType(WorldSettings.GameType.CREATIVE);
+                // the self-test's node census watches chests (stand-in for Thaumcraft nodes)
+                overworld.setBlock(12, 70, 12, Blocks.chest);
+                // a save before the step-5 saving-off edge, so that line carries lastSave. One step before the AE2
+                // grid host goes down: saving in the tick it is placed kept its grid from forming
+                try {
+                    overworld.saveAllChunks(false, null);
+                } catch (net.minecraft.world.MinecraftException e) {
+                    check("world save for lastSave", false, String.valueOf(e));
+                }
             }
             case 3 -> {
                 alice.theItemInWorldManager.setGameType(WorldSettings.GameType.SURVIVAL);
@@ -183,6 +192,12 @@ public final class SelfTest {
                     .executeCommand(server, "help");
                 server.getCommandManager()
                     .executeCommand(alice, "help");
+                // gamerule_change (polled) and command_output (gamerule is on the capture allowlist)
+                server.getCommandManager()
+                    .executeCommand(server, "gamerule doFireTick false");
+                // off the allowlist: no command_output
+                server.getCommandManager()
+                    .executeCommand(server, "seed");
                 overworld.difficultySetting = EnumDifficulty.PEACEFUL;
                 // what a ServerUtilities backup or /save-off does
                 overworld.levelSaving = true;
@@ -190,6 +205,16 @@ public final class SelfTest {
             case 6 -> {
                 overworld.difficultySetting = EnumDifficulty.NORMAL;
                 overworld.levelSaving = false;
+                server.getCommandManager()
+                    .executeCommand(server, "gamerule doFireTick true");
+                // /trash_can's chest: open it with something inside, then close it next step
+                final net.minecraft.inventory.InventoryBasic trash = new net.minecraft.inventory.InventoryBasic(
+                    net.minecraft.util.StatCollector.translateToLocal("key.serverutilities.trash"),
+                    true,
+                    36);
+                trash.setInventorySlotContents(0, new ItemStack(Items.diamond, 5));
+                alice.openContainer = new net.minecraft.inventory.ContainerChest(alice.inventory, trash);
+                bus.post(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, alice));
             }
             case 7 -> {
                 // FakePlayer is invulnerable and no-ops onDeath by design, so real damage can never reach
@@ -205,6 +230,8 @@ public final class SelfTest {
                 bus.post(new net.minecraftforge.event.entity.player.AchievementEvent(alice, AchievementList.mineWood));
                 bus.post(new PlayerEvent.PlayerChangedDimensionEvent(alice, 0, -1));
                 bus.post(new PlayerEvent.ItemCraftedEvent(alice, new ItemStack(Items.diamond, 9), alice.inventory));
+                alice.openContainer = alice.inventoryContainer; // closes the trash chest
+                bus.post(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, alice));
             }
             case 8 -> {
                 // PlaceEvent reads placedBlock back from the world (Forge posts it after setBlock), so each
@@ -218,6 +245,8 @@ public final class SelfTest {
                     .setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Blocks.diamond_block));
                 place(bus, overworld, alice, 1, Blocks.diamond_block);
                 place(bus, overworld, alice, 2, Blocks.diamond_block);
+                // watched_block break (the self-test watches diamond_block)
+                bus.post(new BlockEvent.BreakEvent(2, 63, 0, overworld, Blocks.diamond_block, 0, alice));
 
                 // Sink layer — everything below the mixin line (the mixins themselves only bind on the pack).
                 AuditSinks.neiPacket(uuid(alice), "SelfTestAlice", 1);
@@ -235,6 +264,32 @@ public final class SelfTest {
                 AuditSinks.multiblockFormed("gt", "SelfTestMulti", "test.multi", 0, 7, 8, 9, lv);
                 AuditSinks.multiblockFormed("gt", "SelfTestMulti", "test.multi", 0, 7, 8, 9, uv);
                 AuditSinks.gtExplosion("SelfTestMachine", "test.machine", 0, 4, 5, 6, 42);
+                // Coil/structure tiers join the dedupe key too: LV logs, LV again dedupes, HV logs again.
+                final MultiblockPower coilLv = new MultiblockPower(
+                    1,
+                    "EV",
+                    0,
+                    null,
+                    java.util.Collections.singletonMap("mCoilLevel", "LV"));
+                final MultiblockPower coilHv = new MultiblockPower(
+                    1,
+                    "EV",
+                    0,
+                    null,
+                    java.util.Collections.singletonMap("mCoilLevel", "HV"));
+                AuditSinks.multiblockFormed("gt", "SelfTestEbf", "test.ebf", 0, 10, 11, 12, coilLv);
+                AuditSinks.multiblockFormed("gt", "SelfTestEbf", "test.ebf", 0, 10, 11, 12, coilLv);
+                AuditSinks.multiblockFormed("gt", "SelfTestEbf", "test.ebf", 0, 10, 11, 12, coilHv);
+                AuditSinks.gtPowerfail("SelfTestMachine", "test.machine", 0, 4, 5, 6);
+                AuditSinks.bloodAltarTier(0, 20, 64, 20, 1, 2);
+                AuditSinks.trashInsert(alice, null, new ItemStack(Items.diamond, 2));
+                final com.google.gson.JsonArray invseeChanges = new com.google.gson.JsonArray();
+                invseeChanges.add(new JsonObject());
+                AuditSinks.invseeClick(alice, "SelfTestBob", uuid(bob), true, 3, 0, 0, invseeChanges, null, null);
+                AuditSinks.invseeClose(alice, "SelfTestBob", uuid(bob), false, true);
+                final JsonObject giveExtra = new JsonObject();
+                giveExtra.addProperty("inserted", 0);
+                AuditSinks.neiCheat("give", uuid(alice), "SelfTestAlice", "minecraft:diamond@0", 64, null, giveExtra);
                 final NBTTagCompound beforeEdit = new NBTTagCompound();
                 beforeEdit.setInteger("charge", 5);
                 AuditSinks.nbtEdit(
@@ -320,7 +375,8 @@ public final class SelfTest {
         "gamemode_change", "inv_snapshot", "key_item_first_seen", "command", "difficulty_change", "death",
         "achievement", "dim_first_visit", "key_item_craft", "nei_packet", "nei_cheat", "multiblock_formed",
         "gt_explosion", "nbt_edit", "ae2_census_failed", "block_placed", "player_leave", "dim_change", "creative_slot",
-        "world_saving" };
+        "world_saving", "gamerule_change", "command_output", "item_id_table", "gt_powerfail", "blood_altar_tier",
+        "trash_insert", "invsee_click", "invsee_close", "trash_can_closed", "watched_block", "node_census" };
 
     private void verifyLog() {
         session.logger()
@@ -365,9 +421,65 @@ public final class SelfTest {
         check("gamemode changes ×2", counts.getOrDefault("gamemode_change", 0) >= 2, null);
         check("difficulty changes ×2", counts.getOrDefault("difficulty_change", 0) >= 2, null);
         check(
-            "multiblock dedupe, hatch-tier change re-logs",
-            counts.getOrDefault("multiblock_formed", 0) == 3,
+            "multiblock dedupe, hatch-tier and coil-tier changes re-log",
+            counts.getOrDefault("multiblock_formed", 0) == 5,
             "count=" + counts.getOrDefault("multiblock_formed", 0));
+        check(
+            "gamerule_change off then on",
+            counts.getOrDefault("gamerule_change", 0) == 2,
+            "count=" + counts.getOrDefault("gamerule_change", 0));
+        check(
+            "command_output only for allowlisted commands",
+            counts.getOrDefault("command_output", 0) == 2 && lines.stream()
+                .filter(
+                    line -> "command_output".equals(
+                        line.get("t")
+                            .getAsString()))
+                .allMatch(
+                    line -> "gamerule".equals(
+                        line.getAsJsonObject("data")
+                            .get("cmd")
+                            .getAsString())
+                        && line.getAsJsonObject("data")
+                            .getAsJsonArray("lines")
+                            .size() > 0),
+            "count=" + counts.getOrDefault("command_output", 0));
+        check(
+            "watched_block place ×2 + break",
+            counts.getOrDefault("watched_block", 0) == 3,
+            "count=" + counts.getOrDefault("watched_block", 0));
+        check(
+            "trash_can_closed carries the chest's contents",
+            lines.stream()
+                .anyMatch(
+                    line -> "trash_can_closed".equals(
+                        line.get("t")
+                            .getAsString())
+                        && line.getAsJsonObject("data")
+                            .getAsJsonArray("items")
+                            .size() == 1),
+            null);
+        check(
+            "node_census found the watched tile",
+            lines.stream()
+                .anyMatch(
+                    line -> "node_census".equals(
+                        line.get("t")
+                            .getAsString())
+                        && line.getAsJsonObject("data")
+                            .get("nodes")
+                            .getAsInt() >= 1),
+            null);
+        check(
+            "world_saving off line carries lastSave",
+            lines.stream()
+                .anyMatch(
+                    line -> "world_saving".equals(
+                        line.get("t")
+                            .getAsString())
+                        && line.getAsJsonObject("data")
+                            .has("lastSave")),
+            null);
         check(
             "creative_slot unchanged slot not logged",
             counts.getOrDefault("creative_slot", 0) == 1,
@@ -466,6 +578,13 @@ public final class SelfTest {
         }
         // Conditional rather than in EXPECTED_TYPES: without AE2 there is no census to assert on, and the
         // jar is meant to run on servers that do not have it.
+        checkMixinsApplied();
+        if (Compat.BETTER_QUESTING.isLoaded()) {
+            check("event logged: quest_db", counts.getOrDefault("quest_db", 0) > 0, null);
+        }
+        if (com.gtnhspeedrun.audit.snapshot.StorageCensus.anythingToCensus()) {
+            check("event logged: storage_census", counts.getOrDefault("storage_census", 0) > 0, null);
+        }
         if (Compat.AE2.isLoaded()) {
             check(
                 "event logged: ae2_snapshot",
@@ -498,6 +617,51 @@ public final class SelfTest {
             check("chain verifies", "OK".equals(result.verdict), result.verdict);
         } catch (Exception e) {
             check("chain verifies", false, String.valueOf(e));
+        }
+    }
+
+    /**
+     * Mixins apply when their target class loads, and a scenario never touches some targets (the trash slot, the
+     * /inv view container, BetterQuesting's edit handlers). A bad target would then crash a real game later, not
+     * this boot. So every target of an installed mod is loaded here, and must show an injected audit$ member.
+     */
+    private void checkMixinsApplied() {
+        final String[][] targets = { { null, "net.minecraft.command.CommandHandler" },
+            { null, "net.minecraft.entity.player.EntityPlayerMP" }, { null, "net.minecraft.server.MinecraftServer" },
+            { null, "net.minecraft.network.rcon.RConConsoleSource" },
+            { null, "net.minecraft.network.NetHandlerPlayServer" },
+            { "NotEnoughItems", "codechicken.nei.NEIServerUtils" }, { "NotEnoughItems", "codechicken.nei.NEISPH" },
+            { "gregtech", "gregtech.common.data.GTPowerfailTracker" },
+            { "gregtech", "gregtech.api.metatileentity.implementations.MTEMultiBlockBase" },
+            { "betterquesting", "betterquesting.api2.utils.ParticipantInfo" },
+            { "betterquesting", "bq_standard.tasks.base.TaskBase" },
+            { "betterquesting", "betterquesting.network.handlers.NetQuestEdit" },
+            { "betterquesting", "betterquesting.network.handlers.NetChapterEdit" },
+            { "betterquesting", "betterquesting.network.handlers.NetImport" },
+            { "betterquesting", "betterquesting.network.handlers.NetSettingSync" },
+            { "AWWayofTime", "WayofTime.alchemicalWizardry.common.tileEntity.TEAltar" },
+            { "ExtraUtilities", "com.rwtema.extrautils.gui.SlotTrash" },
+            { "serverutilities", "serverutils.invsee.InvseeContainer" },
+            { "serverutilities", "serverutils.net.MessageEditNBTResponse" } };
+        for (String[] target : targets) {
+            if (target[0] != null && !cpw.mods.fml.common.Loader.isModLoaded(target[0])) {
+                continue;
+            }
+            try {
+                final Class<?> c = Class.forName(target[1], true, SelfTest.class.getClassLoader());
+                boolean injected = false;
+                for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+                    injected |= m.getName()
+                        .contains("audit$");
+                }
+                for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                    injected |= f.getName()
+                        .contains("audit$");
+                }
+                check("mixin applied: " + target[1], injected, injected ? null : "no audit$ member");
+            } catch (Throwable t) {
+                check("mixin applied: " + target[1], false, String.valueOf(t));
+            }
         }
     }
 

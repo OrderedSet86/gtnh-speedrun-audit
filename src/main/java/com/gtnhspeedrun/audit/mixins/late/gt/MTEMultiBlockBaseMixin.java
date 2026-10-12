@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
+import com.gtnhspeedrun.audit.trackers.StructureTiers;
 
 import gregtech.api.enums.GTValues;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
@@ -26,7 +27,9 @@ import gregtech.api.util.GTUtility;
  * The formation timestamp for every modern GT multiblock (assembly line, EBF, fusion, …): checkStructure is
  * the single place mMachine flips. The false→true transition is the graded event for the coke%/bbf%/assline%
  * style categories. The hatch lists are filled by the structure check itself, so at RETURN they describe the
- * multiblock that just formed — that is where the voltage it can run at comes from.
+ * multiblock that just formed — that is where the voltage it can run at comes from. Coil and structure tiers
+ * (StructureTiers) are read at the same moment. Swapping coils or a structure part breaks and re-forms the
+ * structure, and the new tiers are part of the dedupe key, so an upgrade logs a fresh formation.
  */
 @Mixin(value = MTEMultiBlockBase.class, remap = false)
 public class MTEMultiBlockBaseMixin {
@@ -87,7 +90,12 @@ public class MTEMultiBlockBaseMixin {
         final int[] energy = audit$scan(mEnergyHatches, true, new int[] { 0, -1 });
         audit$scan(mExoticEnergyHatches, true, energy);
         final int[] dynamo = audit$scan(mDynamoHatches, false, new int[] { 0, -1 });
-        return new MultiblockPower(energy[0], audit$tierName(energy[1]), dynamo[0], audit$tierName(dynamo[1]));
+        return new MultiblockPower(
+            energy[0],
+            audit$tierName(energy[1]),
+            dynamo[0],
+            audit$tierName(dynamo[1]),
+            StructureTiers.read(this));
     }
 
     /** Adds each live hatch to {count, highest tier}; a hatch with no voltage counts but sets no tier. */

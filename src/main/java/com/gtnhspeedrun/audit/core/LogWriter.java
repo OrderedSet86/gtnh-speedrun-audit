@@ -247,7 +247,9 @@ public final class LogWriter implements Runnable {
     private static boolean isUrgent(String type) {
         return type.startsWith("session_") || type.equals("command")
             || type.equals("nei_cheat")
-            || type.equals("gamemode_change");
+            || type.equals("gamemode_change")
+            || type.equals("gamerule_change")
+            || type.equals("gt_global_energy");
     }
 
     private void maybeForce(boolean urgent) throws IOException {

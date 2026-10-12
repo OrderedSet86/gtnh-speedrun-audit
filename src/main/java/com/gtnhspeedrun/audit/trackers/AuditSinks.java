@@ -86,6 +86,12 @@ public final class AuditSinks {
 
     /** Decoded cheat actions from NEIServerUtils — the "what exactly" companion to nei_packet. */
     public static void neiCheat(String action, String uuid, String name, String itemKey, int count, String detail) {
+        neiCheat(action, uuid, name, itemKey, count, detail, null);
+    }
+
+    /** {@code extra}'s members are copied into the line: previous slot contents, deleted items, inserted count. */
+    public static void neiCheat(String action, String uuid, String name, String itemKey, int count, String detail,
+        JsonObject extra) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
             return;
@@ -100,6 +106,11 @@ public final class AuditSinks {
         }
         if (detail != null) {
             data.addProperty("detail", detail);
+        }
+        if (extra != null) {
+            for (Map.Entry<String, com.google.gson.JsonElement> e : extra.entrySet()) {
+                data.add(e.getKey(), e.getValue());
+            }
         }
         session.logger()
             .log("nei_cheat", data);
@@ -236,6 +247,13 @@ public final class AuditSinks {
             if (power.dynamoTier != null) {
                 data.addProperty("dynamoTier", power.dynamoTier);
             }
+            if (!power.structure.isEmpty()) {
+                final JsonObject structure = new JsonObject();
+                for (Map.Entry<String, String> e : power.structure.entrySet()) {
+                    structure.addProperty(e.getKey(), e.getValue());
+                }
+                data.add("structure", structure);
+            }
         }
         session.logger()
             .log("multiblock_formed", data);
@@ -259,6 +277,125 @@ public final class AuditSinks {
         data.addProperty("power", power);
         session.logger()
             .log("gt_explosion", data);
+    }
+
+    /** A multiblock stopped for lack of power (GT's /powerfails source). */
+    public static void gtPowerfail(String className, String localName, int dim, int x, int y, int z) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null) {
+            return;
+        }
+        final JsonObject data = new JsonObject();
+        data.addProperty("class", className);
+        if (localName != null) {
+            data.addProperty("localName", localName);
+        }
+        data.addProperty("dim", dim);
+        data.addProperty("x", x);
+        data.addProperty("y", y);
+        data.addProperty("z", z);
+        session.logger()
+            .log("gt_powerfail", data);
+    }
+
+    /** A Blood Altar re-read its runes and changed tier (upgradeLevel: 0 unchecked, 1 = tier I … 6). */
+    public static void bloodAltarTier(int dim, int x, int y, int z, int from, int to) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null) {
+            return;
+        }
+        final JsonObject data = new JsonObject();
+        data.addProperty("dim", dim);
+        data.addProperty("x", x);
+        data.addProperty("y", y);
+        data.addProperty("z", z);
+        data.addProperty("from", from);
+        data.addProperty("to", to);
+        session.logger()
+            .log("blood_altar_tier", data);
+    }
+
+    /** A player put a stack into an Extra Utilities trash can's GUI slot; it is voided immediately. */
+    public static void trashInsert(EntityPlayerMP player, net.minecraft.tileentity.TileEntity can, ItemStack stack) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null) {
+            return;
+        }
+        final JsonObject data = new JsonObject();
+        if (player != null) {
+            data.addProperty(
+                "uuid",
+                player.getGameProfile()
+                    .getId()
+                    .toString());
+            data.addProperty("name", player.getCommandSenderName());
+        }
+        if (can != null && can.getWorldObj() != null) {
+            data.addProperty("dim", can.getWorldObj().provider.dimensionId);
+            data.addProperty("x", can.xCoord);
+            data.addProperty("y", can.yCoord);
+            data.addProperty("z", can.zCoord);
+        }
+        data.add("stack", com.gtnhspeedrun.audit.snapshot.StackJson.of(stack));
+        session.logger()
+            .log("trash_insert", data);
+    }
+
+    /** One /inv view click that changed something: the slots it changed, tagged viewer or target. */
+    public static void invseeClick(EntityPlayer viewer, String targetName, String targetUuid, boolean targetOnline,
+        int slotId, int button, int mode, com.google.gson.JsonArray changes, JsonObject cursorBefore,
+        JsonObject cursorAfter) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null) {
+            return;
+        }
+        final JsonObject data = invseeBase(viewer, targetName, targetUuid);
+        data.addProperty("targetOnline", targetOnline);
+        data.addProperty("slotId", slotId);
+        data.addProperty("button", button);
+        data.addProperty("mode", mode);
+        data.add("changes", changes);
+        if (cursorBefore != null) {
+            data.add("cursorBefore", cursorBefore);
+        }
+        if (cursorAfter != null) {
+            data.add("cursorAfter", cursorAfter);
+        }
+        session.logger()
+            .log("invsee_click", data);
+    }
+
+    /**
+     * The view closed. ServerUtilities writes an offline target's copy back now; {@code targetJoinedDuringView}
+     * marks the case where that overwrites what the target did after logging in.
+     */
+    public static void invseeClose(EntityPlayer viewer, String targetName, String targetUuid, boolean onlineAtOpen,
+        boolean onlineAtClose) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null) {
+            return;
+        }
+        final JsonObject data = invseeBase(viewer, targetName, targetUuid);
+        data.addProperty("targetOnlineAtOpen", onlineAtOpen);
+        data.addProperty("targetOnlineAtClose", onlineAtClose);
+        if (!onlineAtOpen && onlineAtClose) {
+            data.addProperty("targetJoinedDuringView", true);
+        }
+        session.logger()
+            .log("invsee_close", data);
+    }
+
+    private static JsonObject invseeBase(EntityPlayer viewer, String targetName, String targetUuid) {
+        final JsonObject data = new JsonObject();
+        data.addProperty(
+            "uuid",
+            viewer.getGameProfile()
+                .getId()
+                .toString());
+        data.addProperty("name", viewer.getCommandSenderName());
+        data.addProperty("targetName", targetName);
+        data.addProperty("targetUuid", targetUuid);
+        return data;
     }
 
     // ------------------------------------------------------------------ deaths

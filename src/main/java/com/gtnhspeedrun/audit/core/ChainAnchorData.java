@@ -34,6 +34,8 @@ public final class ChainAnchorData extends WorldSavedData {
     public long timingStartWallMs;
     /** Ticks with at least one player connected, timing-started gated like the IGT clock. */
     public long cumulativeOnlineTicks;
+    /** Hash of the last item ID table written to the log dir; an unchanged table is not written again. */
+    public String idTableSha256 = "";
 
     public final Set<String> visitedDims = new HashSet<>();
     public final Set<String> seenKeyItems = new HashSet<>();
@@ -69,6 +71,7 @@ public final class ChainAnchorData extends WorldSavedData {
         timingStarted = nbt.getBoolean("timingStarted") || cumulativeTicks > 0;
         timingStartWallMs = nbt.getLong("timingStartWallMs");
         cumulativeOnlineTicks = nbt.getLong("cumulativeOnlineTicks");
+        idTableSha256 = nbt.getString("idTableSha256");
         readSet(nbt, "visitedDims", visitedDims);
         readSet(nbt, "seenKeyItems", seenKeyItems);
         readSet(nbt, "earnedAchievements", earnedAchievements);
@@ -87,6 +90,7 @@ public final class ChainAnchorData extends WorldSavedData {
         nbt.setBoolean("timingStarted", timingStarted);
         nbt.setLong("timingStartWallMs", timingStartWallMs);
         nbt.setLong("cumulativeOnlineTicks", cumulativeOnlineTicks);
+        nbt.setString("idTableSha256", idTableSha256);
         writeSet(nbt, "visitedDims", visitedDims);
         writeSet(nbt, "seenKeyItems", seenKeyItems);
         writeSet(nbt, "earnedAchievements", earnedAchievements);

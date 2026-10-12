@@ -17,6 +17,29 @@ public final class AuditConfig {
     public static String[] trackedPlacements = new String[] { "SGCraft:stargateBase", "SGCraft:stargateRing",
         "SGCraft:stargateController", "SGCraft:ic2PowerUnit", "SGCraft:rfPowerUnit" };
 
+    /**
+     * Magic blocks whose placement and player breaking are logged as watched_block: Thaumcraft aura and energized
+     * nodes (blockAiry 0/5), node jars (blockJar 2), node stabilizers and the transducer (blockStoneDevice
+     * 9/10/11), the Thaumic Horizons Ethereal Shard, and Blood Magic altars and ritual stones.
+     */
+    public static String[] watchedBlocks = new String[] { "Thaumcraft:blockAiry@0", "Thaumcraft:blockAiry@5",
+        "Thaumcraft:blockJar@2", "Thaumcraft:blockStoneDevice@9", "Thaumcraft:blockStoneDevice@10",
+        "Thaumcraft:blockStoneDevice@11", "ThaumicHorizons:synthNode", "AWWayofTime:Altar", "AWWayofTime:masterStone",
+        "AWWayofTime:ritualStone", "AWWayofTime:imperfectRitualStone" };
+    /** Tile classes whose full NBT goes into every node census: Thaumcraft nodes, node jars, Ethereal Shards. */
+    public static String[] nodeCensusTiles = new String[] { "thaumcraft.common.tiles.TileNode",
+        "thaumcraft.common.tiles.TileNodeEnergized", "thaumcraft.common.tiles.TileJarNode",
+        "com.kentington.thaumichorizons.common.tiles.TileSyntheticNode" };
+    public static int nodeCensusMinutes = 15;
+    public static int storageCensusMinutes = 60;
+    /**
+     * Commands whose text output is captured into command_output, matched against "command" or "command
+     * firstArg". Allowlist only: chat-like commands are never captured.
+     */
+    public static String[] commandOutputCapture = new String[] { "gt global_energy_display",
+        "gregtech global_energy_display", "gamerule", "difficulty", "powerfails", "bq_admin", "mothership_info",
+        "backup" };
+
     private AuditConfig() {}
 
     public static void synchronizeConfiguration(File configFile) {
@@ -70,6 +93,38 @@ public final class AuditConfig {
             "Block registry names (modid:name, exact) whose player placements are logged as block_placed "
                 + "with coordinates. Defaults to the Stargate structure. GT machines need no entry — they "
                 + "are always logged as machine_placed.");
+
+        watchedBlocks = cfg.getStringList(
+            "watchedBlocks",
+            "milestones",
+            watchedBlocks,
+            "Blocks (modid:name, or modid:name@meta) whose player placement and breaking are logged as "
+                + "watched_block with coordinates; a break also records the tile entity's NBT.");
+        nodeCensusTiles = cfg.getStringList(
+            "nodeCensusTiles",
+            "snapshots",
+            nodeCensusTiles,
+            "Tile entity class names (exact) recorded with full NBT in each node census. Loaded chunks only.");
+        nodeCensusMinutes = cfg.getInt(
+            "nodeCensusMinutes",
+            "snapshots",
+            nodeCensusMinutes,
+            1,
+            1440,
+            "Minutes between node censuses (Thaumcraft nodes, node jars, Ethereal Shards in loaded chunks).");
+        storageCensusMinutes = cfg.getInt(
+            "storageCensusMinutes",
+            "snapshots",
+            storageCensusMinutes,
+            5,
+            1440,
+            "Minutes between storage censuses (EnderStorage chests/pouches, Backpack-mod world backpacks).");
+        commandOutputCapture = cfg.getStringList(
+            "commandOutputCapture",
+            "privacy",
+            commandOutputCapture,
+            "Commands whose text replies are logged as command_output, as \"command\" or \"command firstArg\". "
+                + "Keep chat commands (msg, tell, r, me, say) out: their output is player conversation.");
 
         if (cfg.hasChanged()) {
             cfg.save();

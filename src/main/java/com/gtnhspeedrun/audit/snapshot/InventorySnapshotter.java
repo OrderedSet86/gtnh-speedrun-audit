@@ -6,17 +6,12 @@ import java.util.List;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.inventory.IInventory;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.CompressedStreamTools;
-import net.minecraft.nbt.NBTTagCompound;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
-
-import org.apache.commons.codec.binary.Base64;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.compat.BaublesAccess;
 import com.gtnhspeedrun.audit.core.AuditLogger;
-import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -146,33 +141,6 @@ public final class InventorySnapshotter {
     }
 
     private static JsonArray captureList(List<ItemStack> stacks) {
-        final JsonArray arr = new JsonArray();
-        for (int slot = 0; slot < stacks.size(); slot++) {
-            final ItemStack stack = stacks.get(slot);
-            if (stack == null) {
-                continue;
-            }
-            final JsonObject o = new JsonObject();
-            o.addProperty("slot", slot);
-            o.addProperty("key", ItemKey.base(stack));
-            o.addProperty("count", stack.stackSize);
-            if (stack.hasTagCompound()) {
-                o.addProperty(
-                    "nbtHash",
-                    JsonUtil.canonicalNbtHash(stack.getTagCompound())
-                        .substring(0, 16));
-                o.addProperty("nbtB64", nbtB64(stack.getTagCompound()));
-            }
-            arr.add(o);
-        }
-        return arr;
-    }
-
-    private static String nbtB64(NBTTagCompound tag) {
-        try {
-            return Base64.encodeBase64String(CompressedStreamTools.compress(tag));
-        } catch (Exception e) {
-            return "ERROR:" + e;
-        }
+        return StackJson.list(stacks);
     }
 }

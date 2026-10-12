@@ -98,6 +98,48 @@ Every `session_start` line embeds the startup verdict:
 - `block_placed` lines are player placements of the server's `trackedPlacements` blocks, with coordinates
   (default: the Stargate structure — base, ring/chevron, DHD, power units). GT machines log as
   `machine_placed` instead. SUMMARY shows only the first of each block; the JSONL has every one.
+- `world_saving` lines with `enabled: false` also have `lastSave {seq, ticks, wall}`: the anchor values the
+  overworld's latest save wrote. A backup saves every world and then turns saving off, so these are the anchor
+  inside that backup. A `WORLD_ROLLBACK` whose `session_start.anchor` equals a `lastSave` restored that backup.
+  `backup_done` names the newest file in ServerUtilities' backup folder when a backup thread finishes.
+- `gamerule_change` lines are polled every tick, so they catch `/gamerule`, the ServerUtilities config screen and
+  mods alike. The `/gamerule` command line just before one names who changed it. Values at boot are in
+  `session_start.gamerules`.
+- `command_output` lines are the text replies of commands on the server's `commandOutputCapture` allowlist (by
+  default `/gt global_energy_display`, `/gamerule`, `/difficulty`, `/powerfails`, `/bq_admin`,
+  `mothership_info`, `/backup`). Only replies to the sender are kept, at most 4 KB per command. Chat
+  commands are never captured.
+- `gt_global_energy` lines are `/gt global_energy_add|set|join|display` with each named player's team leader
+  and wireless EU balance at dispatch (`before`) and at the end of that tick (`after`), as decimal strings.
+- `nei_cheat` `give` lines have `inserted`: how many items actually went into the inventory (0 when it was
+  full; NEI's client then fills open-container slots with `set_slot`). `set_slot` lines have `previous`, the
+  slot's stack before the set, so a delete shows what was deleted. `delete_all_items` lines list every
+  stack in `items`. NEI's load-saved-state also runs `delete_all_items` and then refills by `set_slot`.
+- `trash_insert` lines are stacks a player put into an Extra Utilities trash can by hand. They are voided at once.
+  Pipe and hopper inserts are not logged. `trash_can_closed` lines are the contents of a ServerUtilities
+  `/trash_can` when it closed, which is when they are destroyed.
+- `invsee_click` lines are single clicks in `/inv view` that changed a slot: each changed slot with `owner`
+  (`viewer` or `target`), inventory, index, before and after. The target's own moves during the view are not
+  in these lines. An offline target's inventory is a copy that is written back on close, so `invsee_close`
+  with `targetJoinedDuringView` means that write can have overwritten what the target did after logging in.
+- `watched_block` lines are player place and break of the `watchedBlocks` list (Thaumcraft nodes, node jars,
+  stabilizers and transducer, Ethereal Shards, Blood Magic altars and ritual stones). A break has the tile's
+  NBT. Jarring a node with a wand fires no event; compare `node_census` files.
+- `node_census` files (`nodes-<ticks>.json.gz`, every 15 min and on `/audit snapshot`) hold the full NBT of
+  every Thaumcraft node, node jar and Ethereal Shard in loaded chunks.
+- `storage_census` files (hourly) hold every EnderStorage item inventory, by frequency and owner, and the
+  Backpack mod's backpack files. Backpack files are as of the mod's last save of each backpack.
+- `item_id_table` is the world's numeric block and item ids at each server start (keys prefixed `\u0001`
+  block, `\u0002` item, as in level.dat). The file is written only when the table changed.
+- `quest_db` is the quest book's hash at each server start: the file on disk and the live database. `quest_edit`
+  lines are BetterQuesting edit packets (quest edits, chapter edits, imports, settings such as edit mode) with
+  the sender and a payload hash; refused attempts by non-ops appear too. `quest_task_complete` lines name the
+  `actor`, the party member whose detection completed a task, next to each member credited with it.
+- `blood_altar_tier` lines are altar tier changes, seen when the altar next re-checks (on use, or periodically).
+- `gt_powerfail` lines are multiblocks stopped for power loss, the data behind GT's `/powerfails`.
+- `multiblock_formed` lines from GT controllers can have `structure`: coil level (`HeatingCoilLevel` fields),
+  `mHeatingCapacity`, and integer `…Tier` fields of the controller class (glass, casing, motor tiers). A change
+  in any of them re-logs the formation.
 - AE2 censuses only cover loaded grids — which is fine: an unloaded grid cannot change.
 - Bundles from v0.5.0 and earlier contain **no automatic AE2 censuses**: an overflow in the interval check
   meant only a manual `/audit snapshot` ever produced one. An absent census in those bundles is the mod's

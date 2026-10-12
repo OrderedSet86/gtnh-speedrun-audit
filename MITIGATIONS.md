@@ -29,9 +29,11 @@ their name, out of reach. A team that merges networks may therefore re-add the j
 hand.
 
 **How to confirm innocence:** the merge pattern is a `global_energy_display` of the joining player, then
-`global_energy_join <player> <leader>`, then a `global_energy_add <leader> <amount>`, minutes apart. The log
-records commands, not their output, so the displayed balance has to come from a screenshot or VOD and match
-the added amount. The joined player's old balance still exists afterwards; it counts twice if they later
+`global_energy_join <player> <leader>`, then a `global_energy_add <leader> <amount>`, minutes apart. Newer
+bundles show the displayed balance in a `command_output` line and every named team's balance before and after
+in a `gt_global_energy` line, so the added amount can be matched to the joined player's stranded balance from
+the bundle alone. Older bundles record commands, not their output: the displayed balance has to come from a
+screenshot or VOD and match the added amount. The joined player's old balance still exists afterwards; it counts twice if they later
 rejoin their own network.
 
 **Escalate when:** an add or set has no join before it, the amount cannot be matched to a displayed balance,
@@ -135,6 +137,50 @@ poll catches it the moment it happens), and on servers it changes via offline se
 mobs instantly, so once the board bans it, even a brief dip is material. Innocent-ish case: a dip
 while nobody is online (compare against player_join/leave) changed nothing a player could exploit —
 but under a ban the clean answer is "never during the run".
+
+## `gamerule_change`
+
+Pack-standard quality-of-life rules (`keepInventory true`, `mobGriefing false`, `doFireTick false`,
+`tfEnforcedProgression false`) are common from the first minutes of a run. `doMobSpawning false` is allowed
+from EV onward under the board rules, like Peaceful. `randomTickSpeed 0` is usually lag control.
+
+**How to confirm innocence:** the analyzer's `actions-for-review.xlsx` Game rules sheet marks each change
+before or after the team's first EV and names the rules a submission must list.
+
+**Escalate when:** `doMobSpawning false` or Peaceful before the first EV, or a rule toggled on and off around
+one specific task (such as `doDaylightCycle` around a time-gated ritual).
+
+## `invsee_click` — items moved with `/inv view`
+
+Ops use `/inv view` to return lost items after a death or a crash, or to hand over tools for an offline
+teammate.
+
+**How to confirm innocence:** every click lists the slots it changed and whose they were. A return moves
+items from the viewer to the target; the matching loss is usually a `death` line or a rollback shortly before.
+
+**Escalate when:** items move from the target to the viewer and then show up in progression, or
+`invsee_close` has `targetJoinedDuringView` (the offline copy was written back over a live inventory, which
+can duplicate items).
+
+## `trash_insert` / `trash_can_closed` — items destroyed by hand
+
+Trash cans are ordinary inventory management. Destroyed items matter only when something else was just
+created to replace them, such as an NEI give, or when they hide the leftovers of one.
+
+**How to confirm innocence:** look for an NEI give or creative slot of the same item shortly before the trash.
+
+**Escalate when:** a trashed item was spawned shortly before, which points to a hidden spawn.
+
+## `quest_edit` — quest book edit packets
+
+Edit mode exists so that a quest whose task is broken in the pack version can be fixed or completed. Every
+packet from a non-op is refused by BetterQuesting and is listed only as an attempt.
+
+**How to confirm innocence:** an edit or completion of one quest whose task is known to be broken in that
+pack version, by an op, with the reason given in the submission.
+
+**Escalate when:** `NetImport` (a whole quest database replaced), or completions of quests the team had not
+reached (compare the next `quest_db` hash and the quest's prerequisites).
 
 ## `client_mods` / `flaggedClientMods`
 

@@ -34,12 +34,25 @@ public class LateMixinLoader implements ILateMixinLoader {
             mixins.add("gt.MTEMultiBlockBaseMixin");
             mixins.add("gt.MTEBrickedBlastFurnaceMixin");
             mixins.add("gt.MetaTileEntityMixin");
+            mixins.add("gt.GTPowerfailTrackerMixin");
+        }
+        if (loadedMods.contains("betterquesting")) {
+            mixins.add("bq.ParticipantInfoMixin");
+            mixins.add("bq.TaskBaseMixin");
+            mixins.add("bq.QuestEditHandlersMixin");
+        }
+        if (loadedMods.contains("AWWayofTime")) {
+            mixins.add("bloodmagic.TEAltarMixin");
+        }
+        if (loadedMods.contains("ExtraUtilities")) {
+            mixins.add("extrautils.SlotTrashMixin");
         }
         if (loadedMods.contains("Railcraft")) {
             mixins.add("railcraft.TileMultiBlockMixin");
         }
         if (loadedMods.contains("serverutilities")) {
             mixins.add("serverutils.MessageEditNBTResponseMixin");
+            mixins.add("serverutils.InvseeContainerMixin");
         }
         // Coverage is only as wide as what loaded; every mixin is require=1, so each either applied or crashed loud.
         LOG.info("{} audit mixins selected for this pack: {}", mixins.size(), mixins);

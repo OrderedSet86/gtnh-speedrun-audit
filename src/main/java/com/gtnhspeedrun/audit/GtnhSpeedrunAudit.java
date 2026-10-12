@@ -21,6 +21,7 @@ import com.gtnhspeedrun.audit.trackers.PlayerSessionTracker;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+import cpw.mods.fml.common.event.FMLServerStartedEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.event.FMLServerStoppedEvent;
 import cpw.mods.fml.common.event.FMLServerStoppingEvent;
@@ -64,6 +65,8 @@ public class GtnhSpeedrunAudit {
             if (System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY) != null) {
                 AuditConfig.keyItems = new String[] { "minecraft:diamond" };
                 AuditConfig.trackedPlacements = new String[] { "minecraft:diamond_block" };
+                AuditConfig.watchedBlocks = new String[] { "minecraft:diamond_block" };
+                AuditConfig.nodeCensusTiles = new String[] { "net.minecraft.tileentity.TileEntityChest" };
             }
             final SessionManager sm = new SessionManager(LOG, event.getServer());
             sm.start();
@@ -84,17 +87,45 @@ public class GtnhSpeedrunAudit {
             onForgeBus(
                 new com.gtnhspeedrun.audit.trackers.MachinePlacementTracker(
                     sm.logger(),
-                    nonBlank(AuditConfig.trackedPlacements)));
+                    nonBlank(AuditConfig.trackedPlacements),
+                    nonBlank(AuditConfig.watchedBlocks)));
             onFmlBus(inventory); // login/logout snapshots
             onFmlBus(milestones); // dim change, crafts
             onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp, AuditConfig.flagClientMods));
             onFmlBus(new GamemodeTracker(sm.logger(), inventory, event.getServer()));
             onFmlBus(new com.gtnhspeedrun.audit.trackers.DifficultyTracker(sm.logger(), event.getServer()));
+            onFmlBus(new com.gtnhspeedrun.audit.trackers.GameruleTracker(sm.logger(), event.getServer()));
             onFmlBus(scheduler);
 
             // The compat classes reference modded types — only touch them behind the presence gate.
             if (com.gtnhspeedrun.audit.compat.Compat.BETTER_QUESTING.isLoaded()) {
                 onForgeBus(new com.gtnhspeedrun.audit.compat.BqQuestTracker(sm.logger()));
+            }
+            if (cpw.mods.fml.common.Loader.isModLoaded("Thaumcraft")
+                || cpw.mods.fml.common.Loader.isModLoaded("ThaumicHorizons")
+                || System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY) != null) {
+                final com.gtnhspeedrun.audit.snapshot.NodeCensus nodes = new com.gtnhspeedrun.audit.snapshot.NodeCensus(
+                    sm.logger(),
+                    event.getServer(),
+                    AuditConfig.nodeCensusTiles,
+                    AuditConfig.nodeCensusMinutes);
+                onFmlBus(nodes);
+                sm.addSnapshotHook(() -> nodes.census("manual"));
+            }
+            if (com.gtnhspeedrun.audit.snapshot.StorageCensus.anythingToCensus()) {
+                final com.gtnhspeedrun.audit.snapshot.StorageCensus storage = new com.gtnhspeedrun.audit.snapshot.StorageCensus(
+                    sm.logger(),
+                    AuditConfig.storageCensusMinutes);
+                onFmlBus(storage);
+                sm.addSnapshotHook(() -> storage.census("manual"));
+            }
+            // Vanilla types only; without ServerUtilities it simply never sees a trash chest.
+            onFmlBus(new com.gtnhspeedrun.audit.trackers.TrashCanCommandTracker(sm.logger()));
+            if (com.gtnhspeedrun.audit.compat.Compat.GT5.isLoaded()) {
+                final com.gtnhspeedrun.audit.compat.GtWirelessAudit wireless = new com.gtnhspeedrun.audit.compat.GtWirelessAudit(
+                    sm.logger());
+                onForgeBus(wireless); // CommandEvent
+                onFmlBus(wireless); // end-of-tick balance read
             }
             if (com.gtnhspeedrun.audit.compat.Compat.AE2.isLoaded()) {
                 final com.gtnhspeedrun.audit.compat.Ae2Snapshotter ae2 = new com.gtnhspeedrun.audit.compat.Ae2Snapshotter(
@@ -138,6 +169,29 @@ public class GtnhSpeedrunAudit {
             // A broken audit trail must be loud but must not brick someone's server mid-run.
             LOG.error("Speedrun audit failed to start — THIS RUN IS NOT BEING AUDITED", e);
             session = null;
+        }
+    }
+
+    /** Records that need every mod's serverStarting to have run first (BQ loads its quest book there). */
+    @Mod.EventHandler
+    public void serverStarted(FMLServerStartedEvent event) {
+        final SessionManager sm = session;
+        if (sm == null) {
+            return;
+        }
+        final net.minecraft.server.MinecraftServer server = net.minecraft.server.MinecraftServer.getServer();
+        try {
+            com.gtnhspeedrun.audit.trackers.ItemIdTable.log(
+                sm.logger(),
+                sm.anchor(),
+                sm.logger()
+                    .clock()
+                    .get());
+        } catch (RuntimeException | LinkageError e) {
+            LOG.error("Item ID table not recorded", e);
+        }
+        if (com.gtnhspeedrun.audit.compat.Compat.BETTER_QUESTING.isLoaded()) {
+            com.gtnhspeedrun.audit.compat.BqQuestDb.log(sm.logger(), server);
         }
     }
 

@@ -332,6 +332,14 @@ public final class AuditExport {
         flagCount(sb, counts, "gt_explosion", "GT machine explosions");
         flagCount(sb, counts, "ae2_census_failed", "AE2 census failures (missing AE2 evidence)");
         flagCount(sb, counts, "death", "player deaths");
+        flagCount(sb, counts, "gamerule_change", "game rule changes");
+        flagCount(sb, counts, "gt_global_energy", "wireless EU commands");
+        flagCount(sb, counts, "quest_edit", "quest book edits");
+        flagCount(sb, counts, "invsee_click", "/inv view item moves");
+        flagCount(sb, counts, "trash_insert", "trash can inserts");
+        flagCount(sb, counts, "trash_can_closed", "/trash_can uses");
+        flagCount(sb, counts, "watched_block", "magic block place/break");
+        flagCount(sb, counts, "gt_powerfail", "GT power failures");
         sb.append(
             String.format(
                 "%-28s %d%n",
@@ -347,21 +355,15 @@ public final class AuditExport {
             if (type.equals("gamemode_change") || type.equals("nei_cheat")
                 || type.equals("nbt_edit")
                 || type.equals("difficulty_change")
+                || type.equals("gamerule_change")
+                || type.equals("gt_global_energy")
+                || type.equals("quest_edit")
+                || type.equals("invsee_close") && line.getAsJsonObject("data")
+                    .has("targetJoinedDuringView")
                 || flaggedJoin
                 || isCofhTeleport(line)) {
                 // Bulky payloads stay in the JSONL; SUMMARY shows the line without them.
-                // (Copied by entry — MC's gson 2.2.4 predates a public deepCopy.)
-                JsonObject printable = line.getAsJsonObject("data");
-                if (printable.has("nbtB64") || printable.has("beforeB64") || printable.has("mods")) {
-                    final JsonObject trimmed = new JsonObject();
-                    for (Map.Entry<String, com.google.gson.JsonElement> e : printable.entrySet()) {
-                        if (!"nbtB64".equals(e.getKey()) && !"beforeB64".equals(e.getKey())
-                            && !"mods".equals(e.getKey())) {
-                            trimmed.add(e.getKey(), e.getValue());
-                        }
-                    }
-                    printable = trimmed;
-                }
+                final JsonObject printable = withoutBulk(line.getAsJsonObject("data"));
                 sb.append("  ")
                     .append(
                         fmt.format(
@@ -384,6 +386,37 @@ public final class AuditExport {
 
         sb.append("\nRead VERIFIERS.md in the mod repository for how to independently re-verify this bundle.\n");
         return sb.toString();
+    }
+
+    private static final java.util.Set<String> BULKY_KEYS = new java.util.HashSet<>(
+        java.util.Arrays.asList("nbtB64", "beforeB64", "mods", "payloadB64", "tileNbtB64"));
+
+    /**
+     * A copy without NBT payloads and mod lists, at any depth: NEI delete lines list whole stacks with their NBT.
+     * Copied by entry — MC's gson 2.2.4 predates a public deepCopy.
+     */
+    static JsonObject withoutBulk(JsonObject in) {
+        final JsonObject out = new JsonObject();
+        for (Map.Entry<String, com.google.gson.JsonElement> e : in.entrySet()) {
+            if (!BULKY_KEYS.contains(e.getKey())) {
+                out.add(e.getKey(), withoutBulk(e.getValue()));
+            }
+        }
+        return out;
+    }
+
+    private static com.google.gson.JsonElement withoutBulk(com.google.gson.JsonElement in) {
+        if (in.isJsonObject()) {
+            return withoutBulk(in.getAsJsonObject());
+        }
+        if (in.isJsonArray()) {
+            final com.google.gson.JsonArray out = new com.google.gson.JsonArray();
+            for (com.google.gson.JsonElement e : in.getAsJsonArray()) {
+                out.add(withoutBulk(e));
+            }
+            return out;
+        }
+        return in;
     }
 
     /**

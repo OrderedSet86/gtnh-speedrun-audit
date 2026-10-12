@@ -12,16 +12,27 @@ public final class MultiblockPower {
     public final String energyTier;
     public final int dynamoHatches;
     public final String dynamoTier;
+    /** Coil and structure tiers by field name ({@link StructureTiers}); empty when the controller has none. */
+    public final java.util.Map<String, String> structure;
 
     public MultiblockPower(int energyHatches, String energyTier, int dynamoHatches, String dynamoTier) {
+        this(energyHatches, energyTier, dynamoHatches, dynamoTier, java.util.Collections.emptyMap());
+    }
+
+    public MultiblockPower(int energyHatches, String energyTier, int dynamoHatches, String dynamoTier,
+        java.util.Map<String, String> structure) {
         this.energyHatches = energyHatches;
         this.energyTier = energyTier;
         this.dynamoHatches = dynamoHatches;
         this.dynamoTier = dynamoTier;
+        this.structure = structure;
     }
 
-    /** Part of the formation dedupe key: a hatch-tier change re-logs the formation in the same session. */
+    /**
+     * Part of the formation dedupe key: a hatch-tier or coil/structure-tier change re-logs the formation in the
+     * same session.
+     */
     String dedupeSuffix() {
-        return ":" + energyTier + "/" + dynamoTier;
+        return ":" + energyTier + "/" + dynamoTier + (structure.isEmpty() ? "" : "/" + structure);
     }
 }
