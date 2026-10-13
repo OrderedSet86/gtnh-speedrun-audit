@@ -686,6 +686,28 @@ public final class SelfTest {
                             .getAsInt() == ttMulti.posZ)
                 .count();
             check("tectech multiblock formed on its own tick check, once", ttFormations == 1, "count=" + ttFormations);
+            final JsonObject tt = lines.stream()
+                .filter(
+                    line -> "multiblock_formed".equals(
+                        line.get("t")
+                            .getAsString())
+                        && "MTEActiveTransformer".equals(
+                            line.getAsJsonObject("data")
+                                .get("class")
+                                .getAsString()))
+                .map(line -> line.getAsJsonObject("data"))
+                .findFirst()
+                .orElse(null);
+            check(
+                "tectech multi-amp hatch read: EV at 4 amps",
+                tt != null && tt.has("energyTier")
+                    && "EV".equals(
+                        tt.get("energyTier")
+                            .getAsString())
+                    && tt.has("energyAmps")
+                    && tt.get("energyAmps")
+                        .getAsLong() == 4,
+                String.valueOf(tt));
         }
         final List<JsonObject> bulk = lines.stream()
             .filter(
@@ -885,6 +907,9 @@ public final class SelfTest {
         // Conditional rather than in EXPECTED_TYPES: without AE2 there is no census to assert on, and the
         // jar is meant to run on servers that do not have it.
         checkMixinsApplied();
+        if (Compat.GT5.isLoaded()) {
+            checkStructureTierPlans();
+        }
         if (Compat.BETTER_QUESTING.isLoaded()) {
             check("event logged: quest_db", counts.getOrDefault("quest_db", 0) > 0, null);
         }
@@ -993,6 +1018,41 @@ public final class SelfTest {
                 check("mixin applied: " + target[1], injected, injected ? null : "no audit$ member");
             } catch (Throwable t) {
                 check("mixin applied: " + target[1], false, String.valueOf(t));
+            }
+        }
+    }
+
+    /**
+     * The tier fields StructureTiers finds on real controller classes, so a renamed GT field shows up here rather
+     * than as a silently missing tier in a run's log. Classes are loaded without running their static initialisers.
+     */
+    private void checkStructureTierPlans() {
+        final String[][] expected = { { "gtnhintergalactic.tile.multi.elevator.TileEntitySpaceElevator", "motorTier" },
+            { "gtnhintergalactic.tile.multi.elevatormodules.TileEntityModuleMiner$TileEntityModuleMinerT2", "tTier",
+                "tModuleTier" },
+            { "tectech.thing.metaTileEntity.multi.MTEEyeOfHarmony", "spacetimeCompressionFieldMetadata",
+                "timeAccelerationFieldMetadata", "stabilisationFieldMetadata" },
+            { "kubatech.tileentity.gregtech.multiblock.MTEDEFusionCrafter", "mTierCasing", "mFusionTierCasing" },
+            { "gregtech.common.tileentities.machines.multi.foundry.MTEExoFoundry", "foundryData.tier",
+                "foundryData.modules" },
+            { "gregtech.common.tileentities.machines.multi.MTEPlasmaForge", "convergence", "mCoilLevel" },
+            { "gtPlusPlus.xmod.gregtech.common.tileentities.machines.multi.production.MTEQuantumForceTransformer",
+                "mCraftingTier", "mFocusingTier" },
+            { "gregtech.common.tileentities.machines.multi.MTENanoForge", "mSpecialTier" } };
+        for (String[] row : expected) {
+            try {
+                final List<String> keys = com.gtnhspeedrun.audit.trackers.StructureTiers
+                    .planKeys(Class.forName(row[0], false, SelfTest.class.getClassLoader()));
+                boolean all = true;
+                for (int i = 1; i < row.length; i++) {
+                    all &= keys.contains(row[i]);
+                }
+                check(
+                    "structure tiers planned: " + row[0].substring(row[0].lastIndexOf('.') + 1),
+                    all,
+                    keys.toString());
+            } catch (Throwable t) {
+                check("structure tiers planned: " + row[0], false, String.valueOf(t));
             }
         }
     }

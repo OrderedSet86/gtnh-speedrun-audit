@@ -269,9 +269,15 @@ public final class AuditSinks {
             if (power.energyTier != null) {
                 data.addProperty("energyTier", power.energyTier);
             }
+            if (power.energyAmps > 0) {
+                data.addProperty("energyAmps", power.energyAmps);
+            }
             data.addProperty("dynamoHatches", power.dynamoHatches);
             if (power.dynamoTier != null) {
                 data.addProperty("dynamoTier", power.dynamoTier);
+            }
+            if (power.dynamoAmps > 0) {
+                data.addProperty("dynamoAmps", power.dynamoAmps);
             }
             if (!power.structure.isEmpty()) {
                 final JsonObject structure = new JsonObject();

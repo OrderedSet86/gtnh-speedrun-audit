@@ -69,5 +69,66 @@ class StructureTiersTest {
         assertTrue(StructureTiers.isTierName("mTier"));
         assertFalse(StructureTiers.isTierName("requiredPCBTier"));
         assertFalse(StructureTiers.isTierName("tiers"));
+        // the DEFC's casings and the steam multis' parts put "tier" first or in the middle
+        assertTrue(StructureTiers.isTierName("mTierCasing"));
+        assertTrue(StructureTiers.isTierName("mFusionTierCasing"));
+        assertTrue(StructureTiers.isTierName("tierGearBoxCasing"));
+        assertTrue(StructureTiers.isTierName("tTier"));
+        // lookups, settings and counts change without the structure changing
+        assertFalse(StructureTiers.isTierName("lastCheckedTierIndex"));
+        assertFalse(StructureTiers.isTierName("_mRadiusTierOverride"));
+        assertFalse(StructureTiers.isTierName("tMinMotorTier"));
+        assertFalse(StructureTiers.isTierName("notATierCount"));
+        assertFalse(StructureTiers.isTierName("frontier"));
+    }
+
+    @SuppressWarnings("unused")
+    static class MTEEyeOfHarmony {
+
+        private int spacetimeCompressionFieldMetadata = 8;
+        private int timeAccelerationFieldMetadata = 7;
+        private long parallelAmount = 1;
+    }
+
+    @Test
+    void readsMetadataFieldTiers() {
+        final Map<String, String> tiers = StructureTiers.read(new MTEEyeOfHarmony());
+        assertEquals("8", tiers.get("spacetimeCompressionFieldMetadata"));
+        assertEquals("7", tiers.get("timeAccelerationFieldMetadata"));
+        assertFalse(tiers.containsKey("parallelAmount"));
+    }
+
+    enum FoundryModule {
+        UNSET,
+        HELIOCAST
+    }
+
+    static class FoundryData {
+
+        public FoundryModule[] modules = { FoundryModule.HELIOCAST, FoundryModule.UNSET };
+        public int tier = 3;
+    }
+
+    @SuppressWarnings("unused")
+    static class MTEExoFoundry {
+
+        public final FoundryData foundryData = new FoundryData();
+    }
+
+    @SuppressWarnings("unused")
+    static class MTEPlasmaForge {
+
+        private boolean convergence = true;
+    }
+
+    @Test
+    void readsListedPaths() {
+        final Map<String, String> foundry = StructureTiers.read(new MTEExoFoundry());
+        assertEquals("3", foundry.get("foundryData.tier"));
+        assertEquals("[HELIOCAST,UNSET]", foundry.get("foundryData.modules"));
+        assertEquals(
+            "true",
+            StructureTiers.read(new MTEPlasmaForge())
+                .get("convergence"));
     }
 }

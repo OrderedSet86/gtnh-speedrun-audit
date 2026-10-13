@@ -1,7 +1,11 @@
 package com.gtnhspeedrun.audit.mixins.late.gt;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 
 import net.minecraft.nbt.NBTTagCompound;
 
@@ -14,6 +18,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
 import com.gtnhspeedrun.audit.trackers.StructureTiers;
@@ -122,40 +127,84 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
 
     /**
      * Each hatch's own voltage, not getMaxInputVoltage(): that one sums voltages across hatches, so four LV
-     * hatches would read as one HV. Multiblocks that keep hatches in their own lists (TecTech's eEnergyMulti,
-     * GT++'s mAllEnergyHatches) report only what also reached the base lists.
+     * hatches would read as one HV. Amperage is summed, so 4 × 16A reads 64. TecTech's own multi-amp and laser
+     * lists come in through GtExtraHatches. GT++'s mAllEnergyHatches reports only what also reached the base lists.
      */
     @Unique
     private MultiblockPower audit$power() {
-        final int[] energy = audit$scan(mEnergyHatches, true, new int[] { 0, -1 });
-        audit$scan(mExoticEnergyHatches, true, energy);
-        final int[] dynamo = audit$scan(mDynamoHatches, false, new int[] { 0, -1 });
+        final Set<MTEHatch> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        final long[] energy = { 0, -1, 0 };
+        final long[] dynamo = { 0, -1, 0 };
+        audit$scan(mEnergyHatches, true, energy, seen);
+        audit$scan(mExoticEnergyHatches, true, energy, seen);
+        audit$scan(mDynamoHatches, false, dynamo, seen);
+        audit$scan(audit$exoticDynamoHatches(), false, dynamo, seen);
+        if (this instanceof GtExtraHatches extra) {
+            audit$scan(extra.audit$extraEnergyHatches(), true, energy, seen);
+            audit$scan(extra.audit$extraDynamoHatches(), false, dynamo, seen);
+        }
         return new MultiblockPower(
-            energy[0],
-            audit$tierName(energy[1]),
-            dynamo[0],
-            audit$tierName(dynamo[1]),
+            (int) energy[0],
+            audit$tierName((int) energy[1]),
+            energy[2],
+            (int) dynamo[0],
+            audit$tierName((int) dynamo[1]),
+            dynamo[2],
             StructureTiers.read(this));
     }
 
-    /** Adds each live hatch to {count, highest tier}; a hatch with no voltage counts but sets no tier. */
+    /** mExoticDynamoHatches is missing from GT 5.09.51 (pack 2.8.4), so it is read by reflection, not shadowed. */
     @Unique
-    private static int[] audit$scan(List<? extends MTEHatch> hatches, boolean input, int[] countAndTier) {
+    private static final Field AUDIT_EXOTIC_DYNAMOS = audit$findExoticDynamos();
+
+    @Unique
+    private static Field audit$findExoticDynamos() {
+        try {
+            final Field f = MTEMultiBlockBase.class.getDeclaredField("mExoticDynamoHatches");
+            f.setAccessible(true);
+            return f;
+        } catch (NoSuchFieldException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    @Unique
+    private List<? extends MTEHatch> audit$exoticDynamoHatches() {
+        if (AUDIT_EXOTIC_DYNAMOS == null) {
+            return null;
+        }
+        try {
+            @SuppressWarnings("unchecked")
+            final List<? extends MTEHatch> hatches = (List<? extends MTEHatch>) AUDIT_EXOTIC_DYNAMOS.get(this);
+            return hatches;
+        } catch (IllegalAccessException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Adds each live hatch, once, to {count, highest tier, summed amps}; a hatch with no voltage counts but sets no
+     * tier.
+     */
+    @Unique
+    private static void audit$scan(List<? extends MTEHatch> hatches, boolean input, long[] countTierAmps,
+        Set<MTEHatch> seen) {
         if (hatches == null) {
-            return countAndTier;
+            return;
         }
         for (MTEHatch hatch : hatches) {
             final IGregTechTileEntity base = hatch == null ? null : hatch.getBaseMetaTileEntity();
-            if (base == null) {
+            if (base == null || !seen.add(hatch)) {
                 continue;
             }
-            countAndTier[0]++;
+            countTierAmps[0]++;
             final long voltage = input ? base.getInputVoltage() : base.getOutputVoltage();
             if (voltage > 0) {
-                countAndTier[1] = Math.max(countAndTier[1], GTUtility.getTier(voltage));
+                countTierAmps[1] = Math.max(countTierAmps[1], GTUtility.getTier(voltage));
             }
+            // the rated amps (a 4A hatch reads 4), not maxAmperesIn's extra allowance for cable loss
+            countTierAmps[2] += input ? hatch.maxWorkingAmperesIn() : hatch.maxAmperesOut();
         }
-        return countAndTier;
     }
 
     @Unique

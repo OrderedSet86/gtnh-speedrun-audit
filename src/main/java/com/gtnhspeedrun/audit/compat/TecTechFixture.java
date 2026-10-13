@@ -13,16 +13,17 @@ import tectech.thing.casing.TTCasingsContainer;
 
 /**
  * The self-test's TecTech multiblock: an Active Transformer, built in place by StructureLib's creative construct
- * (which runs no structure check) with one casing swapped for an LV energy hatch. It can only form through
- * TTMultiblockBase's own onPostTick check, about 100 ticks after the controller is placed. GT-typed, so it lives
- * here behind the Compat gate and SelfTest stays loadable without GT.
+ * (which runs no structure check) with one casing swapped for a TecTech EV 4A multi-amp energy hatch. It can only
+ * form through TTMultiblockBase's own onPostTick check, about 100 ticks after the controller is placed, and its
+ * only hatch sits in TecTech's own eEnergyMulti list, so EV at 4 amps in the log shows that list was read.
+ * GT-typed, so it lives here behind the Compat gate and SelfTest stays loadable without GT.
  */
 public final class TecTechFixture {
 
     /** GT MetaTileEntity id of the Active Transformer controller. */
     private static final int ACTIVE_TRANSFORMER_META = 15300;
-    /** GT MetaTileEntity id of the LV energy hatch. */
-    private static final int ENERGY_HATCH_LV_META = 41;
+    /** GT MetaTileEntity id of TecTech's EV 4A multi-amp energy hatch. */
+    private static final int ENERGY_HATCH_EV_4A_META = 15109;
 
     private TecTechFixture() {}
 
@@ -55,7 +56,7 @@ public final class TecTechFixture {
                     if (world.getBlock(x + dx, y + dy, z + dz) != TTCasingsContainer.sBlockCasingsTT) {
                         continue;
                     }
-                    final ItemStack hatch = new ItemStack(machines, 1, ENERGY_HATCH_LV_META);
+                    final ItemStack hatch = new ItemStack(machines, 1, ENERGY_HATCH_EV_4A_META);
                     final boolean placed = place(world, player, hatch, x + dx, y + dy, z + dz);
                     return placed ? null : "energy hatch not placed";
                 }
