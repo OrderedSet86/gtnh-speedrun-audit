@@ -1,7 +1,7 @@
 # Verifying a GTNH Speedrun Audit bundle
 
 A submission is one zip from `/audit export`. Start with `SUMMARY.txt`; drill into the JSONL only when
-something looks off. Before flagging anything, read [MITIGATIONS.md](MITIGATIONS.md) — several
+something looks off. Before flagging anything, read [INNOCENCE.md](INNOCENCE.md) — several
 flag-looking events have questbook-endorsed or otherwise innocent explanations.
 
 ## What the bundle contains

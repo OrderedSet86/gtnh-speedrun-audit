@@ -1,4 +1,4 @@
-# Mitigating circumstances
+# Innocent explanations for flagged events
 
 Companion to [VERIFIERS.md](VERIFIERS.md). Every entry in SUMMARY's `FLAGS FOR REVIEW` section is a
 *flag*, not a verdict — this doc lists the known-innocent explanations for each, how to confirm them
