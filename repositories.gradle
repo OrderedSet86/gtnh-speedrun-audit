@@ -1,5 +1,29 @@
 // Add any additional repositories for your dependencies here.
 
 repositories {
+    // worldedit-gtnh is not on GTNH's nexus, only on JitPack. Scoped to that one module so every other
+    // dependency keeps resolving from the faster mirrors and JitPack is never consulted for them.
+    maven {
+        name "JitPack"
+        url "https://jitpack.io"
+        content {
+            includeModule "com.github.GTNewHorizons", "worldedit-gtnh"
+        }
+    }
 
+    // WorldEdit's shaded dependencies (jchronic, jlibnoise) are served by only a couple of hosts, and a
+    // repository that times out fails resolution outright instead of falling through. Pinned to EngineHub,
+    // their upstream, so no other repository is consulted for these groups.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name "EngineHub Repository"
+                url "https://maven.enginehub.org/repo/"
+            }
+        }
+        filter {
+            includeGroup "com.sk89q"
+            includeGroup "com.sk89q.lib"
+        }
+    }
 }

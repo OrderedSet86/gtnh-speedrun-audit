@@ -14,13 +14,13 @@ integrated server runs the same code). Clients without the mod can join an audit
 |---|---|
 | Commands | every dispatch — player, console, RCON, command block — with the final canceled state |
 | Sessions | start/stop, clean-vs-crash, ops list, gamerules, seed, mod list |
-| Gamemode | per-tick transition watch + gamemode at login (catches offline NBT edits) |
+| Gamemode | per-tick transition watch + gamemode at login (catches offline NBT edits); every block placed or broken in creative |
 | NEI | every cheat-channel packet (before auth — denied attempts too) + decoded give (with the count actually inserted)/set-slot (with what it replaced)/delete-all (with what it deleted)/gamemode/time/heal |
 | Inventories | full-NBT snapshots (main, armor, baubles, ender chest) on an interval and at join/leave/death/gamemode change |
-| AE2 | periodic per-network item+fluid census, counts only, one tick per census, coarser while the server is empty |
+| AE2 | periodic per-network item+fluid census, counts only, with which items the network could autocraft; one tick per census, coarser while the server is empty |
 | Storage | hourly census of EnderStorage chests/pouches and Backpack-mod backpacks; `/inv view` clicks; player trash (Extra Utilities cans, `/trash_can`) |
 | Magic | node, node-jar and Ethereal Shard census (full NBT); magic block place/break; Blood Altar tier changes |
-| World state | game-rule changes, quest book hash and edit packets, item ID table, backup start/finish, GT power failures, wireless EU before/after, allowlisted command replies |
+| World state | game-rule changes, quest book hash and edit packets, item ID table, backup start/finish, GT power failures, wireless EU before/after, allowlisted command replies; WorldEdit edit contents (blocks placed and removed by type, pasted tile entities) when the server runs WorldEdit |
 | Milestones | BetterQuesting completions (with the party member who completed each task), dimension first-visits (moon%), achievements, configurable key-item first sightings |
 | Multiblocks | formation of every GT multiblock (assline%) with hatch, coil and structure tiers, the Bricked Blast Furnace (bbf%) and Railcraft multiblocks (coke%) |
 | Explosions | GT machine explosions — the context next to a backup restore |

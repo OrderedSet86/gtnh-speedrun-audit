@@ -178,6 +178,9 @@ public final class SelfTest {
                         .getOnline() > 0,
                     null);
                 alice.theItemInWorldManager.setGameType(WorldSettings.GameType.CREATIVE);
+                // creative_block: an untracked, unwatched block placed and broken in creative
+                place(bus, overworld, alice, 5, Blocks.glass);
+                bus.post(new BlockEvent.BreakEvent(5, 63, 0, overworld, Blocks.glass, 0, alice));
                 // the self-test's node census watches chests (stand-in for Thaumcraft nodes)
                 overworld.setBlock(12, 70, 12, Blocks.chest);
                 // a save before the step-5 saving-off edge, so that line carries lastSave. One step before the AE2
@@ -193,9 +196,16 @@ public final class SelfTest {
                 alice.inventory.setInventorySlotContents(0, new ItemStack(Items.diamond, 3));
                 placeAe2GridHost(overworld);
                 seedPowerCensus(overworld, alice);
+                buildTecTechMulti(overworld, alice);
             }
             case 4 -> session.snapshotNow(server);
             case 5 -> {
+                if (Compat.WORLDEDIT.isLoaded()) {
+                    final String problem = com.gtnhspeedrun.audit.compat.WorldEditFixture.edit(overworld);
+                    if (problem != null) {
+                        check("worldedit edit ran", false, problem);
+                    }
+                }
                 server.getCommandManager()
                     .executeCommand(server, "help");
                 server.getCommandManager()
@@ -335,7 +345,8 @@ public final class SelfTest {
                     .clock()
                     .get();
             }
-            case 10 -> {
+            // steps 10-33 wait out TecTech's start-up structure check, ~100 ticks after step 3 placed its controller
+            case 34 -> {
                 check(
                     "pticks frozen after logout",
                     session.logger()
@@ -417,12 +428,6 @@ public final class SelfTest {
     }
 
     /**
-     * Give the AE2 census a grid to count, so {@code ae2_snapshot} is exercised rather than merely compiled.
-     * One ME Interface is enough — any grid host forms a grid, and a grid holding nothing still produces a
-     * census record. Resolved by registry name on purpose: SelfTest has to stay loadable on a server without
-     * AE2, which is the whole reason AE2-typed code lives in the compat package.
-     */
-    /**
      * Give the power census an LSC controller to read and a wireless balance to report. By registry name and
      * reflection, like the AE2 grid host: SelfTest has to stay loadable on a server without GregTech. The
      * controller is unformed, so its capacitor counts are empty, but every field read is the real one.
@@ -447,19 +452,123 @@ public final class SelfTest {
         }
     }
 
+    /** An Active Transformer that can only form through TTMultiblockBase.onPostTick's own structure check. */
+    private void buildTecTechMulti(WorldServer world, EntityPlayerMP player) {
+        if (!Compat.GT5.isLoaded()) {
+            return;
+        }
+        final String problem = com.gtnhspeedrun.audit.compat.TecTechFixture
+            .build(world, player, TT_MULTI_X, TT_MULTI_Y, TT_MULTI_Z);
+        if (problem != null) {
+            check("tectech multiblock built", false, problem);
+        }
+    }
+
+    private static final int TT_MULTI_X = 20, TT_MULTI_Y = 75, TT_MULTI_Z = 4;
+
+    /**
+     * Give the AE2 census a grid to count, so {@code ae2_snapshot} is exercised rather than merely compiled: an
+     * ME Interface holding one processing pattern for {@link #AE2_CRAFTABLE_KEY}, powered so the pattern is
+     * provided, which the census must report as a count-0 craftable entry. The AE2-typed part lives in the
+     * compat package, so SelfTest stays loadable on a server without AE2.
+     */
     private void placeAe2GridHost(WorldServer world) {
         if (!Compat.AE2.isLoaded()) {
             return;
         }
-        final Object block = Block.blockRegistry.getObject("appliedenergistics2:tile.BlockInterface");
-        if (!(block instanceof Block b)) {
-            check("ae2 grid host block present", false, "appliedenergistics2:tile.BlockInterface not registered");
-            return;
+        final String problem = com.gtnhspeedrun.audit.compat.Ae2Fixture
+            .build(world, 10, 70, 10, new ItemStack(Blocks.cobblestone), new ItemStack(Items.nether_star));
+        if (problem != null) {
+            check("ae2 grid with a pattern built", false, problem);
         }
-        world.setBlock(10, 70, 10, b);
     }
 
+    /** Nothing in the scenario stocks this, so its census entry can only come from the pattern. */
+    private static final String AE2_CRAFTABLE_KEY = "minecraft:nether_star@0";
+
     // ------------------------------------------------------------------ verification
+
+    /** The fixture's one edit session, counted exactly: what it placed, what it replaced, and the chest's tile. */
+    private void checkWorldEdit(List<JsonObject> lines) {
+        final List<JsonObject> edits = lines.stream()
+            .filter(
+                l -> "worldedit_edit".equals(
+                    l.get("t")
+                        .getAsString()))
+            .map(l -> l.getAsJsonObject("data"))
+            .collect(java.util.stream.Collectors.toList());
+        if (edits.size() != 1) {
+            check("worldedit_edit: one line for the fixture's session", false, "lines=" + edits);
+            return;
+        }
+        final JsonObject e = edits.get(0);
+        final JsonObject placed = e.getAsJsonObject("placed");
+        final JsonObject removed = e.getAsJsonObject("removed");
+        final boolean ok = e.get("changed")
+            .getAsLong() == 6
+            && placed.entrySet()
+                .size() == 3
+            && placed.get("minecraft:stone@0")
+                .getAsLong() == 3
+            && placed.get("minecraft:glass@0")
+                .getAsLong() == 2
+            && placed.get("minecraft:chest@0")
+                .getAsLong() == 1
+            && removed.entrySet()
+                .size() == 1
+            && removed.get("minecraft:air@0")
+                .getAsLong() == 6
+            && e.get("tileEntitiesTotal")
+                .getAsInt() == 1
+            && e.getAsJsonArray("tileEntities")
+                .get(0)
+                .getAsJsonArray()
+                .get(3)
+                .getAsString()
+                .equals("minecraft:chest@0")
+            && e.get("dim")
+                .getAsInt() == 0;
+        check("worldedit_edit: exact placed/removed counts and the chest's tile", ok, String.valueOf(e));
+    }
+
+    /** The pattern's output appears in an AE2 census file as a count-0 entry flagged craftable. */
+    private void checkAe2Craftable(List<JsonObject> lines) {
+        final List<String> seen = new ArrayList<>();
+        for (JsonObject line : lines) {
+            if (!"ae2_snapshot".equals(
+                line.get("t")
+                    .getAsString())) {
+                continue;
+            }
+            final JsonObject data = line.getAsJsonObject("data");
+            final File file = new File(
+                session.snapshotDir(),
+                data.get("file")
+                    .getAsString());
+            try (java.io.InputStream in = new java.util.zip.GZIPInputStream(Files.newInputStream(file.toPath()))) {
+                final JsonObject snapshot = new JsonParser()
+                    .parse(new java.io.InputStreamReader(in, StandardCharsets.UTF_8))
+                    .getAsJsonObject();
+                for (com.google.gson.JsonElement e : snapshot.getAsJsonArray("items")) {
+                    final JsonObject item = e.getAsJsonObject();
+                    if (AE2_CRAFTABLE_KEY.equals(
+                        item.get("key")
+                            .getAsString())) {
+                        final boolean ok = item.get("count")
+                            .getAsLong() == 0 && item.has("craftable")
+                            && data.get("craftableItems")
+                                .getAsInt() >= 1;
+                        check("ae2 census flags the pattern output craftable", ok, item + " line=" + data);
+                        return;
+                    }
+                }
+                seen.add(file.getName() + " craftableItems=" + data.get("craftableItems"));
+            } catch (Exception e) {
+                seen.add(file.getName() + " unreadable: " + e);
+            }
+        }
+        check("ae2 census flags the pattern output craftable", false, AE2_CRAFTABLE_KEY + " absent from " + seen);
+    }
 
     private static void place(EventBus bus, WorldServer world, EntityPlayerMP player, int x, Block block) {
         world.setBlock(x, 63, 0, block);
@@ -472,7 +581,7 @@ public final class SelfTest {
         "gt_explosion", "nbt_edit", "ae2_census_failed", "block_placed", "player_leave", "dim_change", "creative_slot",
         "world_saving", "gamerule_change", "command_output", "item_id_table", "gt_powerfail", "blood_altar_tier",
         "trash_insert", "invsee_open", "invsee_click", "invsee_close", "trash_can_closed", "watched_block",
-        "node_census", "bulk_placed" };
+        "node_census", "bulk_placed", "creative_block" };
 
     private void verifyLog() {
         session.logger()
@@ -513,13 +622,65 @@ public final class SelfTest {
             "block_placed only for tracked block ×2",
             counts.getOrDefault("block_placed", 0) == 2,
             "count=" + counts.getOrDefault("block_placed", 0));
+        // only the step-2 glass: every later placement and break is in survival
+        final List<String> creative = lines.stream()
+            .filter(
+                l -> "creative_block".equals(
+                    l.get("t")
+                        .getAsString()))
+            .map(l -> {
+                final JsonObject d = l.getAsJsonObject("data");
+                return d.get("action")
+                    .getAsString() + " "
+                    + d.get("block")
+                        .getAsString()
+                    + " "
+                    + d.get("name")
+                        .getAsString();
+            })
+            .collect(java.util.stream.Collectors.toList());
+        check(
+            "creative_block: the creative place and break, nothing in survival",
+            creative.equals(
+                java.util.Arrays.asList("place minecraft:glass SelfTestAlice", "break minecraft:glass SelfTestAlice")),
+            String.valueOf(creative));
         check("both players joined", counts.getOrDefault("player_join", 0) >= 2, null);
         check("gamemode changes ×2", counts.getOrDefault("gamemode_change", 0) >= 2, null);
         check("difficulty changes ×2", counts.getOrDefault("difficulty_change", 0) >= 2, null);
+        // the scenario's sink-level formations; on a real pack the TecTech fixture adds its own, checked below
+        final long selfTestFormations = lines.stream()
+            .filter(
+                line -> "multiblock_formed".equals(
+                    line.get("t")
+                        .getAsString())
+                    && line.getAsJsonObject("data")
+                        .get("class")
+                        .getAsString()
+                        .startsWith("SelfTest"))
+            .count();
         check(
             "multiblock dedupe, hatch-tier and coil-tier changes re-log, formation marker",
-            counts.getOrDefault("multiblock_formed", 0) == 8,
-            "count=" + counts.getOrDefault("multiblock_formed", 0));
+            selfTestFormations == 8,
+            "count=" + selfTestFormations);
+        if (Compat.GT5.isLoaded()) {
+            final long ttFormations = lines.stream()
+                .filter(
+                    line -> "multiblock_formed".equals(
+                        line.get("t")
+                            .getAsString())
+                        && "MTEActiveTransformer".equals(
+                            line.getAsJsonObject("data")
+                                .get("class")
+                                .getAsString())
+                        && line.getAsJsonObject("data")
+                            .get("x")
+                            .getAsInt() == TT_MULTI_X
+                        && line.getAsJsonObject("data")
+                            .get("z")
+                            .getAsInt() == TT_MULTI_Z)
+                .count();
+            check("tectech multiblock formed on its own tick check, once", ttFormations == 1, "count=" + ttFormations);
+        }
         final List<JsonObject> bulk = lines.stream()
             .filter(
                 line -> "bulk_placed".equals(
@@ -750,6 +911,10 @@ public final class SelfTest {
                 "event logged: ae2_snapshot",
                 counts.getOrDefault("ae2_snapshot", 0) > 0,
                 "count=" + counts.getOrDefault("ae2_snapshot", 0));
+            checkAe2Craftable(lines);
+        }
+        if (Compat.WORLDEDIT.isLoaded()) {
+            checkWorldEdit(lines);
         }
 
         boolean sawNonzeroBeforeTiming = false;
@@ -793,6 +958,7 @@ public final class SelfTest {
             { "NotEnoughItems", "codechicken.nei.NEIServerUtils" }, { "NotEnoughItems", "codechicken.nei.NEISPH" },
             { "gregtech", "gregtech.common.data.GTPowerfailTracker" },
             { "gregtech", "gregtech.api.metatileentity.implementations.MTEMultiBlockBase" },
+            { "gregtech", "tectech.thing.metaTileEntity.multi.base.TTMultiblockBase" },
             { "betterquesting", "betterquesting.api2.utils.ParticipantInfo" },
             { "betterquesting", "bq_standard.tasks.base.TaskBase" },
             { "betterquesting", "betterquesting.network.handlers.NetQuestEdit" },

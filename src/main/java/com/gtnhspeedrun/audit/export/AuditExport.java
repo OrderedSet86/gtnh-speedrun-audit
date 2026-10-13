@@ -340,6 +340,8 @@ public final class AuditExport {
         flagCount(sb, counts, "trash_can_closed", "/trash_can uses");
         flagCount(sb, counts, "watched_block", "magic block place/break");
         flagCount(sb, counts, "gt_powerfail", "GT power failures");
+        flagCount(sb, counts, "creative_block", "creative block place/break");
+        flagCount(sb, counts, "worldedit_edit", "WorldEdit edits");
         sb.append(
             String.format(
                 "%-28s %d%n",

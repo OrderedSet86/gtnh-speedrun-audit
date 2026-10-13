@@ -109,6 +109,22 @@ across is on record. Innocent cases boards may choose to allow: server admins do
 MP (not the runner), or media/screenshot sessions after the run ends. Compare the bracketing
 snapshots: creative time that adds nothing to the survival inventory is verifiable as harmless.
 
+## `creative_block` — blocks placed or broken in creative
+
+Creative building is not cheating by itself: a decorative build, a test layout or clearing an area in creative
+gains the run nothing. What matters is whether a placed block was valuable or progression-relevant — a machine,
+a storage block, a multiblock part the team could not yet make. Check each placed block against the team's
+progress at that time (first sighting, quest, AE2 craftable flag). A break in creative drops nothing, so breaks
+only matter as context.
+
+## `worldedit_edit` — WorldEdit edits
+
+Decorative WorldEdit use is allowed. Read `placed`: concrete, glass and stone are decoration; machines, ores,
+storage blocks and anything in `tileEntities` (a pasted machine keeps its tile data) need the same check as a
+creative placement. `//undo` of an edit logs as its own edit with `placed` and `removed` swapped, so an undone
+paste nets to nothing. A `//cut` and `//paste` of the team's own machines moves them; compare `removed` of the
+cut with `placed` of the paste.
+
 ## `nei_cheat` `set_time`
 
 Skipping night via NEI's time buttons. Some boards treat time-skips as legal (equivalent to sleeping),
@@ -199,7 +215,8 @@ load-bearing:
   gray-area mod installed; a clean list proves nothing. Do not treat absence as evidence.
 - **Presence is not usage.** Schematica installed ≠ printer used. Corroborate with effect: printer
   abuse shows as inhumanly fast/regular block placement (machine_placed timestamps at tick
-  resolution; a Matter Manipulator build is `bulk_placed` instead), WorldEdit usage shows in the command log (its commands dispatch like any other).
+  resolution; a Matter Manipulator build is `bulk_placed` instead), WorldEdit usage shows in the command log (its commands dispatch like any other), and each edit's contents in
+  `worldedit_edit`.
 
 Boards should write down which client mods are outright banned vs allowed-but-flagged, so a runner
 with Schematica for schematic *viewing* (if allowed) isn't rejected on presence alone.

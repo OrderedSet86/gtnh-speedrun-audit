@@ -172,6 +172,7 @@ public final class Ae2Snapshotter {
         ref.addProperty("distinctItems", items.size);
         ref.addProperty("totalItems", items.totalItems);
         ref.addProperty("distinctFluids", fluids.size);
+        ref.addProperty("craftableItems", items.craftableCount());
         if (items.nbtVariantsCollapsed() > 0) {
             // Without per-item NBT hashing, NBT variants of one item+meta sum into a single key. Recorded so a
             // verifier can tell a collapsed census from one that genuinely had no variants.
@@ -190,6 +191,9 @@ public final class Ae2Snapshotter {
                 final JsonObject o = new JsonObject();
                 o.addProperty("key", items.keys[i]);
                 o.addProperty("count", items.counts[i]);
+                if (items.craftable[i]) {
+                    o.addProperty("craftable", true);
+                }
                 itemArr.add(o);
             }
             snapshot.add("items", itemArr);
@@ -215,11 +219,18 @@ public final class Ae2Snapshotter {
      * quantity anyone audits. Variants of one item+meta therefore sum into a single entry — totals are exact
      * either way, since merging only ever adds counts together. NBT-level evidence, where it is actually
      * wanted, lives in the inventory snapshots and {@code nbt_edit} lines.
+     *
+     * <p>
+     * {@code craftable} is AE2's own flag: the network has a pattern (or a level emitter set to craft) for the
+     * item. AE2's crafting grid is a cell provider on the storage grid, so every craftable item is already in the
+     * list this walks — craftable-only items as a count-0 entry, stocked ones with the flag set on their entry.
+     * Recording it costs one boolean per entry the census visits anyway; no pattern or interface is read.
      */
     public static final class ItemCensus {
 
         public String[] keys = new String[64];
         public long[] counts = new long[64];
+        public boolean[] craftable = new boolean[64];
         public int size;
         public long totalItems;
 
@@ -240,6 +251,17 @@ public final class Ae2Snapshotter {
             return seen - size;
         }
 
+        /** Keys the network could autocraft at census time, stocked or not. */
+        public int craftableCount() {
+            int n = 0;
+            for (int i = 0; i < size; i++) {
+                if (craftable[i]) {
+                    n++;
+                }
+            }
+            return n;
+        }
+
         public void add(IAEItemStack ae) {
             final Item item = ae.getItem();
             if (item == null) {
@@ -253,6 +275,7 @@ public final class Ae2Snapshotter {
             final int existing = index.get(id);
             if (existing >= 0) {
                 counts[existing] += count;
+                craftable[existing] |= ae.isCraftable();
                 return;
             }
 
@@ -270,10 +293,14 @@ public final class Ae2Snapshotter {
                 final long[] c = new long[grown];
                 System.arraycopy(counts, 0, c, 0, size);
                 counts = c;
+                final boolean[] f = new boolean[grown];
+                System.arraycopy(craftable, 0, f, 0, size);
+                craftable = f;
             }
             index.put(id, size);
             keys[size] = key;
             counts[size] = count;
+            craftable[size] = ae.isCraftable();
             size++;
 
             if (keyItems != null) {

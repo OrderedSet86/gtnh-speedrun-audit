@@ -28,6 +28,9 @@ dependencies {
     // /nbtedit payload hook (MessageEditNBTResponseMixin) — class shape verified identical at 2.2.2 (pack
     // 2.8.4) and 2.4.3 (dailies).
     compileOnly('com.github.GTNewHorizons:ServerUtilities:2.4.13:dev') { transitive = false }
+    // worldedit_edit (WorldEditAudit). The pack does not ship WorldEdit; servers add it (the gate run had
+    // worldedit@v0.0.10, this fork). Dev runtime too, like AE2, so the self-test drives a real EditSession.
+    devOnlyNonPublishable('com.github.GTNewHorizons:worldedit-gtnh:0.0.10:dev')
 
     testImplementation('org.junit.jupiter:junit-jupiter:5.10.2')
     testRuntimeOnly('org.junit.platform:junit-platform-launcher:1.10.2')

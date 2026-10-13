@@ -48,6 +48,10 @@ public class GtnhSpeedrunAudit {
     /** Both buses tolerate listeners whose events belong to the other bus, so one list per bus suffices. */
     private final List<Object> forgeBusListeners = new ArrayList<>();
     private final List<Object> fmlBusListeners = new ArrayList<>();
+    /**
+     * Unregisters from WorldEdit's own event bus; null without WorldEdit. A Runnable keeps WE types out of this class.
+     */
+    private Runnable worldEditStop;
 
     public static SessionManager session() {
         return session;
@@ -159,6 +163,19 @@ public class GtnhSpeedrunAudit {
                 }
             }
 
+            if (com.gtnhspeedrun.audit.compat.Compat.WORLDEDIT.isLoaded()) {
+                try {
+                    final com.gtnhspeedrun.audit.compat.WorldEditAudit worldEdit = new com.gtnhspeedrun.audit.compat.WorldEditAudit(
+                        sm.logger());
+                    worldEdit.register();
+                    onFmlBus(worldEdit); // end of tick: one worldedit_edit per edit session
+                    worldEditStop = worldEdit::unregister;
+                } catch (LinkageError | RuntimeException e) {
+                    // A WorldEdit build with a different API: everything else is still audited.
+                    LOG.error("WorldEdit edits NOT audited — WorldEdit API mismatch", e);
+                }
+            }
+
             event.registerServerCommand(new CommandAudit());
 
             new com.gtnhspeedrun.audit.trackers.FingerprintTracker(
@@ -247,6 +264,10 @@ public class GtnhSpeedrunAudit {
         }
         forgeBusListeners.clear();
         fmlBusListeners.clear();
+        if (worldEditStop != null) {
+            worldEditStop.run();
+            worldEditStop = null;
+        }
     }
 
     private static java.util.Set<String> nonBlank(String[] entries) {

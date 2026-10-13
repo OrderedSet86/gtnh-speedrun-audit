@@ -14,6 +14,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
 import com.gtnhspeedrun.audit.trackers.StructureTiers;
 
@@ -27,19 +28,20 @@ import gregtech.api.metatileentity.implementations.MTEMultiBlockBase;
 import gregtech.api.util.GTUtility;
 
 /**
- * The formation timestamp for every modern GT multiblock (assembly line, EBF, fusion, …): checkStructure is
- * the single place mMachine flips. The false→true transition is the graded event for the coke%/bbf%/assline%
- * style categories. The hatch lists are filled by the structure check itself, so at RETURN they describe the
- * multiblock that just formed — that is where the voltage it can run at comes from. Coil and structure tiers
- * (StructureTiers) are read at the same moment. Swapping coils or a structure part breaks and re-forms the
- * structure, and the new tiers are part of the dedupe key, so an upgrade logs a fresh formation.
+ * The formation timestamp for every modern GT multiblock (assembly line, EBF, fusion, …): checkStructure is where
+ * mMachine flips, except for TecTech multiblocks, which flip it in their own onPostTick (TTMultiblockBaseMixin logs
+ * those through audit$logFormation). The false→true transition is the graded event for the coke%/bbf%/assline% style
+ * categories. The hatch lists are filled by the structure check itself, so at RETURN they describe the multiblock that
+ * just formed — that is where the voltage it can run at comes from. Coil and structure tiers (StructureTiers) are read
+ * at the same moment. Swapping coils or a structure part breaks and re-forms the structure, and the new tiers are part
+ * of the dedupe key, so an upgrade logs a fresh formation.
  *
  * <p>
  * The tiers last logged are saved in the controller's NBT, so the re-check after a server restart or chunk
  * reload logs nothing, and a restored backup brings back the marker the backup had.
  */
 @Mixin(value = MTEMultiBlockBase.class, remap = false)
-public class MTEMultiBlockBaseMixin {
+public class MTEMultiBlockBaseMixin implements GtFormationLogger {
 
     @Shadow
     public boolean mMachine;
@@ -95,6 +97,11 @@ public class MTEMultiBlockBaseMixin {
         if (audit$wasFormed || !mMachine || !aBaseMetaTileEntity.isServerSide()) {
             return;
         }
+        audit$logFormation(aBaseMetaTileEntity);
+    }
+
+    @Override
+    public void audit$logFormation(IGregTechTileEntity aBaseMetaTileEntity) {
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
         final String logged = AuditSinks.gtMultiblockFormed(
             audit$loggedFormation,

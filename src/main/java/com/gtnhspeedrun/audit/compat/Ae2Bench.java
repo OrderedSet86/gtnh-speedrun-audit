@@ -57,6 +57,8 @@ public final class Ae2Bench {
     private static final int WARMUP_RUNS = 3;
     /** NBT variants generated per shared (item, meta) — e.g. one tool at four damage values. */
     private static final int VARIANTS_PER_KEY = 4;
+    /** One plain entry in this many is also craftable, and one in this many of all entries is craftable only. */
+    private static final int CRAFTABLE_EVERY = 10;
     private static final int MEASURED_RUNS = 5;
     /** Tick budget a server has to hit 20 TPS. The number every walk_ms below is really being compared to. */
     private static final double TICK_BUDGET_MS = 50.0;
@@ -235,6 +237,27 @@ public final class Ae2Bench {
             "merge path exercised",
             nbtPercent <= 0 || census.nbtVariantsCollapsed() > 0,
             "nbtPercent=" + nbtPercent + " yet nothing collapsed");
+
+        final java.util.Set<String> craftable = new java.util.HashSet<>();
+        for (int i = 0; i < census.size; i++) {
+            if (census.craftable[i]) {
+                craftable.add(census.keys[i]);
+            }
+        }
+        record(
+            out,
+            entries,
+            "craftable keys exact",
+            craftable.equals(synth.craftableKeys),
+            craftable.size() + " flagged vs " + synth.craftableKeys.size() + " generated");
+        // Same guard for the craftable flag: one variant of a group is craftable, so the flag only survives the
+        // fold if a merge ORs it in. Without merged craftable groups that path would go untested.
+        record(
+            out,
+            entries,
+            "craftable merge path exercised",
+            nbtPercent <= 0 || synth.mergedCraftableKeys > 0,
+            "nbtPercent=" + nbtPercent + " yet no variant group was craftable");
     }
 
     private static void record(List<String> out, int entries, String name, boolean ok, String detail) {
@@ -251,6 +274,10 @@ public final class Ae2Bench {
         int distinctKeys;
         /** Exact sum of every stack size inserted. */
         long totalItems;
+        /** Keys the census must flag craftable: stocked+craftable, craftable-only, and variant groups. */
+        final java.util.Set<String> craftableKeys = new java.util.HashSet<>();
+        /** Craftable keys whose flag sits on one NBT variant of several. */
+        int mergedCraftableKeys;
     }
 
     /**
@@ -263,6 +290,12 @@ public final class Ae2Bench {
      * (item, meta) — a stack of the same tool at different damage values, which is what a real network holds
      * and what the census has to fold back together. Giving every entry its own (item, meta) instead, as an
      * earlier version did, left the merge path untested.
+     *
+     * <p>
+     * Craftables go in through {@code addCrafting}, the call AE2's crafting grid makes into the storage list: on
+     * an entry already held it sets the flag, on a new one it adds a count-0 craftable-only entry. Some plain
+     * entries are flagged, some entries are craftable only (carved out of n, so the size labels stay true), and
+     * in every other variant group only the last variant is flagged, so the census must OR it in on merge.
      */
     private Synth synthesize(List<Item> pool, int n) {
         final Synth synth = new Synth();
@@ -271,27 +304,37 @@ public final class Ae2Bench {
             .createItemList();
 
         final int nbtEntries = (int) ((long) n * Math.max(0, nbtPercent) / 100);
-        final int plainEntries = n - nbtEntries;
+        final int craftOnlyEntries = n / CRAFTABLE_EVERY;
+        final int plainEntries = n - nbtEntries - craftOnlyEntries;
         // Disjoint base-id ranges, so a variant group can never collide with a plain entry's key.
         final int nbtKeys = (nbtEntries + VARIANTS_PER_KEY - 1) / VARIANTS_PER_KEY;
 
         // Deterministic, so two runs of the bench are comparable. No Random.
         for (int i = 0; i < plainEntries; i++) {
-            add(synth, pool, i, i, null);
+            add(synth, pool, i, i, null, i % CRAFTABLE_EVERY == 0);
         }
         for (int i = 0; i < nbtEntries; i++) {
-            final int baseId = plainEntries + i / VARIANTS_PER_KEY;
-            add(synth, pool, baseId, plainEntries + i, sampleTag(i));
+            final int group = i / VARIANTS_PER_KEY;
+            final boolean craftable = group % 2 == 0 && i % VARIANTS_PER_KEY == VARIANTS_PER_KEY - 1;
+            if (add(synth, pool, plainEntries + group, plainEntries + i, sampleTag(i), craftable)) {
+                synth.mergedCraftableKeys++;
+            }
         }
-        synth.distinctKeys = plainEntries + nbtKeys;
+        for (int i = 0; i < craftOnlyEntries; i++) {
+            addCraftableOnly(synth, pool, plainEntries + nbtKeys + i);
+        }
+        synth.distinctKeys = plainEntries + nbtKeys + craftOnlyEntries;
         // What AE2 actually holds, which is the number the collapse arithmetic has to reconcile against —
         // it can fall short of what was inserted if AE2 merged or rejected any entry.
         synth.entries = synth.list.size();
         return synth;
     }
 
-    /** @param spread seeds the stack size only, so variants of one key still differ in amount */
-    private void add(Synth synth, List<Item> pool, int baseId, int spread, NBTTagCompound tag) {
+    /**
+     * @param spread seeds the stack size only, so variants of one key still differ in amount
+     * @return whether the entry went in flagged craftable
+     */
+    private boolean add(Synth synth, List<Item> pool, int baseId, int spread, NBTTagCompound tag, boolean craftable) {
         final Item item = pool.get(baseId % pool.size());
         final int meta = baseId / pool.size();
         final ItemStack stack = new ItemStack(item, 1, meta);
@@ -302,13 +345,31 @@ public final class Ae2Bench {
             .storage()
             .createItemStack(stack);
         if (ae == null) {
-            return;
+            return false;
         }
         // Spread across magnitudes: a real network holds both single tools and billions of ingots.
         final long size = 1L + (long) (spread % 977) * (1L + spread % 7919);
         ae.setStackSize(size);
         synth.list.addStorage(ae);
         synth.totalItems += size;
+        if (craftable) {
+            synth.list.addCrafting(ae.copy());
+            synth.craftableKeys.add(Item.itemRegistry.getNameForObject(item) + "@" + meta);
+        }
+        return craftable;
+    }
+
+    private void addCraftableOnly(Synth synth, List<Item> pool, int baseId) {
+        final Item item = pool.get(baseId % pool.size());
+        final int meta = baseId / pool.size();
+        final IAEItemStack ae = AEApi.instance()
+            .storage()
+            .createItemStack(new ItemStack(item, 1, meta));
+        if (ae == null) {
+            return;
+        }
+        synth.list.addCrafting(ae);
+        synth.craftableKeys.add(Item.itemRegistry.getNameForObject(item) + "@" + meta);
     }
 
     /** Shaped like a GT tool's tag: a nested compound, an enchantment list, a long charge, a display name. */

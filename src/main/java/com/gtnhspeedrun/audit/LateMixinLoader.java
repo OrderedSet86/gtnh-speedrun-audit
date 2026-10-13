@@ -32,6 +32,7 @@ public class LateMixinLoader implements ILateMixinLoader {
         // ride the manifest-registered base config, gated by AuditMixinPlugin (daily-707 crash otherwise).
         if (loadedMods.contains("gregtech")) {
             mixins.add("gt.MTEMultiBlockBaseMixin");
+            mixins.add("gt.TTMultiblockBaseMixin");
             mixins.add("gt.MTEBrickedBlastFurnaceMixin");
             mixins.add("gt.MetaTileEntityMixin");
             mixins.add("gt.GTPowerfailTrackerMixin");

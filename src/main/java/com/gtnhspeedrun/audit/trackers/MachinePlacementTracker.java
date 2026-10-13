@@ -42,6 +42,11 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * tick, and at the tick's end every checked spot that now holds a different GT machine is logged, one bulk_placed
  * line per player, dimension and manipulator. A checked spot that already held that machine is only counted.
  * Needs this tracker on both buses: Forge for PlaceEvent, FML for the end of the tick.
+ *
+ * <p>
+ * Every block a player in creative mode places or breaks is also logged, as creative_block, whatever the block:
+ * a creative placement uses up no item, so neither inventory snapshots nor creative_slot packets show it. A
+ * MultiPlaceEvent (a bed, a door) logs each block it placed. Manipulator checks are not placements and stay out.
  */
 public final class MachinePlacementTracker {
 
@@ -88,6 +93,9 @@ public final class MachinePlacementTracker {
             noteManipulatorCheck(event, player, blockName);
             return;
         }
+        if (player.theItemInWorldManager.isCreative()) {
+            logCreativePlacement(event, player);
+        }
         if (machineBlock.equals(blockName)) {
             final JsonObject data = placement(event, player);
             data.addProperty("kind", classify(event.world.getTileEntity(event.x, event.y, event.z)));
@@ -104,6 +112,59 @@ public final class MachinePlacementTracker {
             data.addProperty("meta", event.blockMetadata);
             logger.log("watched_block", data);
         }
+    }
+
+    private void logCreativePlacement(BlockEvent.PlaceEvent event, EntityPlayerMP player) {
+        if (event instanceof BlockEvent.MultiPlaceEvent multi) {
+            for (net.minecraftforge.common.util.BlockSnapshot snapshot : multi.getReplacedBlockSnapshots()) {
+                logCreative(
+                    "place",
+                    player,
+                    event.world,
+                    snapshot.x,
+                    snapshot.y,
+                    snapshot.z,
+                    event.world.getBlock(snapshot.x, snapshot.y, snapshot.z),
+                    event.world.getBlockMetadata(snapshot.x, snapshot.y, snapshot.z),
+                    event.itemInHand);
+            }
+            return;
+        }
+        logCreative(
+            "place",
+            player,
+            event.world,
+            event.x,
+            event.y,
+            event.z,
+            event.placedBlock,
+            event.blockMetadata,
+            event.itemInHand);
+    }
+
+    private void logCreative(String action, EntityPlayerMP player, World world, int x, int y, int z, Block block,
+        int meta, ItemStack itemInHand) {
+        final JsonObject data = new JsonObject();
+        data.addProperty("action", action);
+        data.addProperty(
+            "uuid",
+            player.getGameProfile()
+                .getId()
+                .toString());
+        data.addProperty("name", player.getCommandSenderName());
+        data.addProperty("block", String.valueOf(Block.blockRegistry.getNameForObject(block)));
+        data.addProperty("meta", meta);
+        if (itemInHand != null) {
+            data.addProperty("itemKey", ItemKey.base(itemInHand));
+        }
+        data.addProperty("dim", world.provider.dimensionId);
+        data.addProperty("x", x);
+        data.addProperty("y", y);
+        data.addProperty("z", z);
+        if (world.getTileEntity(x, y, z) != null) {
+            data.addProperty("tile", true);
+        }
+        logger.log("creative_block", data);
     }
 
     private void noteManipulatorCheck(BlockEvent.PlaceEvent event, EntityPlayerMP player, String blockName) {
@@ -145,9 +206,22 @@ public final class MachinePlacementTracker {
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onBreak(BlockEvent.BreakEvent event) {
-        if (event.isCanceled() || event.world.isRemote
-            || watchedBlocks.isEmpty()
-            || !(event.getPlayer() instanceof EntityPlayerMP player)) {
+        if (event.isCanceled() || event.world.isRemote || !(event.getPlayer() instanceof EntityPlayerMP player)) {
+            return;
+        }
+        if (player.theItemInWorldManager.isCreative()) {
+            logCreative(
+                "break",
+                player,
+                event.world,
+                event.x,
+                event.y,
+                event.z,
+                event.block,
+                event.blockMetadata,
+                null);
+        }
+        if (watchedBlocks.isEmpty()) {
             return;
         }
         final String blockName = String.valueOf(Block.blockRegistry.getNameForObject(event.block));

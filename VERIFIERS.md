@@ -144,6 +144,16 @@ Every `session_start` line embeds the startup verdict:
 - `watched_block` lines are player place and break of the `watchedBlocks` list (Thaumcraft nodes, node jars,
   stabilizers and transducer, Ethereal Shards, Blood Magic altars and ritual stones). A break has the tile's
   NBT. Jarring a node with a wand fires no event; compare `node_census` files.
+- `creative_block` lines are every block a player in creative mode placed or broke, whatever the block, with
+  `action`, `block`, `meta`, `itemKey` (place) and coordinates; `tile: true` when the block has a tile entity. A
+  creative placement uses up no item, so no inventory snapshot shows it. A multi-block placement (a bed, a door)
+  logs each block. Matter Manipulator placements are `bulk_placed`, not `creative_block`.
+- `worldedit_edit` lines are what each WorldEdit edit changed: one line per edit session per tick, from a
+  command, a brush, a wand tool or `//undo`. `placed` and `removed` are `block@meta` counts of blocks that
+  actually changed, `min`/`max` the bounds, and `tileEntities` the first 256 blocks written with tile data as
+  `[x, y, z, block@meta, tile id, GT meta tile ID?]` (`tileEntitiesTotal` is exact). An edit with no player
+  (a script without an actor) has no `uuid`/`name`. The `command` line in the same tick has the text. Only
+  logged when the server runs WorldEdit; the pack does not ship it.
 - `node_census` files (`nodes-<ticks>.json.gz`, every 15 min and on `/audit snapshot`) hold the full NBT of
   every Thaumcraft node, node jar and Ethereal Shard in loaded chunks.
 - `power_census` files (`power-<ticks>.json.gz`, every 5 min and on `/audit snapshot`) list every Lapotronic
@@ -180,6 +190,10 @@ Every `session_start` line embeds the startup verdict:
   two otherwise-identical stacks apart by their tags, which is not a quantity anyone audits. If
   `nbtVariantsCollapsed` is present and non-zero, that many entries merged. NBT-level evidence, where it
   matters, lives in the inventory snapshots and `nbt_edit` lines.
+- AE2 census entries have `craftable: true` when the network could autocraft the item at that instant (a
+  pattern for it, or a crafting level emitter). An entry with `count: 0` is craftable only: AE2 lists craftable
+  items in the network's item list, and the census records what it lists. `craftableItems` on the line counts
+  them. Bundles from v0.6.0 and earlier also have count-0 entries, without the flag; read those as craftable.
 - Timing — three clocks, every line carries all of them: `wall` (epoch ms; RTA = wall minus the anchored
   timing_started moment), `ticks` (cumulative server ticks = IGT, the main metric; AFK machine time counts),
   and `pticks` (ticks with at least one player connected). The tick clocks rewind with a rollback; wall time

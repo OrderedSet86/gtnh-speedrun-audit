@@ -14,7 +14,8 @@ public enum Compat {
     BAUBLES("Baubles"),
     GT5("gregtech"),
     RAILCRAFT("Railcraft"),
-    SERVER_UTILITIES("serverutilities");
+    SERVER_UTILITIES("serverutilities"),
+    WORLDEDIT("worldedit");
 
     private final String modId;
     private Boolean loaded;
