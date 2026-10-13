@@ -31,6 +31,10 @@ public final class AuditConfig {
         "thaumcraft.common.tiles.TileNodeEnergized", "thaumcraft.common.tiles.TileJarNode",
         "com.kentington.thaumichorizons.common.tiles.TileSyntheticNode" };
     public static int nodeCensusMinutes = 15;
+    /** GT MetaTileEntity class names read by the power census: the Lapotronic Supercapacitor. */
+    public static String[] powerCensusClasses = new String[] {
+        "kekztech.common.tileentities.MTELapotronicSuperCapacitor" };
+    public static int powerCensusMinutes = 5;
     public static int storageCensusMinutes = 60;
     /**
      * Commands whose text output is captured into command_output, matched against "command" or "command
@@ -112,6 +116,19 @@ public final class AuditConfig {
             1,
             1440,
             "Minutes between node censuses (Thaumcraft nodes, node jars, Ethereal Shards in loaded chunks).");
+        powerCensusClasses = cfg.getStringList(
+            "powerCensusClasses",
+            "snapshots",
+            powerCensusClasses,
+            "GT MetaTileEntity class names (exact) read by each power census: stored EU, capacity, capacitors per "
+                + "tier, wireless mode. Loaded chunks only.");
+        powerCensusMinutes = cfg.getInt(
+            "powerCensusMinutes",
+            "snapshots",
+            powerCensusMinutes,
+            1,
+            1440,
+            "Minutes between power censuses (Lapotronic Supercapacitors in loaded chunks, every team's wireless EU).");
         storageCensusMinutes = cfg.getInt(
             "storageCensusMinutes",
             "snapshots",

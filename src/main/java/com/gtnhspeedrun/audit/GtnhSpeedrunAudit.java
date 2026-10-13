@@ -134,6 +134,13 @@ public class GtnhSpeedrunAudit {
                     sm.logger());
                 onForgeBus(wireless); // CommandEvent
                 onFmlBus(wireless); // end-of-tick balance read
+                final com.gtnhspeedrun.audit.compat.GtPowerCensus power = new com.gtnhspeedrun.audit.compat.GtPowerCensus(
+                    sm.logger(),
+                    event.getServer(),
+                    AuditConfig.powerCensusClasses,
+                    AuditConfig.powerCensusMinutes);
+                onFmlBus(power);
+                sm.addSnapshotHook(() -> power.census("manual"));
             }
             if (com.gtnhspeedrun.audit.compat.Compat.AE2.isLoaded()) {
                 final com.gtnhspeedrun.audit.compat.Ae2Snapshotter ae2 = new com.gtnhspeedrun.audit.compat.Ae2Snapshotter(

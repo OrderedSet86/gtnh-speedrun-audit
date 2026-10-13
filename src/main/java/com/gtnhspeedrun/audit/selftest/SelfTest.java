@@ -64,6 +64,9 @@ public final class SelfTest {
     public static final String PROPERTY = "speedrunaudit.selftest";
     /** Stand-ins for the GT machine block and the Matter Manipulator, so the drill runs without either mod. */
     public static final String STAND_IN_MACHINE_BLOCK = "minecraft:iron_block";
+    /** GT MetaTileEntity id of the Lapotronic Supercapacitor controller. */
+    private static final int LSC_CONTROLLER_META = 13106;
+    private static final long SEEDED_WIRELESS_EU = 12_345L;
     public static final String STAND_IN_MANIPULATOR_PREFIX = "minecraft:stick@";
 
     /** Ticks between steps — enough for every per-tick poll to observe the change made by the last step. */
@@ -189,6 +192,7 @@ public final class SelfTest {
                 alice.theItemInWorldManager.setGameType(WorldSettings.GameType.SURVIVAL);
                 alice.inventory.setInventorySlotContents(0, new ItemStack(Items.diamond, 3));
                 placeAe2GridHost(overworld);
+                seedPowerCensus(overworld, alice);
             }
             case 4 -> session.snapshotNow(server);
             case 5 -> {
@@ -418,6 +422,31 @@ public final class SelfTest {
      * census record. Resolved by registry name on purpose: SelfTest has to stay loadable on a server without
      * AE2, which is the whole reason AE2-typed code lives in the compat package.
      */
+    /**
+     * Give the power census an LSC controller to read and a wireless balance to report. By registry name and
+     * reflection, like the AE2 grid host: SelfTest has to stay loadable on a server without GregTech. The
+     * controller is unformed, so its capacitor counts are empty, but every field read is the real one.
+     */
+    private void seedPowerCensus(WorldServer world, EntityPlayerMP player) {
+        if (!Compat.GT5.isLoaded()) {
+            return;
+        }
+        world.setBlock(14, 69, 10, Blocks.stone);
+        final Object block = Block.blockRegistry.getObject("gregtech:gt.blockmachines");
+        if (!(block instanceof Block b)) {
+            check("gt machine block present", false, "gregtech:gt.blockmachines not registered");
+            return;
+        }
+        new ItemStack(b, 1, LSC_CONTROLLER_META).tryPlaceItemIntoWorld(player, world, 14, 69, 10, 1, 0.5f, 1f, 0.5f);
+        try {
+            Class.forName("gregtech.common.misc.WirelessNetworkManager")
+                .getMethod("addEUToGlobalEnergyMap", UUID.class, long.class)
+                .invoke(null, player.getUniqueID(), SEEDED_WIRELESS_EU);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            check("wireless EU seeded", false, String.valueOf(e));
+        }
+    }
+
     private void placeAe2GridHost(WorldServer world) {
         if (!Compat.AE2.isLoaded()) {
             return;
@@ -694,6 +723,27 @@ public final class SelfTest {
         }
         if (com.gtnhspeedrun.audit.snapshot.StorageCensus.anythingToCensus()) {
             check("event logged: storage_census", counts.getOrDefault("storage_census", 0) > 0, null);
+        }
+        if (Compat.GT5.isLoaded()) {
+            final JsonObject power = lines.stream()
+                .filter(
+                    line -> "power_census".equals(
+                        line.get("t")
+                            .getAsString()))
+                .map(line -> line.getAsJsonObject("data"))
+                .findFirst()
+                .orElse(null);
+            check(
+                "power census read the LSC and wireless EU",
+                power != null && power.get("lscs")
+                    .getAsInt() >= 1
+                    && power.get("readErrors")
+                        .getAsInt() == 0
+                    && new java.math.BigInteger(
+                        power.get("wirelessStored")
+                            .getAsString()).compareTo(java.math.BigInteger.valueOf(SEEDED_WIRELESS_EU))
+                        >= 0,
+                String.valueOf(power));
         }
         if (Compat.AE2.isLoaded()) {
             check(

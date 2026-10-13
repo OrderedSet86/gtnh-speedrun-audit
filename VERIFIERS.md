@@ -146,6 +146,11 @@ Every `session_start` line embeds the startup verdict:
   NBT. Jarring a node with a wand fires no event; compare `node_census` files.
 - `node_census` files (`nodes-<ticks>.json.gz`, every 15 min and on `/audit snapshot`) hold the full NBT of
   every Thaumcraft node, node jar and Ethereal Shard in loaded chunks.
+- `power_census` files (`power-<ticks>.json.gz`, every 5 min and on `/audit snapshot`) list every Lapotronic
+  Supercapacitor in loaded chunks: stored EU, capacity, the capacitors installed per tier, wireless mode and owner.
+  They also list every team's wireless EU. EU values are decimal strings. Capacitor counts come from the LSC's last
+  structure check and are valid only when `formed` is true. The log line has the totals (`lscStored`,
+  `wirelessStored`) and `readErrors`. A census has no entry for an LSC in an unloaded chunk.
 - `storage_census` files (hourly) hold every EnderStorage item inventory, by frequency and owner, and the
   Backpack mod's backpack files. Backpack files are as of the mod's last save of each backpack.
 - `item_id_table` is the world's numeric block and item ids at each server start (keys prefixed `\u0001`
