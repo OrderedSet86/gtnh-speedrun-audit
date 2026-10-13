@@ -457,14 +457,20 @@ public final class SelfTest {
         if (!Compat.GT5.isLoaded()) {
             return;
         }
+        final net.minecraft.util.ChunkCoordinates spawn = world.getSpawnPoint();
+        ttMulti = new net.minecraft.util.ChunkCoordinates(spawn.posX + 8, spawn.posY + 40, spawn.posZ + 8);
         final String problem = com.gtnhspeedrun.audit.compat.TecTechFixture
-            .build(world, player, TT_MULTI_X, TT_MULTI_Y, TT_MULTI_Z);
+            .build(world, player, ttMulti.posX, ttMulti.posY, ttMulti.posZ);
         if (problem != null) {
             check("tectech multiblock built", false, problem);
         }
     }
 
-    private static final int TT_MULTI_X = 20, TT_MULTI_Y = 75, TT_MULTI_Z = 4;
+    /**
+     * Beside the spawn point, in the spawn chunks: they stay loaded with nobody online, so a restart's own
+     * structure check really runs and the restart drill can show that it logs nothing.
+     */
+    private net.minecraft.util.ChunkCoordinates ttMulti;
 
     /**
      * Give the AE2 census a grid to count, so {@code ae2_snapshot} is exercised rather than merely compiled: an
@@ -674,10 +680,10 @@ public final class SelfTest {
                                 .getAsString())
                         && line.getAsJsonObject("data")
                             .get("x")
-                            .getAsInt() == TT_MULTI_X
+                            .getAsInt() == ttMulti.posX
                         && line.getAsJsonObject("data")
                             .get("z")
-                            .getAsInt() == TT_MULTI_Z)
+                            .getAsInt() == ttMulti.posZ)
                 .count();
             check("tectech multiblock formed on its own tick check, once", ttFormations == 1, "count=" + ttFormations);
         }
