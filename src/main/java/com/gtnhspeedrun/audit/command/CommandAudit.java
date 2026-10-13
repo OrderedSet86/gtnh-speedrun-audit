@@ -5,6 +5,8 @@ import java.util.List;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.command.WrongUsageException;
+import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChatComponentText;
 
 import com.google.gson.JsonObject;
@@ -27,6 +29,19 @@ public class CommandAudit extends CommandBase {
     @Override
     public int getRequiredPermissionLevel() {
         return 2;
+    }
+
+    @Override
+    public boolean canCommandSenderUseCommand(ICommandSender sender) {
+        // A singleplayer owner is op only with cheats allowed. Let the owner audit without them.
+        final MinecraftServer server = MinecraftServer.getServer();
+        if (server != null && server.isSinglePlayer()
+            && sender instanceof EntityPlayerMP player
+            && server.getServerOwner()
+                .equalsIgnoreCase(player.getCommandSenderName())) {
+            return true;
+        }
+        return super.canCommandSenderUseCommand(sender);
     }
 
     @Override

@@ -70,7 +70,7 @@ generation and the spawn drop add no time.
 /audit export     write the submission zip
 ```
 
-`/audit` is an op command. In singleplayer it works only with cheats allowed. The zip goes in
+On a server, `/audit` is an op command. In singleplayer it works without cheats. The zip goes in
 `speedrun-audit/<world-id>/export/` and has the logs, the snapshots, a `SUMMARY.txt` and a verification
 report.
 
