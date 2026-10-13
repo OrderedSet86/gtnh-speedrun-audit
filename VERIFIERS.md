@@ -105,6 +105,10 @@ Every `session_start` line embeds the startup verdict:
   the spots the manipulator went over that already held that machine. In logs from earlier versions, the
   manipulator's `machine_placed` lines (`itemKey` `matter-manipulator:…`) are those already-built spots, not
   placements, and what it placed is not logged.
+- A `machine_placed` line's `itemKey` and `displayName` are the item in the player's main hand. That is a tool,
+  not the machine, when a Vajra swaps in the offhand block (`gregtech:gt.Tool_Vajra`) or a StructureLib hologram
+  projector builds from the inventory (`structurelib:item.structurelib.constructableTrigger`). `machineId` (the
+  meta tile ID) and `machine` name the GT machine read from the world. Lines from earlier versions have neither.
 - `world_saving` lines with `enabled: false` also have `lastSave {seq, ticks, wall}`: the anchor values the
   overworld's latest save wrote. A backup saves every world and then turns saving off, so these are the anchor
   inside that backup. A `WORLD_ROLLBACK` whose `session_start.anchor` equals a `lastSave` restored that backup.

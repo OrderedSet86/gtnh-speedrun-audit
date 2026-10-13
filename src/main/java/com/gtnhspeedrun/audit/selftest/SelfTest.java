@@ -268,6 +268,11 @@ public final class SelfTest {
                 // watched_block break (the self-test watches diamond_block)
                 bus.post(new BlockEvent.BreakEvent(ox(2), oy(0), oz(0), overworld, Blocks.diamond_block, 0, alice));
                 driveManipulator(overworld);
+                // a machine placed with a tool in the main hand (a Vajra or a StructureLib projector on the pack):
+                // the line names the tool as itemKey and the machine from the world
+                alice.inventory
+                    .setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Items.diamond_pickaxe));
+                place(bus, overworld, alice, ox(3), oy(0), oz(0), Blocks.iron_block);
 
                 // Sink layer — everything below the mixin line (the mixins themselves only bind on the pack).
                 AuditSinks.neiPacket(uuid(alice), "SelfTestAlice", 1);
@@ -659,10 +664,36 @@ public final class SelfTest {
         for (String type : EXPECTED_TYPES) {
             check("event logged: " + type, counts.getOrDefault(type, 0) > 0, null);
         }
+        final List<JsonObject> machinePlaced = lines.stream()
+            .filter(
+                line -> "machine_placed".equals(
+                    line.get("t")
+                        .getAsString()))
+            .map(line -> line.getAsJsonObject("data"))
+            .collect(java.util.stream.Collectors.toList());
         check(
-            "machine_placed NOT logged for vanilla block",
-            counts.getOrDefault("machine_placed", 0) == 0,
-            "count=" + counts.getOrDefault("machine_placed", 0));
+            "machine_placed only for the machine, not the vanilla block",
+            machinePlaced.size() == 1,
+            machinePlaced.toString());
+        check(
+            "machine_placed by a tool: itemKey is the tool, machineId and machine are the machine",
+            machinePlaced.size() == 1 && "minecraft:diamond_pickaxe@0".equals(
+                machinePlaced.get(0)
+                    .get("itemKey")
+                    .getAsString())
+                && machinePlaced.get(0)
+                    .has("machineId")
+                && machinePlaced.get(0)
+                    .get("machineId")
+                    .getAsInt() == 0
+                && machinePlaced.get(0)
+                    .has("machine")
+                && new ItemStack(Blocks.iron_block).getDisplayName()
+                    .equals(
+                        machinePlaced.get(0)
+                            .get("machine")
+                            .getAsString()),
+            machinePlaced.toString());
         check(
             "block_placed only for tracked block ×2",
             counts.getOrDefault("block_placed", 0) == 2,

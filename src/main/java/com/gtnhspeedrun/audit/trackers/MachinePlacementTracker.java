@@ -44,6 +44,11 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * Needs this tracker on both buses: Forge for PlaceEvent, FML for the end of the tick.
  *
  * <p>
+ * A machine_placed line's itemKey is the player's main-hand item, which is not the machine when a tool placed it
+ * (a Vajra swapping in the offhand block, a StructureLib hologram projector). machineId and machine name the GT
+ * machine read back from the world.
+ *
+ * <p>
  * Every block a player in creative mode places or breaks is also logged, as creative_block, whatever the block:
  * a creative placement uses up no item, so neither inventory snapshots nor creative_slot packets show it. A
  * MultiPlaceEvent (a bed, a door) logs each block it placed. Manipulator checks are not placements and stay out.
@@ -102,6 +107,14 @@ public final class MachinePlacementTracker {
         if (machineBlock.equals(blockName)) {
             final JsonObject data = placement(event, player);
             data.addProperty("kind", classify(event.world.getTileEntity(event.x, event.y, event.z)));
+            // itemInHand is the main-hand item, which is a tool when a Vajra places the offhand block or a
+            // StructureLib projector builds from the inventory. The machine itself is read from the world.
+            final int machineId = event.placedBlock.getDamageValue(event.world, event.x, event.y, event.z);
+            data.addProperty("machineId", machineId);
+            final String machine = machineName(event.placedBlock, machineId);
+            if (machine != null) {
+                data.addProperty("machine", machine);
+            }
             logger.log("machine_placed", data);
         } else if (trackedBlocks.contains(blockName)) {
             final JsonObject data = placement(event, player);
