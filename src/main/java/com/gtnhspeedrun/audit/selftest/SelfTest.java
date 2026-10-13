@@ -144,8 +144,8 @@ public final class SelfTest {
                     new GameProfile(
                         UUID.nameUUIDFromBytes("selftest-bob".getBytes(StandardCharsets.UTF_8)),
                         "SelfTestBob"));
-                alice.setPositionAndRotation(0, 64, 0, 0, 0);
-                bob.setPositionAndRotation(0, 64, 0, 0, 0);
+                alice.setPositionAndRotation(ox(0), oy(1), oz(0), 0, 0);
+                bob.setPositionAndRotation(ox(0), oy(1), oz(0), 0, 0);
                 // Vanilla broadcasts (time sync etc.) hit every listed player's net handler each tick, so
                 // the fakes need a real one — over an unconnected NetworkManager, whose flush is
                 // channel-guarded, packets just queue harmlessly.
@@ -179,10 +179,10 @@ public final class SelfTest {
                     null);
                 alice.theItemInWorldManager.setGameType(WorldSettings.GameType.CREATIVE);
                 // creative_block: an untracked, unwatched block placed and broken in creative
-                place(bus, overworld, alice, 5, Blocks.glass);
-                bus.post(new BlockEvent.BreakEvent(5, 63, 0, overworld, Blocks.glass, 0, alice));
+                place(bus, overworld, alice, ox(5), oy(0), oz(0), Blocks.glass);
+                bus.post(new BlockEvent.BreakEvent(ox(5), oy(0), oz(0), overworld, Blocks.glass, 0, alice));
                 // the self-test's node census watches chests (stand-in for Thaumcraft nodes)
-                overworld.setBlock(12, 70, 12, Blocks.chest);
+                overworld.setBlock(ox(12), oy(7), oz(12), Blocks.chest);
                 // a save before the step-5 saving-off edge, so that line carries lastSave. One step before the AE2
                 // grid host goes down: saving in the tick it is placed kept its grid from forming
                 try {
@@ -201,7 +201,8 @@ public final class SelfTest {
             case 4 -> session.snapshotNow(server);
             case 5 -> {
                 if (Compat.WORLDEDIT.isLoaded()) {
-                    final String problem = com.gtnhspeedrun.audit.compat.WorldEditFixture.edit(overworld);
+                    final String problem = com.gtnhspeedrun.audit.compat.WorldEditFixture
+                        .edit(overworld, ox(20), oy(17), oz(20));
                     if (problem != null) {
                         check("worldedit edit ran", false, problem);
                     }
@@ -256,15 +257,15 @@ public final class SelfTest {
                 // block goes in first — posting over air would make both assertions below vacuous.
                 // Negative: an untracked vanilla block placement must log neither machine_placed nor block_placed.
                 alice.inventory.setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Blocks.dirt));
-                place(bus, overworld, alice, 0, Blocks.dirt);
+                place(bus, overworld, alice, ox(0), oy(0), oz(0), Blocks.dirt);
                 // Positive: the self-test watches diamond_block (stand-in for the Stargate blocks) — two
                 // placements, two block_placed lines.
                 alice.inventory
                     .setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Blocks.diamond_block));
-                place(bus, overworld, alice, 1, Blocks.diamond_block);
-                place(bus, overworld, alice, 2, Blocks.diamond_block);
+                place(bus, overworld, alice, ox(1), oy(0), oz(0), Blocks.diamond_block);
+                place(bus, overworld, alice, ox(2), oy(0), oz(0), Blocks.diamond_block);
                 // watched_block break (the self-test watches diamond_block)
-                bus.post(new BlockEvent.BreakEvent(2, 63, 0, overworld, Blocks.diamond_block, 0, alice));
+                bus.post(new BlockEvent.BreakEvent(ox(2), oy(0), oz(0), overworld, Blocks.diamond_block, 0, alice));
                 driveManipulator(overworld);
 
                 // Sink layer — everything below the mixin line (the mixins themselves only bind on the pack).
@@ -322,7 +323,7 @@ public final class SelfTest {
                     JsonUtil.nbtToB64(beforeEdit),
                     null);
                 // The mixin itself, through ServerUtilities' own packet handler — only on a pack server.
-                nbtEditHashes = NbtEditDrill.editChest(overworld, alice, 5, 63, 0);
+                nbtEditHashes = NbtEditDrill.editChest(overworld, alice, ox(5), oy(0), oz(0));
                 // Census-failure path: the real census only fails on API drift, so drive the reporter directly.
                 AuditSinks.announceAe2CensusFailure(
                     java.util.Collections.singletonList(
@@ -401,15 +402,21 @@ public final class SelfTest {
      * A Matter Manipulator build, with a stick for the manipulator and iron blocks for GT machines. The manipulator
      * fires PlaceEvent before it places, with the block already there, and places without an event. Spot 20 gets a
      * machine (checked twice), spot 21 already had one, spot 22 stays air: one bulk_placed with one machine and one
-     * checked spot.
+     * checked spot. Spots 20 and 22 are cleared first, so terrain cannot stand in for a machine.
      */
     private void driveManipulator(WorldServer world) {
         alice.inventory.setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Items.stick));
-        world.setBlock(21, 63, 0, Blocks.iron_block);
+        world.setBlockToAir(ox(20), oy(0), oz(0));
+        world.setBlockToAir(ox(22), oy(0), oz(0));
+        world.setBlock(ox(21), oy(0), oz(0), Blocks.iron_block);
         for (int x : new int[] { 20, 20, 21, 22 }) {
-            bus.post(new BlockEvent.PlaceEvent(BlockSnapshot.getBlockSnapshot(world, x, 63, 0), Blocks.stone, alice));
+            bus.post(
+                new BlockEvent.PlaceEvent(
+                    BlockSnapshot.getBlockSnapshot(world, ox(x), oy(0), oz(0)),
+                    Blocks.stone,
+                    alice));
         }
-        world.setBlock(20, 63, 0, Blocks.iron_block);
+        world.setBlock(ox(20), oy(0), oz(0), Blocks.iron_block);
     }
 
     /**
@@ -436,13 +443,16 @@ public final class SelfTest {
         if (!Compat.GT5.isLoaded()) {
             return;
         }
-        world.setBlock(14, 69, 10, Blocks.stone);
+        // the controller goes on top of the stone, so that spot must be free whatever the terrain
+        world.setBlock(ox(14), oy(6), oz(10), Blocks.stone);
+        world.setBlockToAir(ox(14), oy(7), oz(10));
         final Object block = Block.blockRegistry.getObject("gregtech:gt.blockmachines");
         if (!(block instanceof Block b)) {
             check("gt machine block present", false, "gregtech:gt.blockmachines not registered");
             return;
         }
-        new ItemStack(b, 1, LSC_CONTROLLER_META).tryPlaceItemIntoWorld(player, world, 14, 69, 10, 1, 0.5f, 1f, 0.5f);
+        new ItemStack(b, 1, LSC_CONTROLLER_META)
+            .tryPlaceItemIntoWorld(player, world, ox(14), oy(6), oz(10), 1, 0.5f, 1f, 0.5f);
         try {
             Class.forName("gregtech.common.misc.WirelessNetworkManager")
                 .getMethod("addEUToGlobalEnergyMap", UUID.class, long.class)
@@ -457,20 +467,40 @@ public final class SelfTest {
         if (!Compat.GT5.isLoaded()) {
             return;
         }
-        final net.minecraft.util.ChunkCoordinates spawn = world.getSpawnPoint();
-        ttMulti = new net.minecraft.util.ChunkCoordinates(spawn.posX + 8, spawn.posY + 40, spawn.posZ + 8);
-        final String problem = com.gtnhspeedrun.audit.compat.TecTechFixture
-            .build(world, player, ttMulti.posX, ttMulti.posY, ttMulti.posZ);
+        final String problem = com.gtnhspeedrun.audit.compat.TecTechFixture.build(world, player, ox(8), oy(0), oz(8));
         if (problem != null) {
             check("tectech multiblock built", false, problem);
         }
     }
 
     /**
-     * Beside the spawn point, in the spawn chunks: they stay loaded with nobody online, so a restart's own
-     * structure check really runs and the restart drill can show that it logs nothing.
+     * Every block the scenario puts in the world goes at an offset from this spot, 40 blocks above the world spawn,
+     * in the spawn chunks: they are generated at startup and stay loaded with nobody online. Fixed coordinates
+     * passed or failed by seed: Hodgepodge's chunk-generation throttle hands back an empty chunk for one never
+     * generated, and a setBlock into it is dropped without an error. Staying loaded also lets a restart's own
+     * structure check run, so the restart drill can show the TecTech fixture logs nothing new.
      */
-    private net.minecraft.util.ChunkCoordinates ttMulti;
+    private net.minecraft.util.ChunkCoordinates origin;
+
+    private net.minecraft.util.ChunkCoordinates origin() {
+        if (origin == null) {
+            final net.minecraft.util.ChunkCoordinates spawn = server.worldServers[0].getSpawnPoint();
+            origin = new net.minecraft.util.ChunkCoordinates(spawn.posX, spawn.posY + 40, spawn.posZ);
+        }
+        return origin;
+    }
+
+    private int ox(int dx) {
+        return origin().posX + dx;
+    }
+
+    private int oy(int dy) {
+        return origin().posY + dy;
+    }
+
+    private int oz(int dz) {
+        return origin().posZ + dz;
+    }
 
     /**
      * Give the AE2 census a grid to count, so {@code ae2_snapshot} is exercised rather than merely compiled: an
@@ -483,7 +513,7 @@ public final class SelfTest {
             return;
         }
         final String problem = com.gtnhspeedrun.audit.compat.Ae2Fixture
-            .build(world, 10, 70, 10, new ItemStack(Blocks.cobblestone), new ItemStack(Items.nether_star));
+            .build(world, ox(10), oy(7), oz(10), new ItemStack(Blocks.cobblestone), new ItemStack(Items.nether_star));
         if (problem != null) {
             check("ae2 grid with a pattern built", false, problem);
         }
@@ -576,9 +606,10 @@ public final class SelfTest {
         check("ae2 census flags the pattern output craftable", false, AE2_CRAFTABLE_KEY + " absent from " + seen);
     }
 
-    private static void place(EventBus bus, WorldServer world, EntityPlayerMP player, int x, Block block) {
-        world.setBlock(x, 63, 0, block);
-        bus.post(new BlockEvent.PlaceEvent(BlockSnapshot.getBlockSnapshot(world, x, 63, 0), Blocks.stone, player));
+    private static void place(EventBus bus, WorldServer world, EntityPlayerMP player, int x, int y, int z,
+        Block block) {
+        world.setBlock(x, y, z, block);
+        bus.post(new BlockEvent.PlaceEvent(BlockSnapshot.getBlockSnapshot(world, x, y, z), Blocks.stone, player));
     }
 
     private static final String[] EXPECTED_TYPES = { "session_start", "player_join", "timing_started",
@@ -680,10 +711,10 @@ public final class SelfTest {
                                 .getAsString())
                         && line.getAsJsonObject("data")
                             .get("x")
-                            .getAsInt() == ttMulti.posX
+                            .getAsInt() == ox(8)
                         && line.getAsJsonObject("data")
                             .get("z")
-                            .getAsInt() == ttMulti.posZ)
+                            .getAsInt() == oz(8))
                 .count();
             check("tectech multiblock formed on its own tick check, once", ttFormations == 1, "count=" + ttFormations);
             final JsonObject tt = lines.stream()
@@ -721,7 +752,7 @@ public final class SelfTest {
             bulk.size() == 1 && bulk.get(0)
                 .getAsJsonArray("machines")
                 .toString()
-                .equals("[[20,63,0,0]]")
+                .equals("[[" + ox(20) + "," + oy(0) + "," + oz(0) + ",0]]")
                 && bulk.get(0)
                     .getAsJsonArray("pipes")
                     .size() == 0
@@ -882,7 +913,7 @@ public final class SelfTest {
                         line -> "nbt_edit".equals(
                             line.get("t")
                                 .getAsString())
-                            && "block 5,63,0".equals(
+                            && ("block " + ox(5) + "," + oy(0) + "," + oz(0)).equals(
                                 line.getAsJsonObject("data")
                                     .get("target")
                                     .getAsString())
@@ -898,7 +929,7 @@ public final class SelfTest {
                                     .getAsString())),
                 "expected before=" + nbtEditHashes[0] + " after=" + nbtEditHashes[1]);
             final ItemStack edited = ((net.minecraft.tileentity.TileEntityChest) server.worldServers[0]
-                .getTileEntity(5, 63, 0)).getStackInSlot(0);
+                .getTileEntity(ox(5), oy(0), oz(0))).getStackInSlot(0);
             check(
                 "nbt_edit mixin drill: edit applied",
                 edited != null && edited.stackSize == 2,

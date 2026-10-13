@@ -24,16 +24,18 @@ import com.sk89q.worldedit.forge.ForgeWorldEdit;
  */
 public final class WorldEditFixture {
 
-    public static final int X = 20, Y = 80, Z = 20;
-
     private WorldEditFixture() {}
 
-    /** @return null on success, otherwise what went wrong */
-    public static String edit(World world) {
+    /**
+     * Edits at (x, y, z) and up: a 3-wide row of stone, 2 glass above it, the chest on top.
+     *
+     * @return null on success, otherwise what went wrong
+     */
+    public static String edit(World world, int x, int y, int z) {
         // air first, so the removed counts are exactly 6 air whatever the terrain
         for (int dy = 0; dy < 3; dy++) {
             for (int dx = 0; dx < 3; dx++) {
-                world.setBlockToAir(X + dx, Y + dy, Z);
+                world.setBlockToAir(x + dx, y + dy, z);
             }
         }
         try {
@@ -43,15 +45,15 @@ public final class WorldEditFixture {
             final int stone = Block.getIdFromBlock(Blocks.stone);
             final int glass = Block.getIdFromBlock(Blocks.glass);
             for (int i = 0; i < 3; i++) {
-                session.setBlock(new Vector(X + i, Y, Z), new BaseBlock(stone));
+                session.setBlock(new Vector(x + i, y, z), new BaseBlock(stone));
             }
             for (int i = 0; i < 2; i++) {
-                session.setBlock(new Vector(X + i, Y + 1, Z), new BaseBlock(glass));
+                session.setBlock(new Vector(x + i, y + 1, z), new BaseBlock(glass));
             }
             final Map<String, Tag> chest = new HashMap<>();
             chest.put("id", new StringTag("Chest"));
             session.setBlock(
-                new Vector(X, Y + 2, Z),
+                new Vector(x, y + 2, z),
                 new BaseBlock(Block.getIdFromBlock(Blocks.chest), 0, new CompoundTag(chest)));
             session.flushQueue();
             return null;
