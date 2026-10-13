@@ -178,9 +178,10 @@ public final class SelfTest {
                         .getOnline() > 0,
                     null);
                 alice.theItemInWorldManager.setGameType(WorldSettings.GameType.CREATIVE);
-                // creative_block: an untracked, unwatched block placed and broken in creative
-                place(bus, overworld, alice, ox(5), oy(0), oz(0), Blocks.glass);
-                bus.post(new BlockEvent.BreakEvent(ox(5), oy(0), oz(0), overworld, Blocks.glass, 0, alice));
+                // creative_block: an untracked, unwatched block placed and broken in creative. Meta 5 over air
+                // (meta 0) checks the placed meta is read from the world, not from the replaced-block snapshot
+                place(bus, overworld, alice, ox(5), oy(0), oz(0), Blocks.stained_glass, 5);
+                bus.post(new BlockEvent.BreakEvent(ox(5), oy(0), oz(0), overworld, Blocks.stained_glass, 5, alice));
                 // the self-test's node census watches chests (stand-in for Thaumcraft nodes)
                 overworld.setBlock(ox(12), oy(7), oz(12), Blocks.chest);
                 // a save before the step-5 saving-off edge, so that line carries lastSave. One step before the AE2
@@ -608,8 +609,15 @@ public final class SelfTest {
 
     private static void place(EventBus bus, WorldServer world, EntityPlayerMP player, int x, int y, int z,
         Block block) {
-        world.setBlock(x, y, z, block);
-        bus.post(new BlockEvent.PlaceEvent(BlockSnapshot.getBlockSnapshot(world, x, y, z), Blocks.stone, player));
+        place(bus, world, player, x, y, z, block, 0);
+    }
+
+    /** In Forge's order: snapshot of the block being replaced, then the placement, then the event. */
+    private static void place(EventBus bus, WorldServer world, EntityPlayerMP player, int x, int y, int z, Block block,
+        int meta) {
+        final BlockSnapshot replaced = BlockSnapshot.getBlockSnapshot(world, x, y, z);
+        world.setBlock(x, y, z, block, meta, 3);
+        bus.post(new BlockEvent.PlaceEvent(replaced, Blocks.stone, player));
     }
 
     private static final String[] EXPECTED_TYPES = { "session_start", "player_join", "timing_started",
@@ -659,7 +667,7 @@ public final class SelfTest {
             "block_placed only for tracked block ×2",
             counts.getOrDefault("block_placed", 0) == 2,
             "count=" + counts.getOrDefault("block_placed", 0));
-        // only the step-2 glass: every later placement and break is in survival
+        // only the step-2 stained glass: every later placement and break is in survival
         final List<String> creative = lines.stream()
             .filter(
                 l -> "creative_block".equals(
@@ -671,6 +679,9 @@ public final class SelfTest {
                     .getAsString() + " "
                     + d.get("block")
                         .getAsString()
+                    + "@"
+                    + d.get("meta")
+                        .getAsInt()
                     + " "
                     + d.get("name")
                         .getAsString();
@@ -679,7 +690,9 @@ public final class SelfTest {
         check(
             "creative_block: the creative place and break, nothing in survival",
             creative.equals(
-                java.util.Arrays.asList("place minecraft:glass SelfTestAlice", "break minecraft:glass SelfTestAlice")),
+                java.util.Arrays.asList(
+                    "place minecraft:stained_glass@5 SelfTestAlice",
+                    "break minecraft:stained_glass@5 SelfTestAlice")),
             String.valueOf(creative));
         check("both players joined", counts.getOrDefault("player_join", 0) >= 2, null);
         check("gamemode changes ×2", counts.getOrDefault("gamemode_change", 0) >= 2, null);

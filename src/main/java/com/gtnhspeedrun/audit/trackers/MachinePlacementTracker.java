@@ -93,8 +93,11 @@ public final class MachinePlacementTracker {
             noteManipulatorCheck(event, player, blockName);
             return;
         }
+        // PlaceEvent.blockMetadata is the REPLACED block's meta (Forge builds it from the snapshot taken before the
+        // placement); placedBlock is the new one. The world already holds the new block, so its meta is read there.
+        final int placedMeta = event.world.getBlockMetadata(event.x, event.y, event.z);
         if (player.theItemInWorldManager.isCreative()) {
-            logCreativePlacement(event, player);
+            logCreativePlacement(event, player, placedMeta);
         }
         if (machineBlock.equals(blockName)) {
             final JsonObject data = placement(event, player);
@@ -105,16 +108,16 @@ public final class MachinePlacementTracker {
             data.addProperty("block", blockName);
             logger.log("block_placed", data);
         }
-        if (watches(watchedBlocks, blockName, event.blockMetadata)) {
+        if (watches(watchedBlocks, blockName, placedMeta)) {
             final JsonObject data = placement(event, player);
             data.addProperty("action", "place");
             data.addProperty("block", blockName);
-            data.addProperty("meta", event.blockMetadata);
+            data.addProperty("meta", placedMeta);
             logger.log("watched_block", data);
         }
     }
 
-    private void logCreativePlacement(BlockEvent.PlaceEvent event, EntityPlayerMP player) {
+    private void logCreativePlacement(BlockEvent.PlaceEvent event, EntityPlayerMP player, int placedMeta) {
         if (event instanceof BlockEvent.MultiPlaceEvent multi) {
             for (net.minecraftforge.common.util.BlockSnapshot snapshot : multi.getReplacedBlockSnapshots()) {
                 logCreative(
@@ -138,7 +141,7 @@ public final class MachinePlacementTracker {
             event.y,
             event.z,
             event.placedBlock,
-            event.blockMetadata,
+            placedMeta,
             event.itemInHand);
     }
 

@@ -143,7 +143,10 @@ Every `session_start` line embeds the startup verdict:
   by the outcome; their clicks are listed apart in the analyzer.
 - `watched_block` lines are player place and break of the `watchedBlocks` list (Thaumcraft nodes, node jars,
   stabilizers and transducer, Ethereal Shards, Blood Magic altars and ritual stones). A break has the tile's
-  NBT. Jarring a node with a wand fires no event; compare `node_census` files.
+  NBT. Jarring a node with a wand fires no event; compare `node_census` files. In v0.6.0 and earlier, a place line's
+  `meta` was the meta of the block it replaced (Forge's `PlaceEvent.blockMetadata`), so placements of the
+  meta-specific entries (`blockAiry@0`/`@5`, `blockJar@2`, `blockStoneDevice@9..11`) were matched against the
+  replaced block and usually missed; use `node_census` files to cover those runs.
 - `creative_block` lines are every block a player in creative mode placed or broke, whatever the block, with
   `action`, `block`, `meta`, `itemKey` (place) and coordinates; `tile: true` when the block has a tile entity. A
   creative placement uses up no item, so no inventory snapshot shows it. A multi-block placement (a bed, a door)
