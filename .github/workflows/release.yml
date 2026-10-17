@@ -1,7 +1,8 @@
 name: Release jar
 
 # Manual trigger only: Actions tab -> "Release jar" -> Run workflow, enter the version
-# (e.g. 0.3.0). Tags the version, builds, and attaches the obfuscated jar to a GitHub release.
+# (e.g. 0.3.0). Builds, then tags the version and attaches the obfuscated jar to a GitHub release.
+# A failed run leaves no tag.
 on:
   workflow_dispatch:
     inputs:
@@ -19,25 +20,46 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      TAG: v${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Check the tag is free
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "::error::tag $TAG already exists on origin"
+            exit 1
+          fi
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
 
-      # Tag before building so GTNHGradle's git-describe version stamps the jar with it
-      - name: Tag
-        run: |
-          git config user.name "OrderedSet86"
-          git config user.email "orderedset86@users.noreply.github.com"
-          git tag "v${{ inputs.version }}"
+      # caches the Gradle distribution and dependencies between runs
+      - uses: gradle/actions/setup-gradle@v4
 
+      # GTNHGradle stamps VERSION into the jar in place of git describe, so no tag is needed to build.
+      # Maven Central rate-limits shared runner IPs with HTTP 429. Retry only that failure.
       - name: Build
-        run: ./gradlew build -x spotlessCheck
+        env:
+          VERSION: ${{ env.TAG }}
+        run: |
+          for attempt in 1 2 3; do
+            set +e
+            ./gradlew build -x spotlessCheck 2>&1 | tee gradle.log
+            status=${PIPESTATUS[0]}
+            set -e
+            [ "$status" -eq 0 ] && exit 0
+            grep -q "status code 429" gradle.log || exit "$status"
+            [ "$attempt" -eq 3 ] && break
+            echo "Maven Central rate limit (429). Retrying in $((attempt * 60)) s"
+            sleep $((attempt * 60))
+          done
+          exit 1
 
       - name: Collect artifact
         run: |
@@ -46,12 +68,13 @@ jobs:
              "dist/gtnhspeedrunaudit-${{ inputs.version }}.jar"
           ls -la dist/
 
+      # gh creates the tag on the built commit
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git push origin "v${{ inputs.version }}"
-          gh release create "v${{ inputs.version }}" dist/*.jar \
+          gh release create "$TAG" dist/*.jar \
+            --target "$GITHUB_SHA" \
             --title "gtnhspeedrunaudit ${{ inputs.version }}" \
             ${{ inputs.prerelease && '--prerelease' || '' }} \
             --notes "Tamper-evident audit trail for GTNH speedruns. One jar: install in the server's mods/ for multiplayer (clients need nothing) or in your own mods/ for singleplayer — same jar covers pack 2.8.4 and dailies. Submit runs with /audit export; verifiers start at SUMMARY.txt and VERIFIERS.md."
