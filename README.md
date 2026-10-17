@@ -2,7 +2,7 @@
 
 ![Timelapse of GT machine placements in a run's main base, dimension 180](docs/placements-dim180.gif)
 
-*Machine placements over a 24.6-day run, from its audit log.*
+*Machine placement timelapse from Stargate speedrun (0.5 audit mod).*
 
 A tamper-evident log of a [GT: New Horizons](https://gtnh.miraheze.org/) (GTNH) run, for the speedrun.com
 leaderboard. GTNH runs take months, mostly in multiplayer, and the game has no replay system. This mod
