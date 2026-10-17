@@ -532,7 +532,7 @@ public final class Ae2Bench {
     private static Method allocatedBytesMethod;
     private static boolean allocationUnavailable;
 
-    private static long threadAllocatedBytes() {
+    static long threadAllocatedBytes() {
         if (allocationUnavailable) {
             return -1;
         }

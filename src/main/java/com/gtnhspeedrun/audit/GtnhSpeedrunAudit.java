@@ -134,6 +134,19 @@ public class GtnhSpeedrunAudit {
             // Vanilla types only; without ServerUtilities it simply never sees a trash chest.
             onFmlBus(new com.gtnhspeedrun.audit.trackers.TrashCanCommandTracker(sm.logger()));
             if (com.gtnhspeedrun.audit.compat.Compat.GT5.isLoaded()) {
+                // multiblock footprints: the frame stack serves only this thread and is cleared every tick
+                com.gtnhspeedrun.audit.trackers.StructureBounds.onServerStart();
+                onFmlBus(new com.gtnhspeedrun.audit.trackers.StructureBounds.Ticker());
+                final String structureBenchDir = System
+                    .getProperty(com.gtnhspeedrun.audit.compat.StructureBench.PROPERTY);
+                if (structureBenchDir != null && !structureBenchDir.isEmpty()) {
+                    LOG.warn(
+                        "STRUCTURE BENCH MODE ACTIVE — this server run times structure checks and then shuts down");
+                    onFmlBus(
+                        new com.gtnhspeedrun.audit.compat.StructureBench(
+                            event.getServer(),
+                            new java.io.File(structureBenchDir)));
+                }
                 final com.gtnhspeedrun.audit.compat.GtWirelessAudit wireless = new com.gtnhspeedrun.audit.compat.GtWirelessAudit(
                     sm.logger());
                 onForgeBus(wireless); // CommandEvent

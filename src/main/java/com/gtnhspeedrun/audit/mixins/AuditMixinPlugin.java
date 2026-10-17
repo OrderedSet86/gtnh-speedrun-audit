@@ -12,9 +12,13 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
  * the late phase prepares — the NEI mixins must ride the manifest-registered base config instead
  * (MixinTargetAlreadyLoadedException otherwise, found on daily 707). This runs at coremod time, long before
  * Loader knows any modids, so presence is probed as a classpath RESOURCE — Class.forName would define the
- * target class and recreate the exact problem being solved.
+ * target class and recreate the exact problem being solved. StructureLib is a coremod too, so the structure bounds
+ * mixin rides here as well. The system property speedrunaudit.noStructureBounds turns it off: a kill switch, and the
+ * baseline for StructureBench.
  */
 public class AuditMixinPlugin implements IMixinConfigPlugin {
+
+    public static final String NO_STRUCTURE_BOUNDS_PROPERTY = "speedrunaudit.noStructureBounds";
 
     private Boolean neiPresent;
 
@@ -30,6 +34,11 @@ public class AuditMixinPlugin implements IMixinConfigPlugin {
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         if (mixinClassName.contains(".nei.")) {
             return isNeiPresent();
+        }
+        if (mixinClassName.contains(".structurelib.")) {
+            return System.getProperty(NO_STRUCTURE_BOUNDS_PROPERTY) == null
+                && net.minecraft.launchwrapper.Launch.classLoader
+                    .getResource("com/gtnewhorizon/structurelib/structure/StructureUtility.class") != null;
         }
         return true;
     }

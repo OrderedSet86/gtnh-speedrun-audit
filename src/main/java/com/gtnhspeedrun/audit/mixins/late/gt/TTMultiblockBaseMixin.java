@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
+import com.gtnhspeedrun.audit.trackers.StructureBounds;
 
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.metatileentity.implementations.MTEHatch;
@@ -29,6 +30,8 @@ import tectech.thing.metaTileEntity.multi.base.TTMultiblockBase;
  * checkMachine_TT, so neither is a target. TecTech saves mMachine (NBT "eOK"), so a reload starts formed and
  * logs nothing; the controller's formation marker dedupes a second check in the same tick. TecTech keeps its
  * multi-amp and laser hatches in its own lists; they reach the formation's power scan through GtExtraHatches.
+ * onPostTick opens a StructureBounds frame for the tick, so the footprint of the check it runs is on hand at
+ * hatchInit_EM.
  */
 @Mixin(value = TTMultiblockBase.class, remap = false)
 public class TTMultiblockBaseMixin implements GtExtraHatches {
@@ -45,6 +48,7 @@ public class TTMultiblockBaseMixin implements GtExtraHatches {
     @Inject(method = "onPostTick", at = @At("HEAD"), require = 1)
     private void audit$before(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) {
         audit$ttWasFormed = ((MTEMultiBlockBase) (Object) this).mMachine;
+        StructureBounds.push(this, aBaseMetaTileEntity.isServerSide());
     }
 
     @Inject(
@@ -54,11 +58,20 @@ public class TTMultiblockBaseMixin implements GtExtraHatches {
             target = "Ltectech/thing/metaTileEntity/multi/base/TTMultiblockBase;hatchInit_EM(Z)V"),
         require = 1)
     private void audit$checked(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) {
-        if (audit$ttWasFormed || !((MTEMultiBlockBase) (Object) this).mMachine || !aBaseMetaTileEntity.isServerSide()) {
+        if (!((MTEMultiBlockBase) (Object) this).mMachine || !aBaseMetaTileEntity.isServerSide()) {
+            return;
+        }
+        if (audit$ttWasFormed) {
+            ((GtFormationLogger) this).audit$logFootprintChange();
             return;
         }
         audit$ttWasFormed = true;
-        ((GtFormationLogger) this).audit$logFormation(aBaseMetaTileEntity);
+        ((GtFormationLogger) this).audit$logFormation();
+    }
+
+    @Inject(method = "onPostTick", at = @At("RETURN"), require = 1)
+    private void audit$after(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) {
+        StructureBounds.pop(this);
     }
 
     @Override

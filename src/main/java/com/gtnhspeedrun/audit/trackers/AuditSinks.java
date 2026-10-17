@@ -223,7 +223,13 @@ public final class AuditSinks {
         if (!session.once(power == null ? key : key + power.dedupeSuffix())) {
             return;
         }
-        logFormation(session, kind, className, localName, dim, x, y, z, power);
+        logFormation(session, kind, className, localName, dim, x, y, z, power, null);
+    }
+
+    /** A GT formation with no footprint: the self-test's sink-level formations. */
+    public static String gtMultiblockFormed(String loggedMarker, String className, String localName, int dim, int x,
+        int y, int z, MultiblockPower power) {
+        return gtMultiblockFormed(loggedMarker, className, localName, dim, x, y, z, power, null);
     }
 
     /**
@@ -232,22 +238,53 @@ public final class AuditSinks {
      * the marker back, so the re-check logs nothing. A restored backup restores the older marker, so a formation
      * the backup undid logs again.
      *
+     * <p>
+     * The footprint rides on the line but is not part of the marker, so adding it re-logs no existing formation.
+     *
      * @param loggedMarker the controller's marker, null when it has never logged a formation
+     * @param footprint    null when unknown
      * @return the marker to save, unchanged when nothing was logged
      */
     public static String gtMultiblockFormed(String loggedMarker, String className, String localName, int dim, int x,
-        int y, int z, MultiblockPower power) {
+        int y, int z, MultiblockPower power, MultiblockFootprint footprint) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         final String marker = power.dedupeSuffix();
         if (session == null || marker.equals(loggedMarker)) {
             return loggedMarker;
         }
-        logFormation(session, "gt", className, localName, dim, x, y, z, power);
+        logFormation(session, "gt", className, localName, dim, x, y, z, power, footprint);
         return marker;
     }
 
+    /**
+     * A formed GT multiblock whose footprint changed with no new formation logged: a wrench rotation, an LSC that
+     * grew layers, or the first check after the mod version that added footprints.
+     *
+     * @return true when a line was logged
+     */
+    public static boolean gtMultiblockFootprint(String className, String localName, int dim, int x, int y, int z,
+        MultiblockFootprint footprint) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null) {
+            return false;
+        }
+        final JsonObject data = new JsonObject();
+        data.addProperty("class", className);
+        if (localName != null) {
+            data.addProperty("localName", localName);
+        }
+        data.addProperty("dim", dim);
+        data.addProperty("x", x);
+        data.addProperty("y", y);
+        data.addProperty("z", z);
+        footprint.writeTo(data);
+        session.logger()
+            .log("multiblock_footprint", data);
+        return true;
+    }
+
     private static void logFormation(SessionManager session, String kind, String className, String localName, int dim,
-        int x, int y, int z, MultiblockPower power) {
+        int x, int y, int z, MultiblockPower power, MultiblockFootprint footprint) {
         final boolean firstOfClass = session.anchor().formedMultiblocks.add(className);
         if (firstOfClass) {
             session.anchor()
@@ -286,6 +323,9 @@ public final class AuditSinks {
                 }
                 data.add("structure", structure);
             }
+        }
+        if (footprint != null) {
+            footprint.writeTo(data);
         }
         session.logger()
             .log("multiblock_formed", data);

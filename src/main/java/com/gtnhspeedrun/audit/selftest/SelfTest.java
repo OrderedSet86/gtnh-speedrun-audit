@@ -89,6 +89,8 @@ public final class SelfTest {
     private int step;
     private boolean done;
     private long pticksAtLogout = -1;
+    /** The Active Transformer's live {direction, rotation, flip}, read at step 30. */
+    private String[] ttFacing;
     private long ticksAtLogout = -1;
     /** { before, after } hashes of the live /nbtedit drill; null when ServerUtilities is absent. */
     private String[] nbtEditHashes;
@@ -353,6 +355,8 @@ public final class SelfTest {
                     .get();
             }
             // steps 10-33 wait out TecTech's start-up structure check, ~100 ticks after step 3 placed its controller
+            case 30 -> recheckTecTechMulti(overworld);
+            case 31 -> rotateTecTechMulti(overworld);
             case 34 -> {
                 check(
                     "pticks frozen after logout",
@@ -466,6 +470,26 @@ public final class SelfTest {
         } catch (ReflectiveOperationException | RuntimeException e) {
             check("wireless EU seeded", false, String.valueOf(e));
         }
+    }
+
+    /** A forced re-check of the formed Active Transformer. Its footprint is unchanged, so it logs nothing. */
+    private void recheckTecTechMulti(WorldServer world) {
+        if (!Compat.GT5.isLoaded()) {
+            return;
+        }
+        final String problem = com.gtnhspeedrun.audit.compat.TecTechFixture.recheck(world, ox(8), oy(0), oz(8));
+        check("tectech multiblock re-checked", problem == null, problem);
+        ttFacing = com.gtnhspeedrun.audit.compat.TecTechFixture.facing(world, ox(8), oy(0), oz(8));
+    }
+
+    /** A wrench-style quarter turn of the formed Active Transformer: one multiblock_footprint, rotation CLOCKWISE. */
+    private void rotateTecTechMulti(WorldServer world) {
+        if (!Compat.GT5.isLoaded()) {
+            return;
+        }
+        final String problem = com.gtnhspeedrun.audit.compat.TecTechFixture
+            .rotateAndRecheck(world, ox(8), oy(0), oz(8));
+        check("tectech multiblock rotated and re-formed", problem == null, problem);
     }
 
     /** An Active Transformer that can only form through TTMultiblockBase.onPostTick's own structure check. */
@@ -773,6 +797,7 @@ public final class SelfTest {
                 .map(line -> line.getAsJsonObject("data"))
                 .findFirst()
                 .orElse(null);
+            checkTecTechFootprint(tt, lines);
             check(
                 "tectech multi-amp hatch read: EV at 4 amps",
                 tt != null && tt.has("energyTier")
@@ -1052,6 +1077,80 @@ public final class SelfTest {
     }
 
     /**
+     * The Active Transformer's formation line has the footprint: a 3×3×3 box holding the controller and the hatch,
+     * and the facing the live controller had. The forced re-check at step 30 logs no footprint line, and the
+     * rotation at step 31 logs exactly one, with the new rotation and the same box.
+     */
+    private void checkTecTechFootprint(JsonObject tt, List<JsonObject> lines) {
+        final int[] box = new int[6];
+        final boolean hasBox = tt != null && tt.has("bounds")
+            && tt.getAsJsonArray("bounds")
+                .size() == 6;
+        if (hasBox) {
+            for (int i = 0; i < 6; i++) {
+                box[i] = tt.getAsJsonArray("bounds")
+                    .get(i)
+                    .getAsInt();
+            }
+        }
+        final int[] hatch = com.gtnhspeedrun.audit.compat.TecTechFixture.hatchPosition;
+        check(
+            "tectech footprint: 3x3x3 box around the controller and the hatch",
+            hasBox && box[3] - box[0] == 2
+                && box[4] - box[1] == 2
+                && box[5] - box[2] == 2
+                && boxHolds(box, ox(8), oy(0), oz(8))
+                && hatch != null
+                && boxHolds(box, hatch[0], hatch[1], hatch[2]),
+            tt == null ? "no formation line"
+                : String.valueOf(tt.get("bounds")) + " hatch=" + java.util.Arrays.toString(hatch));
+        check(
+            "tectech footprint: facing, rotation and flip of the live controller",
+            tt != null && ttFacing != null
+                && tt.has("facing")
+                && ttFacing[0].equals(
+                    tt.get("facing")
+                        .getAsString())
+                && tt.has("rotation")
+                && ttFacing[1].equals(
+                    tt.get("rotation")
+                        .getAsString())
+                && tt.has("flip")
+                && ttFacing[2].equals(
+                    tt.get("flip")
+                        .getAsString()),
+            "line=" + tt + " live=" + java.util.Arrays.toString(ttFacing));
+        final List<JsonObject> footprints = lines.stream()
+            .filter(
+                line -> "multiblock_footprint".equals(
+                    line.get("t")
+                        .getAsString())
+                    && "MTEActiveTransformer".equals(
+                        line.getAsJsonObject("data")
+                            .get("class")
+                            .getAsString()))
+            .map(line -> line.getAsJsonObject("data"))
+            .collect(java.util.stream.Collectors.toList());
+        check(
+            "tectech footprint line only for the rotation, with the new rotation and the same box",
+            footprints.size() == 1 && "CLOCKWISE".equals(
+                footprints.get(0)
+                    .get("rotation")
+                    .getAsString())
+                && tt != null
+                && String.valueOf(tt.get("bounds"))
+                    .equals(
+                        String.valueOf(
+                            footprints.get(0)
+                                .get("bounds"))),
+            footprints.toString());
+    }
+
+    private static boolean boxHolds(int[] box, int x, int y, int z) {
+        return x >= box[0] && y >= box[1] && z >= box[2] && x <= box[3] && y <= box[4] && z <= box[5];
+    }
+
+    /**
      * Mixins apply when their target class loads, and a scenario never touches some targets (the trash slot, the
      * /inv view container, BetterQuesting's edit handlers). A bad target would then crash a real game later, not
      * this boot. So every target of an installed mod is loaded here, and must show an injected audit$ member.
@@ -1065,6 +1164,7 @@ public final class SelfTest {
             { "gregtech", "gregtech.common.data.GTPowerfailTracker" },
             { "gregtech", "gregtech.api.metatileentity.implementations.MTEMultiBlockBase" },
             { "gregtech", "tectech.thing.metaTileEntity.multi.base.TTMultiblockBase" },
+            { "structurelib", "com.gtnewhorizon.structurelib.structure.StructureUtility" },
             { "betterquesting", "betterquesting.api2.utils.ParticipantInfo" },
             { "betterquesting", "bq_standard.tasks.base.TaskBase" },
             { "betterquesting", "betterquesting.network.handlers.NetQuestEdit" },

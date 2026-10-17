@@ -8,7 +8,12 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
+import com.gtnewhorizon.structurelib.alignment.IAlignment;
+import com.gtnewhorizon.structurelib.alignment.enumerable.ExtendedFacing;
+import com.gtnewhorizon.structurelib.alignment.enumerable.Rotation;
+
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
+import gregtech.api.metatileentity.implementations.MTEMultiBlockBase;
 import tectech.thing.casing.TTCasingsContainer;
 
 /**
@@ -24,6 +29,9 @@ public final class TecTechFixture {
     private static final int ACTIVE_TRANSFORMER_META = 15300;
     /** GT MetaTileEntity id of TecTech's EV 4A multi-amp energy hatch. */
     private static final int ENERGY_HATCH_EV_4A_META = 15109;
+
+    /** Where build() put the energy hatch, for the footprint check. Null until it has. */
+    public static int[] hatchPosition;
 
     private TecTechFixture() {}
 
@@ -58,11 +66,65 @@ public final class TecTechFixture {
                     }
                     final ItemStack hatch = new ItemStack(machines, 1, ENERGY_HATCH_EV_4A_META);
                     final boolean placed = place(world, player, hatch, x + dx, y + dy, z + dz);
+                    hatchPosition = new int[] { x + dx, y + dy, z + dz };
                     return placed ? null : "energy hatch not placed";
                 }
             }
         }
         return "construct placed no TecTech casing";
+    }
+
+    /** @return {direction, rotation, flip} of the controller at x, y, z, or null when it is not a StructureLib one */
+    public static String[] facing(World world, int x, int y, int z) {
+        final TileEntity te = world.getTileEntity(x, y, z);
+        if (!(te instanceof IGregTechTileEntity base) || !(base.getMetaTileEntity() instanceof IAlignment alignment)) {
+            return null;
+        }
+        final ExtendedFacing facing = alignment.getExtendedFacing();
+        return new String[] { facing.getDirection()
+            .name(),
+            facing.getRotation()
+                .name(),
+            facing.getFlip()
+                .name() };
+    }
+
+    /**
+     * Runs checkStructure(true) on the controller at x, y, z: a re-check of a formed multiblock, which must log no
+     * multiblock_footprint when nothing moved.
+     *
+     * @return null on success, otherwise what went wrong
+     */
+    public static String recheck(World world, int x, int y, int z) {
+        final TileEntity te = world.getTileEntity(x, y, z);
+        if (!(te instanceof IGregTechTileEntity base)
+            || !(base.getMetaTileEntity() instanceof MTEMultiBlockBase multi)) {
+            return "no GT multiblock at the controller, got " + te;
+        }
+        if (!multi.mMachine) {
+            return "not formed before the re-check";
+        }
+        return multi.checkStructure(true, base) ? null : "re-check unformed it";
+    }
+
+    /**
+     * Turns the formed controller at x, y, z a quarter turn clockwise, as a wrench would, and re-checks it. The
+     * Active Transformer is a cube with hatches allowed in any casing, so it re-forms with a new footprint key.
+     *
+     * @return null on success, otherwise what went wrong
+     */
+    public static String rotateAndRecheck(World world, int x, int y, int z) {
+        final TileEntity te = world.getTileEntity(x, y, z);
+        if (!(te instanceof IGregTechTileEntity base) || !(base.getMetaTileEntity() instanceof MTEMultiBlockBase multi)
+            || !(multi instanceof IAlignment alignment)) {
+            return "no StructureLib GT multiblock at the controller, got " + te;
+        }
+        final ExtendedFacing before = alignment.getExtendedFacing();
+        alignment.setExtendedFacing(ExtendedFacing.of(before.getDirection(), Rotation.CLOCKWISE, before.getFlip()));
+        if (multi.mMachine) {
+            return "still formed after the rotation";
+        }
+        return multi.checkStructure(true, base) ? null : "did not re-form after the rotation";
     }
 
     private static boolean place(World world, EntityPlayer player, ItemStack stack, int x, int y, int z) {

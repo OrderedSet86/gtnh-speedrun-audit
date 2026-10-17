@@ -17,10 +17,14 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import com.gtnewhorizon.structurelib.alignment.IAlignment;
+import com.gtnewhorizon.structurelib.alignment.enumerable.ExtendedFacing;
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
 import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
+import com.gtnhspeedrun.audit.trackers.MultiblockFootprint;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
+import com.gtnhspeedrun.audit.trackers.StructureBounds;
 import com.gtnhspeedrun.audit.trackers.StructureTiers;
 
 import gregtech.api.enums.GTValues;
@@ -44,6 +48,13 @@ import gregtech.api.util.GTUtility;
  * <p>
  * The tiers last logged are saved in the controller's NBT, so the re-check after a server restart or chunk
  * reload logs nothing, and a restored backup brings back the marker the backup had.
+ *
+ * <p>
+ * Every server-side check opens a StructureBounds frame, so the formation line carries the box of the positions the
+ * check visited, plus the controller's facing. The footprint last logged is saved in NBT as a second key, so a
+ * formed multiblock whose footprint changes without a new formation (a wrench rotation, an LSC growing layers) logs a
+ * multiblock_footprint line. Coordinates come from this controller's own tile: the Purification Plant runs its units'
+ * checkStructure with the plant's tile as the argument.
  */
 @Mixin(value = MTEMultiBlockBase.class, remap = false)
 public class MTEMultiBlockBaseMixin implements GtFormationLogger {
@@ -64,16 +75,26 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
     private static final String AUDIT_FORMED_KEY = "speedrunAuditFormed";
 
     @Unique
+    private static final String AUDIT_FOOTPRINT_KEY = "speedrunAuditFootprint";
+
+    @Unique
     private boolean audit$wasFormed;
 
     /** The dedupe suffix of the formation last logged for this controller; null before the first. */
     @Unique
     private String audit$loggedFormation;
 
+    /** MultiblockFootprint.key() of the footprint last logged; null before the first. */
+    @Unique
+    private String audit$loggedFootprint;
+
     @Inject(method = "saveNBTData", at = @At("TAIL"), require = 1)
     private void audit$saveFormation(NBTTagCompound aNBT, CallbackInfo ci) {
         if (audit$loggedFormation != null) {
             aNBT.setString(AUDIT_FORMED_KEY, audit$loggedFormation);
+        }
+        if (audit$loggedFootprint != null) {
+            aNBT.setString(AUDIT_FOOTPRINT_KEY, audit$loggedFootprint);
         }
     }
 
@@ -81,6 +102,9 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
     private void audit$loadFormation(NBTTagCompound aNBT, CallbackInfo ci) {
         if (aNBT.hasKey(AUDIT_FORMED_KEY)) {
             audit$loggedFormation = aNBT.getString(AUDIT_FORMED_KEY);
+        }
+        if (aNBT.hasKey(AUDIT_FOOTPRINT_KEY)) {
+            audit$loggedFootprint = aNBT.getString(AUDIT_FOOTPRINT_KEY);
         }
     }
 
@@ -91,6 +115,7 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
     private void audit$before(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity,
         CallbackInfoReturnable<Boolean> cir) {
         audit$wasFormed = mMachine;
+        StructureBounds.push(this, aBaseMetaTileEntity.isServerSide());
     }
 
     @Inject(
@@ -99,30 +124,103 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
         require = 1)
     private void audit$after(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity,
         CallbackInfoReturnable<Boolean> cir) {
-        if (audit$wasFormed || !mMachine || !aBaseMetaTileEntity.isServerSide()) {
-            return;
+        try {
+            if (!mMachine || !aBaseMetaTileEntity.isServerSide()) {
+                return;
+            }
+            if (audit$wasFormed) {
+                audit$logFootprintChange();
+            } else {
+                audit$logFormation();
+            }
+        } finally {
+            StructureBounds.pop(this);
         }
-        audit$logFormation(aBaseMetaTileEntity);
     }
 
     @Override
-    public void audit$logFormation(IGregTechTileEntity aBaseMetaTileEntity) {
+    public void audit$logFormation() {
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
+        final IGregTechTileEntity base = self.getBaseMetaTileEntity();
+        final MultiblockFootprint footprint = audit$footprint(base);
         final String logged = AuditSinks.gtMultiblockFormed(
             audit$loggedFormation,
             self.getClass()
                 .getSimpleName(),
             AuditSinks.gtLocalName(self),
-            aBaseMetaTileEntity.getWorld().provider.dimensionId,
-            aBaseMetaTileEntity.getXCoord(),
-            aBaseMetaTileEntity.getYCoord(),
-            aBaseMetaTileEntity.getZCoord(),
-            audit$power());
-        if (logged != null && !logged.equals(audit$loggedFormation)) {
-            audit$loggedFormation = logged;
-            // the chunk must save for the marker to survive a restart
-            aBaseMetaTileEntity.markDirty();
+            base.getWorld().provider.dimensionId,
+            base.getXCoord(),
+            base.getYCoord(),
+            base.getZCoord(),
+            audit$power(),
+            footprint);
+        if (logged == null || logged.equals(audit$loggedFormation)) {
+            // an unchanged formation, as after every restart, can still have a new footprint
+            audit$logFootprintChange(self, base, footprint);
+            return;
         }
+        audit$loggedFormation = logged;
+        if (footprint.bounds != null) {
+            audit$loggedFootprint = footprint.key();
+        }
+        // the chunk must save for the markers to survive a restart
+        base.markDirty();
+    }
+
+    @Override
+    public void audit$logFootprintChange() {
+        final MetaTileEntity self = (MetaTileEntity) (Object) this;
+        final IGregTechTileEntity base = self.getBaseMetaTileEntity();
+        audit$logFootprintChange(self, base, audit$footprint(base));
+    }
+
+    @Unique
+    private void audit$logFootprintChange(MetaTileEntity self, IGregTechTileEntity base,
+        MultiblockFootprint footprint) {
+        // a check that ran no StructureLib walk (no change since the last one, or a hand-written check) has no box
+        if (footprint.bounds == null) {
+            return;
+        }
+        final String key = footprint.key();
+        if (key.equals(audit$loggedFootprint)) {
+            return;
+        }
+        final boolean logged = AuditSinks.gtMultiblockFootprint(
+            self.getClass()
+                .getSimpleName(),
+            AuditSinks.gtLocalName(self),
+            base.getWorld().provider.dimensionId,
+            base.getXCoord(),
+            base.getYCoord(),
+            base.getZCoord(),
+            footprint);
+        if (logged) {
+            audit$loggedFootprint = key;
+            base.markDirty();
+        }
+    }
+
+    /** IAlignment controllers (every StructureLib multiblock) have rotation and flip; the rest only a front facing. */
+    @Unique
+    private MultiblockFootprint audit$footprint(IGregTechTileEntity base) {
+        final int[] bounds = StructureBounds.boundsFor(this, base.getXCoord(), base.getYCoord(), base.getZCoord());
+        if ((Object) this instanceof IAlignment alignment) {
+            final ExtendedFacing facing = alignment.getExtendedFacing();
+            return new MultiblockFootprint(
+                bounds,
+                facing.getDirection()
+                    .name(),
+                facing.getRotation()
+                    .name(),
+                facing.getFlip()
+                    .name());
+        }
+        return new MultiblockFootprint(
+            bounds,
+            base.getFrontFacing()
+                .name(),
+            null,
+            null);
     }
 
     /**

@@ -72,6 +72,16 @@ Every `session_start` line embeds the startup verdict:
   versions repeat every formed multiblock once per session. Some TecTech and GT++ multiblocks keep hatches in their own
   lists and can report fewer hatches or no tier. Railcraft multiblocks, the bricked blast furnace and lines
   from earlier versions have no hatch fields.
+- GT `multiblock_formed` lines also carry the footprint. `bounds` is `[minX, minY, minZ, maxX, maxY, maxZ]`,
+  inclusive world coordinates of every block position the structure check visited through StructureLib, plus
+  the controller. A probe past the end of a variable-length multiblock (the Assembly Line's next slice, the
+  LSC's next layer) fails and is left out. `facing` is the controller's front, and `rotation`/`flip` are
+  StructureLib's (absent for a controller that is not a StructureLib multiblock). Multiblocks that check by hand
+  (Cleanroom, Charcoal Pit, LESU) have no `bounds`. Railcraft and the bricked blast furnace have neither.
+  A formed multiblock whose footprint changes without a new formation (a wrench rotation, an LSC that grew
+  layers) logs a `multiblock_footprint` line with the same fields. The controller saves the footprint it last
+  logged, so after updating to a version with footprints each GT multiblock logs one `multiblock_footprint`
+  at its first check (TecTech ones at their next re-check), and nothing again until it changes.
 - `dim_change` lines record every dimension change (`fromDim`, `toDim`, arrival position). A teleport
   command and the `dim_change` it causes are a tick or two apart; a portal or rocket has no command before
   it. Use them to check rules on cross-dimension teleports. Older bundles have only `dim_first_visit`, which

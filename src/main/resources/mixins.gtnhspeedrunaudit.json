@@ -13,6 +13,7 @@
         "minecraft.EntityPlayerMPChatMixin",
         "minecraft.NetHandlerPlayServerMixin",
         "nei.NEISPHMixin",
-        "nei.NEIServerUtilsMixin"
+        "nei.NEIServerUtilsMixin",
+        "structurelib.StructureUtilityMixin"
     ]
 }
