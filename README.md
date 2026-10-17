@@ -1,5 +1,9 @@
 # gtnh-speedrun-audit
 
+![Timelapse of GT machine placements in a run's main base, dimension 180](docs/placements-dim180.gif)
+
+*Machine placements over a 24.6-day run, from its audit log.*
+
 A tamper-evident log of a [GT: New Horizons](https://gtnh.miraheze.org/) (GTNH) run, for the speedrun.com
 leaderboard. GTNH runs take months, mostly in multiplayer, and the game has no replay system. This mod
 records what a moderator needs to check a run. At the end, `/audit export` writes one zip to submit.

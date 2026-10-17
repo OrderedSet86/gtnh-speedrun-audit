@@ -77,4 +77,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "gtnhspeedrunaudit ${{ inputs.version }}" \
             ${{ inputs.prerelease && '--prerelease' || '' }} \
-            --notes "Tamper-evident audit trail for GTNH speedruns. One jar: install in the server's mods/ for multiplayer (clients need nothing) or in your own mods/ for singleplayer — same jar covers pack 2.8.4 and dailies. Submit runs with /audit export; verifiers start at SUMMARY.txt and VERIFIERS.md."
+            --notes 'Supports 2.8.4 - 2.9 beta dailies. Submit runs with `/audit export`.'
