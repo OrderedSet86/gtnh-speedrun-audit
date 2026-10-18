@@ -200,6 +200,7 @@ public final class SelfTest {
                 placeAe2GridHost(overworld);
                 seedPowerCensus(overworld, alice);
                 buildTecTechMulti(overworld, alice);
+                logCrusherFormation(overworld, alice);
             }
             case 4 -> session.snapshotNow(server);
             case 5 -> {
@@ -490,6 +491,19 @@ public final class SelfTest {
         final String problem = com.gtnhspeedrun.audit.compat.TecTechFixture
             .rotateAndRecheck(world, ox(8), oy(0), oz(8));
         check("tectech multiblock rotated and re-formed", problem == null, problem);
+    }
+
+    /**
+     * An Extreme Entity Crusher's formation, logged on this dedicated server the way the structure-check hook logs
+     * it. v0.8.0 crashed the server here; the line it writes is counted with the other checks.
+     */
+    private void logCrusherFormation(WorldServer world, EntityPlayerMP player) {
+        if (!Compat.GT5.isLoaded()) {
+            return;
+        }
+        final String problem = com.gtnhspeedrun.audit.compat.FormationSideCheck
+            .logCrusherFormation(world, player, ox(-6), oy(0), oz(-6));
+        check("extreme entity crusher formation logged without a throw", problem == null, problem);
     }
 
     /** An Active Transformer that can only form through TTMultiblockBase.onPostTick's own structure check. */
@@ -1009,6 +1023,7 @@ public final class SelfTest {
         checkMixinsApplied();
         if (Compat.GT5.isLoaded()) {
             checkStructureTierPlans();
+            checkStructureTiersOnThisSide(lines);
         }
         if (Compat.BETTER_QUESTING.isLoaded()) {
             check("event logged: quest_db", counts.getOrDefault("quest_db", 0) > 0, null);
@@ -1230,6 +1245,38 @@ public final class SelfTest {
                 check("structure tiers planned: " + row[0], false, String.valueOf(t));
             }
         }
+    }
+
+    /**
+     * Every registered multiblock's tiers read without a throw on this side, and the Extreme Entity Crusher placed at
+     * step 3 logged one formation. The detail names the classes whose own fields this side cannot list.
+     */
+    private void checkStructureTiersOnThisSide(List<JsonObject> lines) {
+        final List<String> failed = com.gtnhspeedrun.audit.compat.FormationSideCheck.readEveryMultiblock();
+        check(
+            "structure tiers read on every multiblock",
+            failed.isEmpty(),
+            failed.isEmpty()
+                ? "fields not listable on this side: "
+                    + com.gtnhspeedrun.audit.compat.FormationSideCheck.unlistableMultiblocks()
+                : failed.toString());
+        final long crusherFormations = lines.stream()
+            .filter(
+                line -> "multiblock_formed".equals(
+                    line.get("t")
+                        .getAsString())
+                    && "MTEExtremeEntityCrusher".equals(
+                        line.getAsJsonObject("data")
+                            .get("class")
+                            .getAsString())
+                    && line.getAsJsonObject("data")
+                        .get("x")
+                        .getAsInt() == ox(-6)
+                    && line.getAsJsonObject("data")
+                        .get("z")
+                        .getAsInt() == oz(-6))
+            .count();
+        check("extreme entity crusher formation logged once", crusherFormations == 1, "count=" + crusherFormations);
     }
 
     private void check(String name, boolean ok, String detail) {

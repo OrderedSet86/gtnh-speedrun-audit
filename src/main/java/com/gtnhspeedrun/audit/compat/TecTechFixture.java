@@ -127,7 +127,7 @@ public final class TecTechFixture {
         return multi.checkStructure(true, base) ? null : "did not re-form after the rotation";
     }
 
-    private static boolean place(World world, EntityPlayer player, ItemStack stack, int x, int y, int z) {
+    static boolean place(World world, EntityPlayer player, ItemStack stack, int x, int y, int z) {
         if (world.getBlock(x, y, z) != Blocks.air) {
             world.setBlockToAir(x, y, z);
         }

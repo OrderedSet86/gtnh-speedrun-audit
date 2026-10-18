@@ -10,8 +10,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import com.gtnhspeedrun.audit.trackers.FormationGuard;
 import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
-import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
 import com.gtnhspeedrun.audit.trackers.StructureBounds;
 
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
@@ -61,12 +61,9 @@ public class TTMultiblockBaseMixin implements GtExtraHatches {
         if (!((MTEMultiBlockBase) (Object) this).mMachine || !aBaseMetaTileEntity.isServerSide()) {
             return;
         }
-        if (audit$ttWasFormed) {
-            ((GtFormationLogger) this).audit$logFootprintChange();
-            return;
-        }
+        final boolean wasFormed = audit$ttWasFormed;
         audit$ttWasFormed = true;
-        ((GtFormationLogger) this).audit$logFormation();
+        FormationGuard.log(this, wasFormed);
     }
 
     @Inject(method = "onPostTick", at = @At("RETURN"), require = 1)

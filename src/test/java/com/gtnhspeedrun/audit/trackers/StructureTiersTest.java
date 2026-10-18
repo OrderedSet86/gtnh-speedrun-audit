@@ -4,6 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -130,5 +135,52 @@ class StructureTiersTest {
             "true",
             StructureTiers.read(new MTEPlasmaForge())
                 .get("convergence"));
+    }
+
+    /**
+     * Defines ClientFieldController and its base itself and refuses ClientOnly; the rest comes from the test's loader.
+     */
+    private static final class ServerSideLoader extends ClassLoader {
+
+        ServerSideLoader() {
+            super(StructureTiersTest.class.getClassLoader());
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (name.equals(ClientOnly.class.getName())) {
+                throw new ClassNotFoundException(name + " for invalid side SERVER");
+            }
+            if (!name.equals(ClientFieldController.class.getName()) && !name.equals(ClientFieldBase.class.getName())) {
+                return super.loadClass(name, resolve);
+            }
+            synchronized (getClassLoadingLock(name)) {
+                final Class<?> loaded = findLoadedClass(name);
+                if (loaded != null) {
+                    return loaded;
+                }
+                try (InputStream in = getParent().getResourceAsStream(name.replace('.', '/') + ".class")) {
+                    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    final byte[] buf = new byte[4096];
+                    for (int n; (n = in.read(buf)) > 0;) {
+                        out.write(buf, 0, n);
+                    }
+                    final byte[] bytes = out.toByteArray();
+                    return defineClass(name, bytes, 0, bytes.length);
+                } catch (IOException e) {
+                    throw new ClassNotFoundException(name, e);
+                }
+            }
+        }
+    }
+
+    @Test
+    void skipsAClassWhoseFieldTypeCannotLoadOnThisSide() throws ClassNotFoundException {
+        final Class<?> controller = Class.forName(ClientFieldController.class.getName(), false, new ServerSideLoader());
+        final List<String> keys = StructureTiers.planKeys(controller);
+        assertEquals(
+            Collections.singletonList("glassTier"),
+            keys,
+            "the controller's own fields are skipped, its superclass is read");
     }
 }

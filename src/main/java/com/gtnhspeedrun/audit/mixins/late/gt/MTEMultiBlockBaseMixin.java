@@ -20,6 +20,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import com.gtnewhorizon.structurelib.alignment.IAlignment;
 import com.gtnewhorizon.structurelib.alignment.enumerable.ExtendedFacing;
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.FormationGuard;
 import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
 import com.gtnhspeedrun.audit.trackers.MultiblockFootprint;
@@ -128,11 +129,7 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
             if (!mMachine || !aBaseMetaTileEntity.isServerSide()) {
                 return;
             }
-            if (audit$wasFormed) {
-                audit$logFootprintChange();
-            } else {
-                audit$logFormation();
-            }
+            FormationGuard.log(this, audit$wasFormed);
         } finally {
             StructureBounds.pop(this);
         }

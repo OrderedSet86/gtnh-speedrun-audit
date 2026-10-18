@@ -110,7 +110,16 @@ public final class StructureTiers {
             }
         }
         for (Class<?> c = type; c != null && !isSharedBase(c); c = c.getSuperclass()) {
-            for (Field f : c.getDeclaredFields()) {
+            final Field[] declared;
+            try {
+                declared = c.getDeclaredFields();
+            } catch (LinkageError e) {
+                // Listing fields loads every field's type. On a dedicated server a field typed by a client-only
+                // class (the Extreme Entity Crusher's kubatech.client.effect.EntityRenderer) cannot load, so this
+                // class's own fields are skipped and its superclasses are still read.
+                continue;
+            }
+            for (Field f : declared) {
                 if (out.size() >= MAX_FIELDS) {
                     return out;
                 }
@@ -152,8 +161,8 @@ public final class StructureTiers {
                 final Field f = c.getDeclaredField(name);
                 f.setAccessible(true);
                 return f;
-            } catch (NoSuchFieldException | RuntimeException ignored) {
-                // keep looking in the superclass
+            } catch (NoSuchFieldException | RuntimeException | LinkageError ignored) {
+                // keep looking in the superclass; LinkageError: a client-only field type on a server, as in plan()
             }
         }
         return null;
