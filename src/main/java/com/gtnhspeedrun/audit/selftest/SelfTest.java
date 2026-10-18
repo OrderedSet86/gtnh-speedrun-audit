@@ -34,6 +34,8 @@ import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.core.Verifier;
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.FormationGuard;
+import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
 import com.gtnhspeedrun.audit.trackers.InvseeViews;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
 import com.mojang.authlib.GameProfile;
@@ -333,6 +335,11 @@ public final class SelfTest {
                     null);
                 // The mixin itself, through ServerUtilities' own packet handler — only on a pack server.
                 nbtEditHashes = NbtEditDrill.editChest(overworld, alice, ox(5), oy(0), oz(0));
+                // A formation that cannot be logged: a controller whose logging throws, run twice through the guard
+                // the mixins use. It must log one multiblock_log_failed line and not throw.
+                final SelfTestBrokenController broken = new SelfTestBrokenController();
+                FormationGuard.log(broken, false, 0, ox(-8), oy(0), oz(-8));
+                FormationGuard.log(broken, false, 0, ox(-8), oy(0), oz(-8));
                 // Census-failure path: the real census only fails on API drift, so drive the reporter directly.
                 AuditSinks.announceAe2CensusFailure(
                     java.util.Collections.singletonList(
@@ -666,10 +673,10 @@ public final class SelfTest {
     private static final String[] EXPECTED_TYPES = { "session_start", "player_join", "timing_started",
         "gamemode_change", "inv_snapshot", "key_item_first_seen", "command", "difficulty_change", "death",
         "achievement", "dim_first_visit", "key_item_craft", "nei_packet", "nei_cheat", "multiblock_formed",
-        "gt_explosion", "nbt_edit", "ae2_census_failed", "block_placed", "player_leave", "dim_change", "creative_slot",
-        "world_saving", "gamerule_change", "command_output", "item_id_table", "gt_powerfail", "blood_altar_tier",
-        "trash_insert", "invsee_open", "invsee_click", "invsee_close", "trash_can_closed", "watched_block",
-        "node_census", "bulk_placed", "creative_block" };
+        "gt_explosion", "nbt_edit", "ae2_census_failed", "multiblock_log_failed", "block_placed", "player_leave",
+        "dim_change", "creative_slot", "world_saving", "gamerule_change", "command_output", "item_id_table",
+        "gt_powerfail", "blood_altar_tier", "trash_insert", "invsee_open", "invsee_click", "invsee_close",
+        "trash_can_closed", "watched_block", "node_census", "bulk_placed", "creative_block" };
 
     private void verifyLog() {
         session.logger()
@@ -781,6 +788,27 @@ public final class SelfTest {
             "multiblock dedupe, hatch-tier and coil-tier changes re-log, formation marker",
             selfTestFormations == 8,
             "count=" + selfTestFormations);
+        final List<JsonObject> logFailures = lines.stream()
+            .filter(
+                line -> "multiblock_log_failed".equals(
+                    line.get("t")
+                        .getAsString()))
+            .map(line -> line.getAsJsonObject("data"))
+            .collect(java.util.stream.Collectors.toList());
+        check(
+            "multiblock_log_failed: one line for the broken controller, logged twice",
+            logFailures.size() == 1 && "SelfTestBrokenController".equals(
+                logFailures.get(0)
+                    .get("class")
+                    .getAsString())
+                && "formation".equals(
+                    logFailures.get(0)
+                        .get("what")
+                        .getAsString())
+                && logFailures.get(0)
+                    .get("x")
+                    .getAsInt() == ox(-8),
+            String.valueOf(logFailures));
         if (Compat.GT5.isLoaded()) {
             final long ttFormations = lines.stream()
                 .filter(
@@ -1252,6 +1280,25 @@ public final class SelfTest {
      * step 3 logged one formation. The detail names the classes whose own fields this side cannot list.
      */
     private void checkStructureTiersOnThisSide(List<JsonObject> lines) {
+        final JsonObject crusher = lines.stream()
+            .filter(
+                line -> "multiblock_formed".equals(
+                    line.get("t")
+                        .getAsString())
+                    && "MTEExtremeEntityCrusher".equals(
+                        line.getAsJsonObject("data")
+                            .get("class")
+                            .getAsString()))
+            .map(line -> line.getAsJsonObject("data"))
+            .findFirst()
+            .orElse(null);
+        check(
+            "extreme entity crusher line marks its tiers unreadable on this side",
+            crusher != null && crusher.has("structureUnreadable")
+                && crusher.getAsJsonArray("structureUnreadable")
+                    .toString()
+                    .contains("\"MTEExtremeEntityCrusher\""),
+            crusher == null ? "no line" : String.valueOf(crusher.get("structureUnreadable")));
         final List<String> failed = com.gtnhspeedrun.audit.compat.FormationSideCheck.readEveryMultiblock();
         check(
             "structure tiers read on every multiblock",
@@ -1325,5 +1372,19 @@ public final class SelfTest {
         return player.getGameProfile()
             .getId()
             .toString();
+    }
+
+    /** A controller whose formation logging throws, for the multiblock_log_failed path. */
+    private static final class SelfTestBrokenController implements GtFormationLogger {
+
+        @Override
+        public void audit$logFormation() {
+            throw new IllegalStateException("selftest");
+        }
+
+        @Override
+        public void audit$logFootprintChange() {
+            throw new IllegalStateException("selftest");
+        }
     }
 }

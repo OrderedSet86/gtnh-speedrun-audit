@@ -16,7 +16,9 @@ import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatStyle;
 import net.minecraft.util.EnumChatFormatting;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.snapshot.ItemKey;
@@ -323,6 +325,13 @@ public final class AuditSinks {
                 }
                 data.add("structure", structure);
             }
+            if (!power.structureUnreadable.isEmpty()) {
+                final JsonArray unreadable = new JsonArray();
+                for (String c : power.structureUnreadable) {
+                    unreadable.add(new JsonPrimitive(c));
+                }
+                data.add("structureUnreadable", unreadable);
+            }
         }
         if (footprint != null) {
             footprint.writeTo(data);
@@ -503,6 +512,56 @@ public final class AuditSinks {
         data.addProperty("dim", player.dimension);
         session.logger()
             .log("creative_slot", data);
+    }
+
+    // ------------------------------------------------------------------ multiblock log failures
+
+    /**
+     * A multiblock formation or footprint change this mod failed to log. A missing multiblock_formed line otherwise
+     * reads as a multiblock that never formed, so the gap goes in the ledger once per controller per session and in
+     * red chat to every player once per controller class per session.
+     *
+     * @param what "formation" or "footprint"
+     */
+    public static void multiblockLogFailed(String what, String className, int dim, int x, int y, int z,
+        Throwable error) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null || !session.once("mbfail:" + className + "@" + dim + ":" + x + "," + y + "," + z)) {
+            return;
+        }
+        final JsonObject data = new JsonObject();
+        data.addProperty("what", what);
+        data.addProperty("class", className);
+        data.addProperty("dim", dim);
+        data.addProperty("x", x);
+        data.addProperty("y", y);
+        data.addProperty("z", z);
+        data.addProperty("error", String.valueOf(error));
+        session.logger()
+            .log("multiblock_log_failed", data);
+        final MinecraftServer server = MinecraftServer.getServer();
+        if (server == null || !session.once("mbfail-chat:" + className)) {
+            return;
+        }
+        server.getConfigurationManager()
+            .sendChatMsg(
+                new ChatComponentText(
+                    "[GTNH Speedrun Audit] The audit mod could not record a multiblock "
+                        + ("formation".equals(what) ? "forming" : "footprint change")
+                        + " ("
+                        + className
+                        + " at dim "
+                        + dim
+                        + ", "
+                        + x
+                        + " "
+                        + y
+                        + " "
+                        + z
+                        + ": "
+                        + error
+                        + "). The machine is not affected. This run is missing that evidence: please report this "
+                        + "to @.order on Discord.").setChatStyle(new ChatStyle().setColor(EnumChatFormatting.RED)));
     }
 
     // ------------------------------------------------------------------ AE2 census failures

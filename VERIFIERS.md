@@ -190,7 +190,10 @@ Every `session_start` line embeds the startup verdict:
 - `gt_powerfail` lines are multiblocks stopped for power loss, the data behind GT's `/powerfails`.
 - `multiblock_formed` lines from GT controllers can have `structure`: coil level (`HeatingCoilLevel` fields),
   `mHeatingCapacity`, and integer `…Tier` fields of the controller class (glass, casing, motor tiers). A change
-  in any of them re-logs the formation.
+  in any of them re-logs the formation. `structureUnreadable` lists the controller classes whose own tier fields
+  the server could not read (a field typed by a client-only class, as on the Extreme Entity Crusher on a
+  dedicated server): `structure` is incomplete for that line, not wrong.
+- `multiblock_log_failed` lines are formations or footprint changes the mod failed to record (see INNOCENCE.md).
 - AE2 censuses only cover loaded grids — which is fine: an unloaded grid cannot change.
 - Bundles from v0.5.0 and earlier contain **no automatic AE2 censuses**: an overflow in the interval check
   meant only a manual `/audit snapshot` ever produced one. An absent census in those bundles is the mod's

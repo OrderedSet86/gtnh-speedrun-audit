@@ -8,7 +8,8 @@ import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 /**
  * Runs a controller's formation logging inside its structure-check tick. Reflection over hundreds of addon
  * controller classes can fail in ways no test pack shows (v0.8.0 crashed servers on the Extreme Entity Crusher), so
- * a failure costs that formation's ledger line, never the server tick. Each controller class is reported once.
+ * a failure costs that formation's ledger line, never the server tick. The gap is logged and announced through
+ * {@link AuditSinks#multiblockLogFailed}; the stack trace goes to the server log once per controller class.
  */
 public final class FormationGuard {
 
@@ -17,13 +18,12 @@ public final class FormationGuard {
     private FormationGuard() {}
 
     /** The mixins' MTEMultiBlockBase and TTMultiblockBase controllers, which implement GtFormationLogger. */
-    public static void log(Object controller, boolean wasFormed) {
-        final GtFormationLogger logger = (GtFormationLogger) controller;
+    public static void log(GtFormationLogger controller, boolean wasFormed, int dim, int x, int y, int z) {
         try {
             if (wasFormed) {
-                logger.audit$logFootprintChange();
+                controller.audit$logFootprintChange();
             } else {
-                logger.audit$logFormation();
+                controller.audit$logFormation();
             }
         } catch (RuntimeException | LinkageError e) {
             final String type = controller.getClass()
@@ -31,6 +31,15 @@ public final class FormationGuard {
             if (REPORTED.add(type)) {
                 GtnhSpeedrunAudit.LOG.error("Multiblock formation NOT audited for {}", type, e);
             }
+            AuditSinks.multiblockLogFailed(
+                wasFormed ? "footprint" : "formation",
+                controller.getClass()
+                    .getSimpleName(),
+                dim,
+                x,
+                y,
+                z,
+                e);
         }
     }
 }

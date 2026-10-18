@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.gtnhspeedrun.audit.trackers.FormationGuard;
 import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
+import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
 import com.gtnhspeedrun.audit.trackers.StructureBounds;
 
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
@@ -63,7 +64,13 @@ public class TTMultiblockBaseMixin implements GtExtraHatches {
         }
         final boolean wasFormed = audit$ttWasFormed;
         audit$ttWasFormed = true;
-        FormationGuard.log(this, wasFormed);
+        FormationGuard.log(
+            (GtFormationLogger) this,
+            wasFormed,
+            aBaseMetaTileEntity.getWorld().provider.dimensionId,
+            aBaseMetaTileEntity.getXCoord(),
+            aBaseMetaTileEntity.getYCoord(),
+            aBaseMetaTileEntity.getZCoord());
     }
 
     @Inject(method = "onPostTick", at = @At("RETURN"), require = 1)

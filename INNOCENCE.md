@@ -84,6 +84,19 @@ cover the period.
 **Escalate when:** failures start right after a large AE2 gain and stop right after it, with no mod or
 pack change (`fingerprint` lines) in between.
 
+## `multiblock_log_failed` — the audit mod could not record a multiblock
+
+This is a fault in the audit mod, not in the run: logging the formation (`what: formation`) or footprint change
+(`what: footprint`) of the controller at `dim`/`x`/`y`/`z` threw `error`. The multiblock itself formed and worked.
+Every player saw a red chat line the first time each controller class failed in a session. The run has no
+`multiblock_formed` line for that formation, so a milestone graded on it is missing evidence, not missed.
+
+**How to confirm innocence:** the same `class` fails on every formation until the mod is updated, and the
+`error` names an exception from the mod or the controller's mod. Inventory snapshots and quests still show
+the progress the multiblock implies.
+
+**Escalate when:** never on its own. Judge the milestone from the other evidence.
+
 ## `CRASH_RECOVERY` / `ANCHOR_MISSING`
 
 Crashes are a fact of modded 1.7.10. `CRASH_RECOVERY` with the anchor lagging the log tail by up to

@@ -17,6 +17,8 @@ public final class MultiblockPower {
     public final long dynamoAmps;
     /** Coil and structure tiers by field name ({@link StructureTiers}); empty when the controller has none. */
     public final java.util.Map<String, String> structure;
+    /** Classes whose own tier fields could not be read on this side ({@link StructureTiers#unreadable}). */
+    public final java.util.List<String> structureUnreadable;
 
     public MultiblockPower(int energyHatches, String energyTier, int dynamoHatches, String dynamoTier) {
         this(energyHatches, energyTier, dynamoHatches, dynamoTier, java.util.Collections.emptyMap());
@@ -29,6 +31,19 @@ public final class MultiblockPower {
 
     public MultiblockPower(int energyHatches, String energyTier, long energyAmps, int dynamoHatches, String dynamoTier,
         long dynamoAmps, java.util.Map<String, String> structure) {
+        this(
+            energyHatches,
+            energyTier,
+            energyAmps,
+            dynamoHatches,
+            dynamoTier,
+            dynamoAmps,
+            structure,
+            java.util.Collections.emptyList());
+    }
+
+    public MultiblockPower(int energyHatches, String energyTier, long energyAmps, int dynamoHatches, String dynamoTier,
+        long dynamoAmps, java.util.Map<String, String> structure, java.util.List<String> structureUnreadable) {
         this.energyHatches = energyHatches;
         this.energyTier = energyTier;
         this.energyAmps = energyAmps;
@@ -36,10 +51,12 @@ public final class MultiblockPower {
         this.dynamoTier = dynamoTier;
         this.dynamoAmps = dynamoAmps;
         this.structure = structure;
+        this.structureUnreadable = structureUnreadable;
     }
 
     /**
      * Part of the formation dedupe key: a hatch tier, amperage or coil/structure-tier change re-logs the formation.
+     * structureUnreadable is not part of it: it depends on the side the server runs on, not on the structure.
      */
     String dedupeSuffix() {
         return ":" + energyTier

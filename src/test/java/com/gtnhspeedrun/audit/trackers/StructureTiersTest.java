@@ -182,5 +182,9 @@ class StructureTiersTest {
             Collections.singletonList("glassTier"),
             keys,
             "the controller's own fields are skipped, its superclass is read");
+        assertEquals(Collections.singletonList("ClientFieldController"), StructureTiers.unreadable(controller));
+        assertTrue(
+            StructureTiers.unreadable(Controller.class)
+                .isEmpty());
     }
 }

@@ -129,7 +129,13 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
             if (!mMachine || !aBaseMetaTileEntity.isServerSide()) {
                 return;
             }
-            FormationGuard.log(this, audit$wasFormed);
+            FormationGuard.log(
+                this,
+                audit$wasFormed,
+                aBaseMetaTileEntity.getWorld().provider.dimensionId,
+                aBaseMetaTileEntity.getXCoord(),
+                aBaseMetaTileEntity.getYCoord(),
+                aBaseMetaTileEntity.getZCoord());
         } finally {
             StructureBounds.pop(this);
         }
@@ -245,7 +251,8 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
             (int) dynamo[0],
             audit$tierName((int) dynamo[1]),
             dynamo[2],
-            StructureTiers.read(this));
+            StructureTiers.read(this),
+            StructureTiers.unreadable(getClass()));
     }
 
     /** mExoticDynamoHatches is missing from GT 5.09.51 (pack 2.8.4), so it is read by reflection, not shadowed. */

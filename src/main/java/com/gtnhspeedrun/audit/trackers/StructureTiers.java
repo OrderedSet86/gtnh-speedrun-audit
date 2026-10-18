@@ -30,8 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class StructureTiers {
 
     private static final int MAX_FIELDS = 12;
-    /** Each plan entry is a field path: one field, or a field of a field's value. */
-    private static final Map<Class<?>, List<Field[]>> PLANS = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, Plan> PLANS = new ConcurrentHashMap<>();
     /** Controller simple class name → dotted field paths read on top of the name rules. */
     private static final Map<String, String[]> EXTRA_PATHS = new HashMap<>();
 
@@ -44,9 +43,18 @@ public final class StructureTiers {
 
     private StructureTiers() {}
 
+    /** What {@link #read} reads for one controller class, decided once. */
+    private static final class Plan {
+
+        /** Each entry is a field path: one field, or a field of a field's value. */
+        final List<Field[]> paths = new ArrayList<>();
+        /** Simple names of the classes whose own fields this side cannot list, so none of them are read. */
+        final List<String> unreadable = new ArrayList<>();
+    }
+
     /** Field name → value, in declaration order (concrete class first). Empty, never null. */
     public static Map<String, String> read(Object controller) {
-        final List<Field[]> plan = PLANS.computeIfAbsent(controller.getClass(), StructureTiers::plan);
+        final List<Field[]> plan = PLANS.computeIfAbsent(controller.getClass(), StructureTiers::plan).paths;
         if (plan.isEmpty()) {
             return Collections.emptyMap();
         }
@@ -68,6 +76,15 @@ public final class StructureTiers {
         return out;
     }
 
+    /**
+     * Simple names of the classes, from the controller's class up to GT's shared bases, whose own fields {@link #read}
+     * skips on this side; empty when none. On a dedicated server that is a class with a field typed by a client-only
+     * class, so a formation line can say its structure tiers are incomplete.
+     */
+    public static List<String> unreadable(Class<?> type) {
+        return PLANS.computeIfAbsent(type, StructureTiers::plan).unreadable;
+    }
+
     private static String format(Object v) {
         if (v instanceof Enum<?>e) {
             return e.name();
@@ -87,7 +104,7 @@ public final class StructureTiers {
     /** The keys {@link #read} would produce for a controller class, for the self-test to check on a real pack. */
     public static List<String> planKeys(Class<?> type) {
         final List<String> keys = new ArrayList<>();
-        for (Field[] path : PLANS.computeIfAbsent(type, StructureTiers::plan)) {
+        for (Field[] path : PLANS.computeIfAbsent(type, StructureTiers::plan).paths) {
             final StringBuilder key = new StringBuilder();
             for (Field f : path) {
                 key.append(key.length() == 0 ? "" : ".")
@@ -98,8 +115,9 @@ public final class StructureTiers {
         return keys;
     }
 
-    static List<Field[]> plan(Class<?> type) {
-        final List<Field[]> out = new ArrayList<>();
+    private static Plan plan(Class<?> type) {
+        final Plan plan = new Plan();
+        final List<Field[]> out = plan.paths;
         final String[] extra = EXTRA_PATHS.get(type.getSimpleName());
         if (extra != null) {
             for (String dotted : extra) {
@@ -117,11 +135,12 @@ public final class StructureTiers {
                 // Listing fields loads every field's type. On a dedicated server a field typed by a client-only
                 // class (the Extreme Entity Crusher's kubatech.client.effect.EntityRenderer) cannot load, so this
                 // class's own fields are skipped and its superclasses are still read.
+                plan.unreadable.add(c.getSimpleName());
                 continue;
             }
             for (Field f : declared) {
                 if (out.size() >= MAX_FIELDS) {
-                    return out;
+                    return plan;
                 }
                 if (Modifier.isStatic(f.getModifiers()) || !wanted(f)) {
                     continue;
@@ -134,7 +153,7 @@ public final class StructureTiers {
                 }
             }
         }
-        return out;
+        return plan;
     }
 
     /**

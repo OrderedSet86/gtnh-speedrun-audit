@@ -331,6 +331,7 @@ public final class AuditExport {
         flagCount(sb, counts, "gamemode_change", "gamemode changes");
         flagCount(sb, counts, "gt_explosion", "GT machine explosions");
         flagCount(sb, counts, "ae2_census_failed", "AE2 census failures (missing AE2 evidence)");
+        flagCount(sb, counts, "multiblock_log_failed", "multiblock formations not recorded (missing evidence)");
         flagCount(sb, counts, "death", "player deaths");
         flagCount(sb, counts, "gamerule_change", "game rule changes");
         flagCount(sb, counts, "gt_global_energy", "wireless EU commands");
