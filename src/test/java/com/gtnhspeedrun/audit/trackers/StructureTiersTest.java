@@ -8,7 +8,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -139,11 +138,25 @@ class StructureTiersTest {
 
     /**
      * Defines ClientFieldController and its base itself and refuses ClientOnly; the rest comes from the test's loader.
+     * With hideClassFile, ClientFieldController's class file is not on offer as a resource either.
      */
     private static final class ServerSideLoader extends ClassLoader {
 
-        ServerSideLoader() {
+        private final boolean hideClassFile;
+
+        ServerSideLoader(boolean hideClassFile) {
             super(StructureTiersTest.class.getClassLoader());
+            this.hideClassFile = hideClassFile;
+        }
+
+        @Override
+        public InputStream getResourceAsStream(String name) {
+            if (hideClassFile && name.equals(
+                ClientFieldController.class.getName()
+                    .replace('.', '/') + ".class")) {
+                return null;
+            }
+            return super.getResourceAsStream(name);
         }
 
         @Override
@@ -175,16 +188,31 @@ class StructureTiersTest {
     }
 
     @Test
-    void skipsAClassWhoseFieldTypeCannotLoadOnThisSide() throws ClassNotFoundException {
-        final Class<?> controller = Class.forName(ClientFieldController.class.getName(), false, new ServerSideLoader());
-        final List<String> keys = StructureTiers.planKeys(controller);
-        assertEquals(
-            Collections.singletonList("glassTier"),
-            keys,
-            "the controller's own fields are skipped, its superclass is read");
-        assertEquals(Collections.singletonList("ClientFieldController"), StructureTiers.unreadable(controller));
+    void readsByNameAClassWhoseFieldTypeCannotLoadOnThisSide() throws ReflectiveOperationException {
+        final Class<?> controller = Class
+            .forName(ClientFieldController.class.getName(), false, new ServerSideLoader(false));
+        assertEquals(java.util.Arrays.asList("casingTier", "glassTier"), StructureTiers.planKeys(controller));
+        final java.lang.reflect.Constructor<?> make = controller.getDeclaredConstructor();
+        make.setAccessible(true);
+        final Map<String, String> tiers = StructureTiers.read(make.newInstance());
+        assertEquals("2", tiers.get("casingTier"));
+        assertEquals("4", tiers.get("glassTier"));
+        assertTrue(
+            StructureTiers.unreadable(controller)
+                .isEmpty());
         assertTrue(
             StructureTiers.unreadable(Controller.class)
                 .isEmpty());
+    }
+
+    @Test
+    void skipsAClassWhoseFieldsCanBeNeitherListedNorFound() throws ClassNotFoundException {
+        final Class<?> controller = Class
+            .forName(ClientFieldController.class.getName(), false, new ServerSideLoader(true));
+        assertEquals(
+            Collections.singletonList("glassTier"),
+            StructureTiers.planKeys(controller),
+            "the controller's own fields are skipped, its superclass is read");
+        assertEquals(Collections.singletonList("ClientFieldController"), StructureTiers.unreadable(controller));
     }
 }

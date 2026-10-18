@@ -1256,7 +1256,9 @@ public final class SelfTest {
             { "gregtech.common.tileentities.machines.multi.MTEPlasmaForge", "convergence", "mCoilLevel" },
             { "gtPlusPlus.xmod.gregtech.common.tileentities.machines.multi.production.MTEQuantumForceTransformer",
                 "mCraftingTier", "mFocusingTier" },
-            { "gregtech.common.tileentities.machines.multi.MTENanoForge", "mSpecialTier" } };
+            { "gregtech.common.tileentities.machines.multi.MTENanoForge", "mSpecialTier" },
+            // its fields cannot all be listed on a dedicated server, so glassTier is found by name
+            { "kubatech.tileentity.gregtech.multiblock.MTEExtremeEntityCrusher", "glassTier" } };
         for (String[] row : expected) {
             try {
                 final List<String> keys = com.gtnhspeedrun.audit.trackers.StructureTiers
@@ -1293,12 +1295,12 @@ public final class SelfTest {
             .findFirst()
             .orElse(null);
         check(
-            "extreme entity crusher line marks its tiers unreadable on this side",
-            crusher != null && crusher.has("structureUnreadable")
-                && crusher.getAsJsonArray("structureUnreadable")
-                    .toString()
-                    .contains("\"MTEExtremeEntityCrusher\""),
-            crusher == null ? "no line" : String.valueOf(crusher.get("structureUnreadable")));
+            "extreme entity crusher line carries its glass tier, read by name on this side",
+            crusher != null && !crusher.has("structureUnreadable")
+                && crusher.has("structure")
+                && crusher.getAsJsonObject("structure")
+                    .has("glassTier"),
+            crusher == null ? "no line" : String.valueOf(crusher));
         final List<String> failed = com.gtnhspeedrun.audit.compat.FormationSideCheck.readEveryMultiblock();
         check(
             "structure tiers read on every multiblock",

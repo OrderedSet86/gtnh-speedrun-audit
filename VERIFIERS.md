@@ -191,8 +191,9 @@ Every `session_start` line embeds the startup verdict:
 - `multiblock_formed` lines from GT controllers can have `structure`: coil level (`HeatingCoilLevel` fields),
   `mHeatingCapacity`, and integer `…Tier` fields of the controller class (glass, casing, motor tiers). A change
   in any of them re-logs the formation. `structureUnreadable` lists the controller classes whose own tier fields
-  the server could not read (a field typed by a client-only class, as on the Extreme Entity Crusher on a
-  dedicated server): `structure` is incomplete for that line, not wrong.
+  the server could not read: `structure` is incomplete for that line, not wrong. Only a server on Java 8 should
+  show it, for a class with a field typed by a client-only class (the Extreme Entity Crusher, the BEC storage).
+  Newer Java reads those fields by name.
 - `multiblock_log_failed` lines are formations or footprint changes the mod failed to record (see INNOCENCE.md).
 - AE2 censuses only cover loaded grids — which is fine: an unloaded grid cannot change.
 - Bundles from v0.5.0 and earlier contain **no automatic AE2 censuses**: an overflow in the interval check

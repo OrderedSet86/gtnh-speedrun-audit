@@ -1,6 +1,11 @@
 package com.gtnhspeedrun.audit.trackers;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -9,6 +14,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.Opcodes;
 
 /**
  * Coil and structure tiers of a formed multiblock — the EBF's coil, a Space Elevator's motor tier, a glass tier
@@ -26,6 +36,12 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Only fields declared below GT's shared base classes are read, so per-hatch bookkeeping in those bases does not
  * drown the controller's own tiers. Values are whatever the structure check left behind at RETURN.
+ *
+ * <p>
+ * Listing a class's fields loads every field's type. On a dedicated server a field typed by a client-only class
+ * (the Extreme Entity Crusher's kubatech.client.effect.EntityRenderer) cannot load, so for such a class the fields
+ * are found by name in its class file instead, and each one is read through a method handle, which resolves only
+ * that field.
  */
 public final class StructureTiers {
 
@@ -46,30 +62,85 @@ public final class StructureTiers {
     /** What {@link #read} reads for one controller class, decided once. */
     private static final class Plan {
 
-        /** Each entry is a field path: one field, or a field of a field's value. */
-        final List<Field[]> paths = new ArrayList<>();
-        /** Simple names of the classes whose own fields this side cannot list, so none of them are read. */
+        final List<Getter> getters = new ArrayList<>();
+        /** Simple names of the classes whose own fields could be neither listed nor found by name on this side. */
         final List<String> unreadable = new ArrayList<>();
+    }
+
+    /** One value of the plan, under its key in the formation line. */
+    private interface Getter {
+
+        String key();
+
+        Object get(Object controller) throws ReflectiveOperationException;
+    }
+
+    /** A field path: one field, or a field of a field's value. */
+    private static final class FieldPath implements Getter {
+
+        private final Field[] path;
+
+        FieldPath(Field[] path) {
+            this.path = path;
+        }
+
+        @Override
+        public String key() {
+            final StringBuilder key = new StringBuilder();
+            for (Field f : path) {
+                key.append(key.length() == 0 ? "" : ".")
+                    .append(f.getName());
+            }
+            return key.toString();
+        }
+
+        @Override
+        public Object get(Object controller) throws IllegalAccessException {
+            Object v = controller;
+            for (Field f : path) {
+                v = v == null ? null : f.get(v);
+            }
+            return v;
+        }
+    }
+
+    /** A field found by name in the class file, read through a getter handle. */
+    private static final class HandleGetter implements Getter {
+
+        private final String name;
+        private final MethodHandle getter;
+
+        HandleGetter(String name, MethodHandle getter) {
+            this.name = name;
+            this.getter = getter;
+        }
+
+        @Override
+        public String key() {
+            return name;
+        }
+
+        @Override
+        public Object get(Object controller) throws InvocationTargetException {
+            try {
+                return getter.invoke(controller);
+            } catch (Throwable t) {
+                throw new InvocationTargetException(t);
+            }
+        }
     }
 
     /** Field name → value, in declaration order (concrete class first). Empty, never null. */
     public static Map<String, String> read(Object controller) {
-        final List<Field[]> plan = PLANS.computeIfAbsent(controller.getClass(), StructureTiers::plan).paths;
+        final List<Getter> plan = PLANS.computeIfAbsent(controller.getClass(), StructureTiers::plan).getters;
         if (plan.isEmpty()) {
             return Collections.emptyMap();
         }
         final Map<String, String> out = new LinkedHashMap<>();
-        for (Field[] path : plan) {
+        for (Getter g : plan) {
             try {
-                Object v = controller;
-                final StringBuilder key = new StringBuilder();
-                for (Field f : path) {
-                    v = v == null ? null : f.get(v);
-                    key.append(key.length() == 0 ? "" : ".")
-                        .append(f.getName());
-                }
-                out.put(key.toString(), format(v));
-            } catch (IllegalAccessException | RuntimeException ignored) {
+                out.put(g.key(), format(g.get(controller)));
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
                 // A field that refuses to read is left out; the rest still describe the structure.
             }
         }
@@ -78,8 +149,9 @@ public final class StructureTiers {
 
     /**
      * Simple names of the classes, from the controller's class up to GT's shared bases, whose own fields {@link #read}
-     * skips on this side; empty when none. On a dedicated server that is a class with a field typed by a client-only
-     * class, so a formation line can say its structure tiers are incomplete.
+     * skips on this side; empty when none. That is a class whose fields cannot all be listed here and whose class file
+     * could not be read either (a JVM before 9, or no class file), so a formation line can say its structure tiers
+     * are incomplete.
      */
     public static List<String> unreadable(Class<?> type) {
         return PLANS.computeIfAbsent(type, StructureTiers::plan).unreadable;
@@ -104,26 +176,21 @@ public final class StructureTiers {
     /** The keys {@link #read} would produce for a controller class, for the self-test to check on a real pack. */
     public static List<String> planKeys(Class<?> type) {
         final List<String> keys = new ArrayList<>();
-        for (Field[] path : PLANS.computeIfAbsent(type, StructureTiers::plan).paths) {
-            final StringBuilder key = new StringBuilder();
-            for (Field f : path) {
-                key.append(key.length() == 0 ? "" : ".")
-                    .append(f.getName());
-            }
-            keys.add(key.toString());
+        for (Getter g : PLANS.computeIfAbsent(type, StructureTiers::plan).getters) {
+            keys.add(g.key());
         }
         return keys;
     }
 
     private static Plan plan(Class<?> type) {
         final Plan plan = new Plan();
-        final List<Field[]> out = plan.paths;
+        final List<Getter> out = plan.getters;
         final String[] extra = EXTRA_PATHS.get(type.getSimpleName());
         if (extra != null) {
             for (String dotted : extra) {
                 final Field[] path = resolve(type, dotted);
                 if (path != null) {
-                    out.add(path);
+                    out.add(new FieldPath(path));
                 }
             }
         }
@@ -132,28 +199,122 @@ public final class StructureTiers {
             try {
                 declared = c.getDeclaredFields();
             } catch (LinkageError e) {
-                // Listing fields loads every field's type. On a dedicated server a field typed by a client-only
-                // class (the Extreme Entity Crusher's kubatech.client.effect.EntityRenderer) cannot load, so this
-                // class's own fields are skipped and its superclasses are still read.
-                plan.unreadable.add(c.getSimpleName());
+                // a field type that cannot load on this side; the class's other fields are still found by name
+                if (!addByName(c, out)) {
+                    plan.unreadable.add(c.getSimpleName());
+                }
                 continue;
             }
             for (Field f : declared) {
                 if (out.size() >= MAX_FIELDS) {
                     return plan;
                 }
-                if (Modifier.isStatic(f.getModifiers()) || !wanted(f)) {
+                if (Modifier.isStatic(f.getModifiers()) || !wanted(f.getName(), f.getType())) {
                     continue;
                 }
                 try {
                     f.setAccessible(true);
-                    out.add(new Field[] { f });
+                    out.add(new FieldPath(new Field[] { f }));
                 } catch (RuntimeException ignored) {
                     // Inaccessible under this JVM's module rules; skip it.
                 }
             }
         }
         return plan;
+    }
+
+    /**
+     * Adds the wanted fields of a class whose fields cannot all be listed: names and types come from its class
+     * file, and each value from a getter handle, which resolves only that one field.
+     *
+     * @return false when that is not possible here: no class file, one this ASM cannot read, or a JVM before 9
+     *         (no MethodHandles.privateLookupIn, called reflectively because the mod compiles against Java 8)
+     */
+    private static boolean addByName(Class<?> c, List<Getter> out) {
+        final ClassLoader loader = c.getClassLoader();
+        if (loader == null) {
+            return false;
+        }
+        final List<String[]> fields;
+        try (InputStream in = loader.getResourceAsStream(
+            c.getName()
+                .replace('.', '/') + ".class")) {
+            if (in == null) {
+                return false;
+            }
+            fields = instanceFields(in);
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+        final MethodHandles.Lookup lookup;
+        try {
+            lookup = (MethodHandles.Lookup) MethodHandles.class
+                .getMethod("privateLookupIn", Class.class, MethodHandles.Lookup.class)
+                .invoke(null, c, MethodHandles.lookup());
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return false;
+        }
+        for (String[] f : fields) {
+            if (out.size() >= MAX_FIELDS) {
+                break;
+            }
+            final Class<?> type = typeOf(f[1], loader);
+            if (type == null || !wanted(f[0], type)) {
+                continue;
+            }
+            try {
+                out.add(new HandleGetter(f[0], lookup.findGetter(c, f[0], type)));
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                // not readable after all; the class's other fields still are
+            }
+        }
+        return true;
+    }
+
+    /** {name, descriptor} of each instance field, in declaration order. */
+    private static List<String[]> instanceFields(InputStream classFile) throws IOException {
+        final List<String[]> fields = new ArrayList<>();
+        new ClassReader(classFile).accept(new ClassVisitor(Opcodes.ASM5) {
+
+            @Override
+            public FieldVisitor visitField(int access, String name, String desc, String signature, Object value) {
+                if ((access & Opcodes.ACC_STATIC) == 0) {
+                    fields.add(new String[] { name, desc });
+                }
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        return fields;
+    }
+
+    /**
+     * The type {@link #wanted} could accept for a field descriptor, loaded without initialising it; null for every
+     * other type, so no other field type is loaded.
+     */
+    private static Class<?> typeOf(String desc, ClassLoader loader) {
+        switch (desc) {
+            case "I":
+                return int.class;
+            case "S":
+                return short.class;
+            case "B":
+                return byte.class;
+            case "J":
+                return long.class;
+            default:
+                if (!desc.endsWith("/HeatingCoilLevel;")) {
+                    return null;
+                }
+                try {
+                    return Class.forName(
+                        desc.substring(1, desc.length() - 1)
+                            .replace('/', '.'),
+                        false,
+                        loader);
+                } catch (ClassNotFoundException | LinkageError e) {
+                    return null;
+                }
+        }
     }
 
     /**
@@ -187,12 +348,10 @@ public final class StructureTiers {
         return null;
     }
 
-    static boolean wanted(Field f) {
-        final Class<?> t = f.getType();
+    static boolean wanted(String name, Class<?> t) {
         if (t.isEnum() && "HeatingCoilLevel".equals(t.getSimpleName())) {
             return true;
         }
-        final String name = f.getName();
         if ("mHeatingCapacity".equals(name)) {
             return t == int.class || t == long.class;
         }
