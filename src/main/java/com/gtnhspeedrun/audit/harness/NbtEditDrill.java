@@ -1,4 +1,4 @@
-package com.gtnhspeedrun.audit.compat;
+package com.gtnhspeedrun.audit.harness;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
@@ -8,6 +8,7 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntityChest;
 import net.minecraft.world.World;
 
+import com.gtnhspeedrun.audit.compat.Compat;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 
 import serverutils.command.CmdEditNBT;

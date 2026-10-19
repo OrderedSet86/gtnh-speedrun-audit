@@ -13,18 +13,18 @@ import org.apache.logging.log4j.Logger;
 
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.command.CommandAudit;
-import com.gtnhspeedrun.audit.compat.Ae2Bench;
-import com.gtnhspeedrun.audit.compat.Ae2Snapshotter;
 import com.gtnhspeedrun.audit.compat.BackupAccess;
 import com.gtnhspeedrun.audit.compat.BqQuestDb;
 import com.gtnhspeedrun.audit.compat.BqQuestTracker;
 import com.gtnhspeedrun.audit.compat.Compat;
 import com.gtnhspeedrun.audit.compat.GtPowerCensus;
 import com.gtnhspeedrun.audit.compat.GtWirelessAudit;
-import com.gtnhspeedrun.audit.compat.StructureBench;
 import com.gtnhspeedrun.audit.compat.WorldEditAudit;
 import com.gtnhspeedrun.audit.core.SessionManager;
+import com.gtnhspeedrun.audit.harness.Ae2Bench;
+import com.gtnhspeedrun.audit.harness.StructureBench;
 import com.gtnhspeedrun.audit.selftest.SelfTest;
+import com.gtnhspeedrun.audit.snapshot.Ae2Snapshotter;
 import com.gtnhspeedrun.audit.snapshot.InventorySnapshotter;
 import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
 import com.gtnhspeedrun.audit.snapshot.NodeCensus;
@@ -149,7 +149,8 @@ public class GtnhSpeedrunAudit {
             onFmlBus(new GameruleTracker(sm.logger(), event.getServer()));
             onFmlBus(scheduler);
 
-            // NEVER load a compat class before a check that its mod is loaded. Compat classes use the types of that mod
+            // NEVER load a class that uses the types of an optional mod before a check that the mod is loaded. Such
+            // classes are in compat/ and harness/, and Ae2Snapshotter is in snapshot/
             if (Compat.BETTER_QUESTING.isLoaded()) {
                 onForgeBus(new BqQuestTracker(sm.logger()));
             }

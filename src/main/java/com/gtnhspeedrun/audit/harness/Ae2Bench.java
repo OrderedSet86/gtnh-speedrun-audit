@@ -1,4 +1,4 @@
-package com.gtnhspeedrun.audit.compat;
+package com.gtnhspeedrun.audit.harness;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -25,6 +25,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.JsonUtil;
+import com.gtnhspeedrun.audit.snapshot.Ae2Snapshotter;
 
 import appeng.api.AEApi;
 import appeng.api.storage.data.IAEItemStack;

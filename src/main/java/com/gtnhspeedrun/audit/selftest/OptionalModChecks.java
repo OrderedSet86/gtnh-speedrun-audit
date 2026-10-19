@@ -17,9 +17,9 @@ import java.util.zip.GZIPInputStream;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.gtnhspeedrun.audit.compat.FormationSideCheck;
-import com.gtnhspeedrun.audit.compat.TecTechFixture;
 import com.gtnhspeedrun.audit.core.SessionManager;
+import com.gtnhspeedrun.audit.harness.FormationSideCheck;
+import com.gtnhspeedrun.audit.harness.TecTechFixture;
 import com.gtnhspeedrun.audit.trackers.GtMachineSites;
 import com.gtnhspeedrun.audit.trackers.StructureTiers;
 

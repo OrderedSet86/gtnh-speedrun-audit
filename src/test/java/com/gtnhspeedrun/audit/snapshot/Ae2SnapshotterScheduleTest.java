@@ -1,4 +1,4 @@
-package com.gtnhspeedrun.audit.compat;
+package com.gtnhspeedrun.audit.snapshot;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;

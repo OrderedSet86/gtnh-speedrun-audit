@@ -1,4 +1,4 @@
-package com.gtnhspeedrun.audit.trackers;
+package com.gtnhspeedrun.audit.snapshot;
 
 import java.util.List;
 

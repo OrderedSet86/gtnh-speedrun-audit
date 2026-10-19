@@ -1,4 +1,4 @@
-package com.gtnhspeedrun.audit.compat;
+package com.gtnhspeedrun.audit.snapshot;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -12,8 +12,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.AuditConfig;
 import com.gtnhspeedrun.audit.core.AuditLogger;
-import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
-import com.gtnhspeedrun.audit.trackers.Ae2CensusFailures;
 
 import appeng.api.networking.storage.IStorageGrid;
 import appeng.api.storage.data.IAEFluidStack;

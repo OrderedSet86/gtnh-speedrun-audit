@@ -1,4 +1,4 @@
-package com.gtnhspeedrun.audit.compat;
+package com.gtnhspeedrun.audit.harness;
 
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Method;
