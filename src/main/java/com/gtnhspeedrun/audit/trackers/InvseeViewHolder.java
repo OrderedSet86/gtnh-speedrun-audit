@@ -1,7 +1,13 @@
 package com.gtnhspeedrun.audit.trackers;
 
-/** Added to ServerUtilities' InvseeContainer by the audit mixin, so a new view can find the one it replaces. */
+/**
+ * Give a ServerUtilities {@code InvseeContainer} the id of its {@link InvseeViews} view. A mixin implements this
+ * interface on {@code InvseeContainer}.
+ *
+ * <p>
+ * When a new view replaces an open view, the open view is ended by this id.
+ */
 public interface InvseeViewHolder {
 
-    String audit$viewId();
+    String audit$viewId(); // noqa: NAR130
 }

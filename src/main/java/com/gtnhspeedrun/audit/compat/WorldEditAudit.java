@@ -25,33 +25,34 @@ import com.sk89q.worldedit.extent.AbstractDelegateExtent;
 import com.sk89q.worldedit.extent.Extent;
 import com.sk89q.worldedit.forge.ForgeWorld;
 import com.sk89q.worldedit.util.eventbus.Subscribe;
+import com.sk89q.worldedit.world.World;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * What every WorldEdit edit changed, as worldedit_edit: blocks placed and removed by type, the bounds, and every
- * block that came with tile-entity data (a pasted machine). The command line only has the text, and
- * {@code //paste}, {@code //stack}, schematics, brushes and wand tools say nothing about contents there.
+ * Log what each WorldEdit edit changed, as a {@code worldedit_edit} line: the blocks placed and removed by type, the
+ * bounds, and every block with tile-entity data, such as a pasted machine. The logged command has only the text, and
+ * nothing of what {@code //paste}, {@code //stack}, schematics, brushes and wand tools changed.
  *
  * <p>
- * Every EditSession posts EditSessionEvent once per stage while it is built. At BEFORE_CHANGE, the layer closest
- * to the world, the session's extent is wrapped in a {@link Recorder}, so each block write is seen after masks,
- * history and reordering and only when the world actually changed. That covers commands, brushes, CraftScripts
- * and {@code //undo} alike. Edits run on the server thread inside one tick, so one line per session per tick is
- * logged at the tick's end; the command line from the same tick carries the text.
+ * WorldEdit posts an EditSessionEvent once per stage while WorldEdit builds an EditSession. At BEFORE_CHANGE, the
+ * layer closest to the world, the session's extent is wrapped in a {@link Recorder}. The recorder therefore gets
+ * each block write after masks, history and reordering, and records a write only when the world changed. Every
+ * EditSession is wrapped, so the recorder gets the writes of commands, brushes, CraftScripts and {@code //undo}.
+ * Edits run on the server thread inside one tick, so the class logs one line per session per tick, at the tick's
+ * end. The command line logged in the same tick has the text.
  *
  * <p>
- * Only constructed when WorldEdit is loaded. The pack does not ship it; servers add it.
+ * Construct the class only when WorldEdit is loaded. GTNH doesn't include WorldEdit, and servers add WorldEdit
+ * themselves.
  */
 public final class WorldEditAudit {
 
-    /** Tile-entity entries kept per line; tileEntitiesTotal is always the exact count. */
-    static final int TILE_ENTITY_CAP = 256;
+    private static final int MAX_TILE_ENTITIES_PER_LINE = 256;
 
     private final AuditLogger logger;
-    /** Recorders that changed something since the last flush. */
-    private final List<Recorder> pending = new ArrayList<>();
+    private final List<Recorder> recordersToFlush = new ArrayList<>();
 
     public WorldEditAudit(AuditLogger logger) {
         this.logger = logger;
@@ -74,7 +75,7 @@ public final class WorldEditAudit {
         if (event.getStage() != EditSession.Stage.BEFORE_CHANGE) {
             return;
         }
-        event.setExtent(new Recorder(event.getExtent(), event.getActor(), dimension(event.getWorld())));
+        event.setExtent(new Recorder(event.getExtent(), event.getActor(), readDimension(event.getWorld())));
     }
 
     @SubscribeEvent
@@ -83,47 +84,37 @@ public final class WorldEditAudit {
             return;
         }
         final List<JsonObject> lines = new ArrayList<>();
-        synchronized (pending) {
-            if (pending.isEmpty()) {
+        synchronized (recordersToFlush) {
+            if (recordersToFlush.isEmpty()) {
                 return;
             }
-            for (Recorder recorder : pending) {
+            for (Recorder recorder : recordersToFlush) {
                 lines.add(recorder.flush());
             }
-            pending.clear();
+            recordersToFlush.clear();
         }
         for (JsonObject line : lines) {
             logger.log("worldedit_edit", line);
         }
     }
 
-    private static Integer dimension(com.sk89q.worldedit.world.World world) {
+    private static Integer readDimension(World world) {
         if (world instanceof ForgeWorld forge) {
             try {
                 return forge.getWorld().provider.dimensionId;
-            } catch (RuntimeException e) {
+            } catch (RuntimeException e) { // noqa: NAR142, degrade and report over the WorldEdit world reference
                 return null; // the world unloaded under the session
             }
         }
         return null;
     }
 
-    /** Block id and meta packed into one int, so counting a write is a map increment with no string built. */
-    private static int pack(int id, int data) {
-        return (id << 16) | (data & 0xFFFF);
-    }
-
-    private static String name(int packed) {
-        final Block block = Block.getBlockById(packed >>> 16);
-        return Block.blockRegistry.getNameForObject(block) + "@" + (packed & 0xFFFF);
-    }
-
     /** One EditSession's tally since its last flush. */
-    final class Recorder extends AbstractDelegateExtent {
+    private final class Recorder extends AbstractDelegateExtent {
 
         private final String actorName;
         private final UUID actorUuid;
-        private final Integer dim;
+        private final Integer dimension;
 
         private final Map<Integer, long[]> placed = new HashMap<>();
         private final Map<Integer, long[]> removed = new HashMap<>();
@@ -133,11 +124,11 @@ public final class WorldEditAudit {
         private int minX, minY, minZ, maxX, maxY, maxZ;
         private boolean queued;
 
-        Recorder(Extent extent, Actor actor, Integer dim) {
+        private Recorder(Extent extent, Actor actor, Integer dimension) {
             super(extent);
             this.actorName = actor == null ? null : actor.getName();
             this.actorUuid = actor == null ? null : actor.getUniqueId();
-            this.dim = dim;
+            this.dimension = dimension;
         }
 
         @Override
@@ -150,9 +141,13 @@ public final class WorldEditAudit {
             return didChange;
         }
 
+        /**
+         * Add one changed block to the tally, and queue this recorder for the next flush. The tally changes only inside
+         * {@code synchronized (recordersToFlush)}.
+         */
         private void record(Vector at, BaseBlock before, BaseBlock after) {
             final int x = at.getBlockX(), y = at.getBlockY(), z = at.getBlockZ();
-            synchronized (pending) {
+            synchronized (recordersToFlush) {
                 if (changed == 0) {
                     minX = maxX = x;
                     minY = maxY = y;
@@ -166,29 +161,34 @@ public final class WorldEditAudit {
                     maxZ = Math.max(maxZ, z);
                 }
                 changed++;
-                placed.computeIfAbsent(pack(after.getId(), after.getData()), k -> new long[1])[0]++;
-                removed.computeIfAbsent(pack(before.getId(), before.getData()), k -> new long[1])[0]++;
+                placed.computeIfAbsent(packBlockKey(after.getId(), after.getData()), k -> new long[1])[0]++;
+                removed.computeIfAbsent(packBlockKey(before.getId(), before.getData()), k -> new long[1])[0]++;
                 if (after.hasNbtData()) {
                     tileEntitiesTotal++;
-                    if (tileEntities.size() < TILE_ENTITY_CAP) {
-                        tileEntities.add(tileEntity(x, y, z, after));
+                    if (tileEntities.size() < MAX_TILE_ENTITIES_PER_LINE) {
+                        tileEntities.add(describeTileEntity(at, after));
                     }
                 }
                 if (!queued) {
                     queued = true;
-                    pending.add(this);
+                    recordersToFlush.add(this);
                 }
             }
         }
 
-        private JsonArray tileEntity(int x, int y, int z, BaseBlock block) {
+        // block id and meta in one int, so counting a write is a map increment with no string built
+        private static int packBlockKey(int id, int data) {
+            return (id << 16) | (data & 0xFFFF);
+        }
+
+        private static JsonArray describeTileEntity(Vector at, BaseBlock block) {
             final JsonArray entry = new JsonArray();
-            entry.add(new JsonPrimitive(x));
-            entry.add(new JsonPrimitive(y));
-            entry.add(new JsonPrimitive(z));
-            entry.add(new JsonPrimitive(name(pack(block.getId(), block.getData()))));
+            entry.add(new JsonPrimitive(at.getBlockX()));
+            entry.add(new JsonPrimitive(at.getBlockY()));
+            entry.add(new JsonPrimitive(at.getBlockZ()));
+            entry.add(new JsonPrimitive(readBlockName(packBlockKey(block.getId(), block.getData()))));
             entry.add(new JsonPrimitive(String.valueOf(block.getNbtId())));
-            // A GT machine's tile is the same for every machine; its meta tile ID says which one.
+            // every GT machine has the same tile entity id. The mID tag has the machine's meta tile ID
             final CompoundTag tag = block.getNbtData();
             final Tag mId = tag == null ? null
                 : tag.getValue()
@@ -199,8 +199,16 @@ public final class WorldEditAudit {
             return entry;
         }
 
-        /** The line for everything since the last flush, then a fresh tally. Called with {@code pending} held. */
-        JsonObject flush() {
+        private static String readBlockName(int blockKey) {
+            final Block block = Block.getBlockById(blockKey >>> 16);
+            return Block.blockRegistry.getNameForObject(block) + "@" + (blockKey & 0xFFFF);
+        }
+
+        /**
+         * Build the line for every change since the last flush, and reset the tally. Call flush() only inside
+         * {@code synchronized (recordersToFlush)}.
+         */
+        private JsonObject flush() {
             final JsonObject data = new JsonObject();
             if (actorUuid != null) {
                 data.addProperty("uuid", actorUuid.toString());
@@ -208,14 +216,14 @@ public final class WorldEditAudit {
             if (actorName != null) {
                 data.addProperty("name", actorName);
             }
-            if (dim != null) {
-                data.addProperty("dim", dim);
+            if (dimension != null) {
+                data.addProperty("dim", dimension);
             }
             data.addProperty("changed", changed);
-            data.add("placed", counts(placed));
-            data.add("removed", counts(removed));
-            data.add("min", position(minX, minY, minZ));
-            data.add("max", position(maxX, maxY, maxZ));
+            data.add("placed", countsByBlock(placed));
+            data.add("removed", countsByBlock(removed));
+            data.add("min", buildPositionArray(minX, minY, minZ));
+            data.add("max", buildPositionArray(maxX, maxY, maxZ));
             data.addProperty("tileEntitiesTotal", tileEntitiesTotal);
             if (tileEntitiesTotal > 0) {
                 data.add("tileEntities", tileEntities);
@@ -223,28 +231,30 @@ public final class WorldEditAudit {
             placed.clear();
             removed.clear();
             changed = 0;
-            // a new array, not cleared: the logged line is serialized later, on the writer thread
+            // the logged line has this array, and the writer thread serializes the line later. Replace the array.
+            // Clearing the array would empty the tileEntities of the logged line
             tileEntities = new JsonArray();
             tileEntitiesTotal = 0;
             queued = false;
             return data;
         }
-    }
 
-    private static JsonObject counts(Map<Integer, long[]> tally) {
-        final JsonObject out = new JsonObject();
-        tally.entrySet()
-            .stream()
-            .sorted((a, b) -> Long.compare(b.getValue()[0], a.getValue()[0]))
-            .forEach(e -> out.addProperty(name(e.getKey()), e.getValue()[0]));
-        return out;
-    }
+        // largest count first
+        private static JsonObject countsByBlock(Map<Integer, long[]> tally) {
+            final JsonObject out = new JsonObject();
+            tally.entrySet()
+                .stream()
+                .sorted((a, b) -> Long.compare(b.getValue()[0], a.getValue()[0]))
+                .forEach(e -> out.addProperty(readBlockName(e.getKey()), e.getValue()[0]));
+            return out;
+        }
 
-    private static JsonArray position(int x, int y, int z) {
-        final JsonArray a = new JsonArray();
-        a.add(new JsonPrimitive(x));
-        a.add(new JsonPrimitive(y));
-        a.add(new JsonPrimitive(z));
-        return a;
+        private static JsonArray buildPositionArray(int x, int y, int z) {
+            final JsonArray a = new JsonArray();
+            a.add(new JsonPrimitive(x));
+            a.add(new JsonPrimitive(y));
+            a.add(new JsonPrimitive(z));
+            return a;
+        }
     }
 }

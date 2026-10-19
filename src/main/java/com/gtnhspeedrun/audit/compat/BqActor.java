@@ -9,6 +9,7 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.server.MinecraftServer;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.JsonUtil;
@@ -21,49 +22,34 @@ import betterquesting.api2.storage.DBEntry;
 import betterquesting.questing.QuestDatabase;
 
 /**
- * Who actually completed a party quest. BQ marks a task complete for every party member at once, and its
- * COMPLETED event then fires per member — including members who were offline (R1). The member whose tick or
- * button press ran the detection is the {@code ParticipantInfo.PLAYER} built just before it, on the same thread,
- * in the same tick; the mixins hand that over here.
+ * Record who completed a party quest. BQ marks a task complete for every party member at once, and the COMPLETED
+ * event then fires for each member, offline members included. The member whose tick or button press ran the
+ * detection is the {@code ParticipantInfo.PLAYER} that BQ built just before the detection, on the same thread and
+ * in the same tick. The BQ mixins pass that participant to this class.
  *
  * <p>
- * The hand-off is a thread-local stamped with the server tick. A task completion with no participant from the
- * current tick (an edit-mode or admin completion) logs {@code actor: null} rather than a stale guess. Only
- * instantiated or called when BetterQuesting is loaded; every BQ API used here is identical from 3.7.15 (pack
- * 2.8.4) through 3.8.87.
+ * The hand-off is a thread-local stamped with the server tick. For a task completion with no participant from the
+ * current tick, such as an edit-mode or admin completion, the line has {@code actorUuid: null} and no participant
+ * from an earlier tick. Use the class only when BetterQuesting is loaded. Every BQ API used here is the same from
+ * 3.7.15 (pack 2.8.4) through 3.8.87.
  */
 public final class BqActor {
 
     private static final int MAX_PAYLOAD_B64 = 65536;
 
-    private static final class Participant {
-
-        final UUID uuid;
-        final String name;
-        final List<UUID> active;
-        final int tick;
-
-        Participant(UUID uuid, String name, List<UUID> active, int tick) {
-            this.uuid = uuid;
-            this.name = name;
-            this.active = active;
-            this.tick = tick;
-        }
-    }
-
     private static final ThreadLocal<Participant> CURRENT = new ThreadLocal<>();
 
     private BqActor() {}
 
-    /** RETURN of ParticipantInfo's constructor: this player is about to run a detection. */
+    /** RETURN of the {@code ParticipantInfo} constructor: this player is about to run a detection. */
     public static void noteParticipant(EntityPlayer player, UUID questingUuid, List<UUID> active) {
-        if (player == null || player.worldObj == null || player.worldObj.isRemote) {
+        if (!(player != null && player.worldObj != null && !player.worldObj.isRemote)) {
             return;
         }
-        CURRENT.set(new Participant(questingUuid, player.getCommandSenderName(), active, tick()));
+        CURRENT.set(new Participant(questingUuid, player.getCommandSenderName(), active, readServerTick()));
     }
 
-    /** HEAD of TaskBase.setComplete, only when the task was not complete for {@code uuid} yet. */
+    /** HEAD of {@code TaskBase.setComplete}, only when the task was not complete for {@code uuid} yet. */
     public static void taskCompleting(ITask task, UUID uuid) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
@@ -75,24 +61,28 @@ public final class BqActor {
             "taskType",
             task.getClass()
                 .getSimpleName());
-        locate(task, data);
-        final Participant p = CURRENT.get();
-        if (p != null && p.tick == tick()) {
-            data.addProperty("actorUuid", String.valueOf(p.uuid));
-            data.addProperty("actorName", p.name);
+        addTaskLocation(task, data);
+        final Participant participant = CURRENT.get();
+        if (participant != null && participant.tick() == readServerTick()) {
+            data.addProperty("actorUuid", String.valueOf(participant.uuid()));
+            data.addProperty("actorName", participant.name());
             final JsonArray active = new JsonArray();
-            for (UUID u : p.active) {
-                active.add(JsonUtil.GSON.toJsonTree(u.toString()));
+            for (UUID activeUuid : participant.active()) {
+                active.add(JsonUtil.GSON.toJsonTree(activeUuid.toString()));
             }
             data.add("activeUuids", active);
         } else {
-            data.add("actorUuid", com.google.gson.JsonNull.INSTANCE);
+            data.add("actorUuid", JsonNull.INSTANCE);
         }
         session.logger()
             .log("quest_task_complete", data);
     }
 
-    /** HEAD of the server handlers that change the quest book: edits, chapters, imports, settings (edit mode). */
+    /**
+     * HEAD of the server handlers that change the quest book: quest edits, chapter edits, imports, and settings such
+     * as the edit-mode toggle. BQ refuses an edit packet from a player who is not an op. The {@code quest_edit} line
+     * is written either way.
+     */
     public static void edit(String handler, NBTTagCompound payload, EntityPlayer sender) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
@@ -120,13 +110,15 @@ public final class BqActor {
                 data.addProperty("payloadB64Chars", b64.length());
             }
         }
-        // Edit packets are refused inside the handler for non-ops; this records the attempt either way.
         session.logger()
             .log("quest_edit", data);
     }
 
-    /** Quest and task index holding this task instance; a linear scan, but completions are rare. */
-    private static void locate(ITask task, JsonObject into) {
+    /**
+     * Add the quest and the task index of {@code task}. The lookup is a linear scan over every quest, and task
+     * completions are rare.
+     */
+    private static void addTaskLocation(ITask task, JsonObject into) {
         try {
             for (Map.Entry<UUID, IQuest> quest : QuestDatabase.INSTANCE.entrySet()) {
                 for (DBEntry<ITask> entry : quest.getValue()
@@ -147,13 +139,17 @@ public final class BqActor {
                     }
                 }
             }
-        } catch (RuntimeException | LinkageError ignored) {
-            // The line still names the player and task type.
+        } catch (RuntimeException | LinkageError ignored) { // noqa: NAR142, degrade and report over BQ database code
+            // the line still has the player and the task type
         }
     }
 
-    private static int tick() {
+    private static int readServerTick() {
         final MinecraftServer server = MinecraftServer.getServer();
         return server == null ? -1 : server.getTickCounter();
     }
+
+    // no copy of active. BQ passes ACTIVE_UUIDS as an unmodifiable list, and List.copyOf() would throw inside the BQ
+    // constructor on a null element.
+    private record Participant(UUID uuid, String name, List<UUID> active, int tick) {}
 }

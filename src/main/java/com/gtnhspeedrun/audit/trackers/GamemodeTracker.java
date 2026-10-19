@@ -16,16 +16,20 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * 1.7.10 has no gamemode-change event, so poll every tick — it's a field read per online player. Transitions
- * into creative are the #1 cheat vector; each one also triggers an inventory snapshot, so what was carried
- * across the boundary is on record. The login-state line comes from PlayerSessionTracker; this map only covers
- * players seen ticking.
+ * Log each gamemode change of an online player, and take an inventory snapshot at each change.
+ *
+ * <p>
+ * 1.7.10 has no gamemode-change event, so the tracker polls every tick. The poll reads one field per online player.
+ * A change into creative is the most common cheat, and the snapshot has the player's inventories at the change.
+ * {@code lastSeen} has an entry only for a player seen by an earlier poll, so the first poll after a login logs no
+ * change. {@link PlayerSessionTracker} logs the gamemode at login.
  */
 public final class GamemodeTracker {
 
     private final AuditLogger logger;
     private final InventorySnapshotter snapshotter;
     private final MinecraftServer server;
+    // an entry of a logged-off player stays until the session ends. Each entry is a UUID and an enum
     private final Map<UUID, WorldSettings.GameType> lastSeen = new HashMap<>();
 
     public GamemodeTracker(AuditLogger logger, InventorySnapshotter snapshotter, MinecraftServer server) {
@@ -39,8 +43,8 @@ public final class GamemodeTracker {
         if (event.phase != TickEvent.Phase.END) {
             return;
         }
-        for (Object o : server.getConfigurationManager().playerEntityList) {
-            final EntityPlayerMP player = (EntityPlayerMP) o;
+        for (Object rawPlayer : server.getConfigurationManager().playerEntityList) {
+            final EntityPlayerMP player = (EntityPlayerMP) rawPlayer;
             final UUID uuid = player.getGameProfile()
                 .getId();
             final WorldSettings.GameType now = player.theItemInWorldManager.getGameType();
@@ -55,6 +59,5 @@ public final class GamemodeTracker {
                 snapshotter.capture(player, "gamemode_change");
             }
         }
-        // Entries for logged-off players are harmless (a UUID and an enum); cleared with the session.
     }
 }

@@ -7,21 +7,23 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * Interval driver for the periodic snapshots. Runs off the audit tick so pausing the integrated server pauses
- * the cadence with it. AE2's census (phase 4) plugs in as another periodic action with its own online/idle
- * cadence.
+ * Take an inventory snapshot of every online player at a fixed interval.
+ *
+ * <p>
+ * The interval counts server ticks, so the interval stops while an integrated server is paused.
  */
 public final class SnapshotScheduler {
 
     private final MinecraftServer server;
     private final InventorySnapshotter inventory;
-    private final long invIntervalTicks;
+    private final long inventoryIntervalTicks;
     private long tickCounter;
 
-    public SnapshotScheduler(MinecraftServer server, InventorySnapshotter inventory, int invIntervalMinutes) {
+    public SnapshotScheduler(MinecraftServer server, InventorySnapshotter inventory, int inventoryIntervalMinutes) {
         this.server = server;
         this.inventory = inventory;
-        this.invIntervalTicks = invIntervalMinutes * 60L * 20L;
+        final long TICKS_PER_MINUTE = 60L * 20L;
+        this.inventoryIntervalTicks = inventoryIntervalMinutes * TICKS_PER_MINUTE;
     }
 
     @SubscribeEvent
@@ -30,14 +32,14 @@ public final class SnapshotScheduler {
             return;
         }
         tickCounter++;
-        if (tickCounter % invIntervalTicks == 0) {
+        if (tickCounter % inventoryIntervalTicks == 0) {
             snapshotAllPlayers("interval");
         }
     }
 
     public void snapshotAllPlayers(String trigger) {
-        for (Object o : server.getConfigurationManager().playerEntityList) {
-            inventory.capture((EntityPlayerMP) o, trigger);
+        for (Object rawPlayer : server.getConfigurationManager().playerEntityList) {
+            inventory.capture((EntityPlayerMP) rawPlayer, trigger);
         }
     }
 }

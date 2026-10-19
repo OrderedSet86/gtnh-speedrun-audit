@@ -2,10 +2,7 @@ package com.gtnhspeedrun.audit.mixins.late.gt;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Set;
 
 import net.minecraft.nbt.NBTTagCompound;
 
@@ -23,6 +20,9 @@ import com.gtnhspeedrun.audit.trackers.AuditSinks;
 import com.gtnhspeedrun.audit.trackers.FormationGuard;
 import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
+import com.gtnhspeedrun.audit.trackers.GtMachineSites;
+import com.gtnhspeedrun.audit.trackers.HatchScan;
+import com.gtnhspeedrun.audit.trackers.MachineSite;
 import com.gtnhspeedrun.audit.trackers.MultiblockFootprint;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
 import com.gtnhspeedrun.audit.trackers.StructureBounds;
@@ -38,24 +38,27 @@ import gregtech.api.metatileentity.implementations.MTEMultiBlockBase;
 import gregtech.api.util.GTUtility;
 
 /**
- * The formation timestamp for every modern GT multiblock (assembly line, EBF, fusion, …): checkStructure is where
- * mMachine flips, except for TecTech multiblocks, which flip it in their own onPostTick (TTMultiblockBaseMixin logs
- * those through audit$logFormation). The false→true transition is the graded event for the coke%/bbf%/assline% style
- * categories. The hatch lists are filled by the structure check itself, so at RETURN they describe the multiblock that
- * just formed — that is where the voltage it can run at comes from. Coil and structure tiers (StructureTiers) are read
- * at the same moment. Swapping coils or a structure part breaks and re-forms the structure, and the new tiers are part
- * of the dedupe key, so an upgrade logs a fresh formation.
+ * Logs the formation of every modern GT multiblock (assembly line, EBF, fusion, ...). GT sets mMachine in
+ * checkStructure(), except for TecTech multiblocks. TTMultiblockBase sets mMachine in its onPostTick(), and
+ * TTMultiblockBaseMixin logs TecTech formations through audit$logFormation(). The change of mMachine from false to true
+ * is the graded event for categories such as coke%, bbf% and assline%. The structure check fills the hatch lists, so at
+ * RETURN the lists contain the hatches of the multiblock that just formed. The voltage tiers of the formation line are
+ * read from those lists. Coil and structure tiers (StructureTiers) are read at the same moment. A swap of coils or of a
+ * structure part breaks and re-forms the structure. The new tiers are part of the dedupe key, so a new formation is
+ * logged after an upgrade.
  *
  * <p>
- * The tiers last logged are saved in the controller's NBT, so the re-check after a server restart or chunk
- * reload logs nothing, and a restored backup brings back the marker the backup had.
+ * The tiers last logged are saved in the controller's NBT, so no second formation is logged at the re-check after a
+ * server restart or chunk reload. Restoring a backup restores the marker that the backup saved.
  *
  * <p>
- * Every server-side check opens a StructureBounds frame, so the formation line carries the box of the positions the
- * check visited, plus the controller's facing. The footprint last logged is saved in NBT as a second key, so a
- * formed multiblock whose footprint changes without a new formation (a wrench rotation, an LSC growing layers) logs a
- * multiblock_footprint line. Coordinates come from this controller's own tile: the Purification Plant runs its units'
- * checkStructure with the plant's tile as the argument.
+ * The checkStructure() hook opens a StructureBounds frame for each check, and positions are collected only on the
+ * server side. The formation line has the box of the positions that the check visited, and the controller's facing.
+ * The footprint last logged is saved in NBT as a second key. When the footprint of a formed multiblock changes without
+ * a new formation, the mixin logs a multiblock_footprint line, for example after a wrench rotation or when an LSC
+ * (Lapotronic Supercapacitor) grows layers. The formation and footprint lines take their coordinates from the tile of
+ * this controller, not from the checkStructure() argument. The Purification Plant passes the plant's tile as that
+ * argument when the plant runs the checkStructure() of its units.
  */
 @Mixin(value = MTEMultiBlockBase.class, remap = false)
 public class MTEMultiBlockBaseMixin implements GtFormationLogger {
@@ -64,10 +67,10 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
     public boolean mMachine;
 
     @Shadow
-    public ArrayList<MTEHatchEnergy> mEnergyHatches;
+    public ArrayList<MTEHatchEnergy> mEnergyHatches; // noqa: NAR140
 
     @Shadow
-    public ArrayList<MTEHatchDynamo> mDynamoHatches;
+    public ArrayList<MTEHatchDynamo> mDynamoHatches; // noqa: NAR140
 
     @Shadow
     protected List<MTEHatch> mExoticEnergyHatches;
@@ -79,18 +82,18 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
     private static final String AUDIT_FOOTPRINT_KEY = "speedrunAuditFootprint";
 
     @Unique
-    private boolean audit$wasFormed;
+    private boolean audit$wasFormed; // noqa: NAR130
 
-    /** The dedupe suffix of the formation last logged for this controller; null before the first. */
+    /** Dedupe suffix of the formation last logged for this controller, or null until a formation is logged. */
     @Unique
-    private String audit$loggedFormation;
+    private String audit$loggedFormation; // noqa: NAR130
 
-    /** MultiblockFootprint.key() of the footprint last logged; null before the first. */
+    /** MultiblockFootprint.formatKey() of the footprint last logged, or null until a footprint is logged. */
     @Unique
-    private String audit$loggedFootprint;
+    private String audit$loggedFootprint; // noqa: NAR130
 
     @Inject(method = "saveNBTData", at = @At("TAIL"), require = 1)
-    private void audit$saveFormation(NBTTagCompound aNBT, CallbackInfo ci) {
+    private void audit$saveFormation(NBTTagCompound aNBT, CallbackInfo ci) { // noqa: NAR130
         if (audit$loggedFormation != null) {
             aNBT.setString(AUDIT_FORMED_KEY, audit$loggedFormation);
         }
@@ -100,7 +103,7 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
     }
 
     @Inject(method = "loadNBTData", at = @At("TAIL"), require = 1)
-    private void audit$loadFormation(NBTTagCompound aNBT, CallbackInfo ci) {
+    private void audit$loadFormation(NBTTagCompound aNBT, CallbackInfo ci) { // noqa: NAR130
         if (aNBT.hasKey(AUDIT_FORMED_KEY)) {
             audit$loggedFormation = aNBT.getString(AUDIT_FORMED_KEY);
         }
@@ -113,7 +116,7 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
         method = "checkStructure(ZLgregtech/api/interfaces/tileentity/IGregTechTileEntity;)Z",
         at = @At("HEAD"),
         require = 1)
-    private void audit$before(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity,
+    private void audit$before(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity, // noqa: NAR130
         CallbackInfoReturnable<Boolean> cir) {
         audit$wasFormed = mMachine;
         StructureBounds.push(this, aBaseMetaTileEntity.isServerSide());
@@ -123,50 +126,43 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
         method = "checkStructure(ZLgregtech/api/interfaces/tileentity/IGregTechTileEntity;)Z",
         at = @At("RETURN"),
         require = 1)
-    private void audit$after(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity,
+    private void audit$after(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity, // noqa: NAR130
         CallbackInfoReturnable<Boolean> cir) {
         try {
-            if (!mMachine || !aBaseMetaTileEntity.isServerSide()) {
+            if (!(mMachine && aBaseMetaTileEntity.isServerSide())) {
                 return;
             }
             FormationGuard.log(
                 this,
                 audit$wasFormed,
-                aBaseMetaTileEntity.getWorld().provider.dimensionId,
-                aBaseMetaTileEntity.getXCoord(),
-                aBaseMetaTileEntity.getYCoord(),
-                aBaseMetaTileEntity.getZCoord());
+                GtMachineSites.readSite((MetaTileEntity) (Object) this, aBaseMetaTileEntity));
         } finally {
             StructureBounds.pop(this);
         }
     }
 
+    /**
+     * Logs the formation when the hatch, coil or structure tiers differ from the saved marker, then updates the saved
+     * markers and marks the tile dirty. For an unchanged formation, only a footprint change is logged.
+     */
     @Override
     public void audit$logFormation() {
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
         final IGregTechTileEntity base = self.getBaseMetaTileEntity();
-        final MultiblockFootprint footprint = audit$footprint(base);
-        final String logged = AuditSinks.gtMultiblockFormed(
-            audit$loggedFormation,
-            self.getClass()
-                .getSimpleName(),
-            AuditSinks.gtLocalName(self),
-            base.getWorld().provider.dimensionId,
-            base.getXCoord(),
-            base.getYCoord(),
-            base.getZCoord(),
-            audit$power(),
-            footprint);
+        final MachineSite site = GtMachineSites.readSite(self);
+        final MultiblockFootprint footprint = audit$footprint(base, site);
+        final String logged = AuditSinks
+            .logGtMultiblockFormed(audit$loggedFormation, new AuditSinks.GtFormation(site, audit$power(), footprint));
         if (logged == null || logged.equals(audit$loggedFormation)) {
-            // an unchanged formation, as after every restart, can still have a new footprint
-            audit$logFootprintChange(self, base, footprint);
+            // an unchanged formation, such as the first check after a restart, can still have a new footprint
+            audit$logFootprintChange(site, base, footprint);
             return;
         }
         audit$loggedFormation = logged;
         if (footprint.bounds != null) {
-            audit$loggedFootprint = footprint.key();
+            audit$loggedFootprint = footprint.formatKey();
         }
-        // the chunk must save for the markers to survive a restart
+        // a chunk that is not marked dirty is not saved, and the markers would be lost on a restart
         base.markDirty();
     }
 
@@ -174,104 +170,99 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
     public void audit$logFootprintChange() {
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
         final IGregTechTileEntity base = self.getBaseMetaTileEntity();
-        audit$logFootprintChange(self, base, audit$footprint(base));
+        final MachineSite site = GtMachineSites.readSite(self);
+        audit$logFootprintChange(site, base, audit$footprint(base, site));
     }
 
+    /**
+     * Logs a multiblock_footprint line when the footprint key differs from the saved key. The new key is saved once the
+     * line is logged.
+     */
     @Unique
-    private void audit$logFootprintChange(MetaTileEntity self, IGregTechTileEntity base,
+    private void audit$logFootprintChange(MachineSite site, IGregTechTileEntity base, // noqa: NAR130
         MultiblockFootprint footprint) {
-        // a check that ran no StructureLib walk (no change since the last one, or a hand-written check) has no box
+        // a check that ran no StructureLib walk has no box: the structure had not changed since the last check, or
+        // the controller's check is hand-written
         if (footprint.bounds == null) {
             return;
         }
-        final String key = footprint.key();
+        final String key = footprint.formatKey();
         if (key.equals(audit$loggedFootprint)) {
             return;
         }
-        final boolean logged = AuditSinks.gtMultiblockFootprint(
-            self.getClass()
-                .getSimpleName(),
-            AuditSinks.gtLocalName(self),
-            base.getWorld().provider.dimensionId,
-            base.getXCoord(),
-            base.getYCoord(),
-            base.getZCoord(),
-            footprint);
+        final boolean logged = AuditSinks.logGtMultiblockFootprint(site, footprint);
         if (logged) {
             audit$loggedFootprint = key;
             base.markDirty();
         }
     }
 
-    /** IAlignment controllers (every StructureLib multiblock) have rotation and flip; the rest only a front facing. */
+    /**
+     * Reads the box and the facing. An IAlignment controller (every StructureLib multiblock) also has a rotation and a
+     * flip. Other controllers have only a front facing.
+     */
     @Unique
-    private MultiblockFootprint audit$footprint(IGregTechTileEntity base) {
-        final int[] bounds = StructureBounds.boundsFor(this, base.getXCoord(), base.getYCoord(), base.getZCoord());
+    private MultiblockFootprint audit$footprint(IGregTechTileEntity base, MachineSite site) { // noqa: NAR130
+        final int[] bounds = StructureBounds.computeBounds(this, site);
         if ((Object) this instanceof IAlignment alignment) {
             final ExtendedFacing facing = alignment.getExtendedFacing();
             return new MultiblockFootprint(
                 bounds,
                 facing.getDirection()
                     .name(),
-                facing.getRotation()
-                    .name(),
-                facing.getFlip()
-                    .name());
+                new MultiblockFootprint.Alignment(
+                    facing.getRotation()
+                        .name(),
+                    facing.getFlip()
+                        .name()));
         }
-        return new MultiblockFootprint(
+        return MultiblockFootprint.ofFacing(
             bounds,
             base.getFrontFacing()
-                .name(),
-            null,
-            null);
+                .name());
     }
 
     /**
-     * Each hatch's own voltage, not getMaxInputVoltage(): that one sums voltages across hatches, so four LV
-     * hatches would read as one HV. Amperage is summed, so 4 × 16A reads 64. TecTech's own multi-amp and laser
-     * lists come in through GtExtraHatches. GT++'s mAllEnergyHatches reports only what also reached the base lists.
+     * Reads the voltage tier of each hatch with GTUtility.getTier(). getMaxInputVoltage() sums the voltages of all
+     * hatches:
+     * for four LV hatches, getMaxInputVoltage() returns 128 V, the MV voltage. The amperages are summed, so four 16A
+     * hatches count as 64A. The scan reads TecTech's multi-amp and laser hatch lists through GtExtraHatches. For a GT++
+     * multiblock, the scan reports only the hatches of mAllEnergyHatches that are also in the base lists.
      */
     @Unique
-    private MultiblockPower audit$power() {
-        final Set<MTEHatch> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        final long[] energy = { 0, -1, 0 };
-        final long[] dynamo = { 0, -1, 0 };
-        audit$scan(mEnergyHatches, true, energy, seen);
-        audit$scan(mExoticEnergyHatches, true, energy, seen);
-        audit$scan(mDynamoHatches, false, dynamo, seen);
-        audit$scan(audit$exoticDynamoHatches(), false, dynamo, seen);
+    private MultiblockPower audit$power() { // noqa: NAR130
+        final HatchScan scan = new HatchScan();
+        audit$scan(mEnergyHatches, true, scan);
+        audit$scan(mExoticEnergyHatches, true, scan);
+        audit$scan(mDynamoHatches, false, scan);
+        audit$scan(audit$exoticDynamoHatches(), false, scan);
         if (this instanceof GtExtraHatches extra) {
-            audit$scan(extra.audit$extraEnergyHatches(), true, energy, seen);
-            audit$scan(extra.audit$extraDynamoHatches(), false, dynamo, seen);
+            audit$scan(extra.audit$extraEnergyHatches(), true, scan);
+            audit$scan(extra.audit$extraDynamoHatches(), false, scan);
         }
-        return new MultiblockPower(
-            (int) energy[0],
-            audit$tierName((int) energy[1]),
-            energy[2],
-            (int) dynamo[0],
-            audit$tierName((int) dynamo[1]),
-            dynamo[2],
-            StructureTiers.read(this),
-            StructureTiers.unreadable(getClass()));
+        return scan.buildPower(GTValues.VN, StructureTiers.read(this), StructureTiers.unreadable(getClass()));
     }
 
-    /** mExoticDynamoHatches is missing from GT 5.09.51 (pack 2.8.4), so it is read by reflection, not shadowed. */
+    /**
+     * GT 5.09.51 (pack 2.8.4) has no mExoticDynamoHatches field, so the field is read by reflection. A @Shadow of the
+     * field would fail to apply on that pack.
+     */
     @Unique
     private static final Field AUDIT_EXOTIC_DYNAMOS = audit$findExoticDynamos();
 
     @Unique
-    private static Field audit$findExoticDynamos() {
+    private static Field audit$findExoticDynamos() { // noqa: NAR130
         try {
             final Field f = MTEMultiBlockBase.class.getDeclaredField("mExoticDynamoHatches");
             f.setAccessible(true);
             return f;
-        } catch (NoSuchFieldException | RuntimeException e) {
+        } catch (NoSuchFieldException | RuntimeException e) { // noqa: NAR142, reflection into GT
             return null;
         }
     }
 
     @Unique
-    private List<? extends MTEHatch> audit$exoticDynamoHatches() {
+    private List<? extends MTEHatch> audit$exoticDynamoHatches() { // noqa: NAR130
         if (AUDIT_EXOTIC_DYNAMOS == null) {
             return null;
         }
@@ -279,38 +270,29 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
             @SuppressWarnings("unchecked")
             final List<? extends MTEHatch> hatches = (List<? extends MTEHatch>) AUDIT_EXOTIC_DYNAMOS.get(this);
             return hatches;
-        } catch (IllegalAccessException | RuntimeException e) {
+        } catch (IllegalAccessException | RuntimeException e) { // noqa: NAR142, reflection into GT
             return null;
         }
     }
 
-    /**
-     * Adds each live hatch, once, to {count, highest tier, summed amps}; a hatch with no voltage counts but sets no
-     * tier.
-     */
+    /** Adds each live hatch once to {@code scan}. A hatch with no voltage is counted with no tier. */
     @Unique
-    private static void audit$scan(List<? extends MTEHatch> hatches, boolean input, long[] countTierAmps,
-        Set<MTEHatch> seen) {
+    private static void audit$scan(List<? extends MTEHatch> hatches, boolean input, HatchScan scan) { // noqa: NAR130
         if (hatches == null) {
             return;
         }
         for (MTEHatch hatch : hatches) {
             final IGregTechTileEntity base = hatch == null ? null : hatch.getBaseMetaTileEntity();
-            if (base == null || !seen.add(hatch)) {
+            if (!(base != null && scan.addHatch(hatch))) {
                 continue;
             }
-            countTierAmps[0]++;
             final long voltage = input ? base.getInputVoltage() : base.getOutputVoltage();
-            if (voltage > 0) {
-                countTierAmps[1] = Math.max(countTierAmps[1], GTUtility.getTier(voltage));
-            }
-            // the rated amps (a 4A hatch reads 4), not maxAmperesIn's extra allowance for cable loss
-            countTierAmps[2] += input ? hatch.maxWorkingAmperesIn() : hatch.maxAmperesOut();
+            // maxWorkingAmperesIn() is the rated amperage, 4 on a 4A hatch. maxAmperesIn() adds an allowance for cable
+            // loss
+            scan.count(
+                input,
+                voltage > 0 ? GTUtility.getTier(voltage) : HatchScan.NO_TIER,
+                input ? hatch.maxWorkingAmperesIn() : hatch.maxAmperesOut());
         }
-    }
-
-    @Unique
-    private static String audit$tierName(int tier) {
-        return tier >= 0 && tier < GTValues.VN.length ? GTValues.VN[tier] : null;
     }
 }

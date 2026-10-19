@@ -1,15 +1,14 @@
 package com.gtnhspeedrun.audit.compat;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 import net.minecraft.block.Block;
-import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.tileentity.TileEntity;
@@ -27,43 +26,42 @@ import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.metatileentity.implementations.MTEMultiBlockBase;
 
 /**
- * Times GT structure checks with and without the multiblock bounds mixin. Activated by the system property
- * speedrunaudit.structurebench=&lt;dir&gt; ({@code ./gradlew runServer -Pstructurebench=<dir>} in dev, or the -D flag
- * on
- * a pack server). The baseline is a second boot with -Dspeedrunaudit.noStructureBounds=1, where the mixin is not
- * applied at all.
+ * Time GT structure checks with and without the multiblock bounds mixin. The system property
+ * {@code speedrunaudit.structurebench=<dir>} turns the bench on: {@code ./gradlew runServer -Pstructurebench=<dir>} in
+ * dev, or the -D flag on a pack server. The baseline is a second boot with -Dspeedrunaudit.noStructureBounds=1, and on
+ * that boot the mixin isn't applied.
  *
  * <p>
- * The structures are built by StructureLib's creative construct with no hatches, so none forms: each
- * checkStructure(true) walks every position and then fails, which is the forming-check case the mixin collects on.
- * Each one runs WARMUP_BATCHES and then MEASURED_BATCHES of BATCH checks. The report gives the minimum and median
- * nanoseconds per check, and the minimum allocated bytes per check (ThreadMXBean). Then the server stops.
+ * The StructureLib creative construct builds each structure with no hatches, so no structure forms. Each
+ * {@code checkStructure(true)} walks every position and then fails. The bounds mixin collects the visited positions
+ * on each such check. Each structure gets {@link #WARMUP_BATCHES} warm-up batches, then {@link #MEASURED_BATCHES}
+ * measured batches, of {@link #CHECKS_PER_BATCH} checks each.
+ * Each report row has the minimum and median nanoseconds per check, and the minimum allocated bytes per check from
+ * {@code ThreadMXBean}. Then the server stops.
  */
 public final class StructureBench {
 
     public static final String PROPERTY = "speedrunaudit.structurebench";
 
-    /** {meta id, construct stack size}: the stack size sets an Assembly Line's slices and an LSC's layers. */
-    private static final int[][] STRUCTURES = { { 1170, 15 }, // Assembly Line, 15 slices
-        { 13106, 40 }, // Lapotronic Supercapacitor, 40 layers
-        { 1193, 1 }, // Fusion Reactor MK1
-        { 1000, 1 } }; // Electric Blast Furnace
-    private static final String[] NAMES = { "Assembly Line x15", "LSC x40 layers", "Fusion MK1", "EBF" };
+    private static final List<Structure> STRUCTURES = List.of(
+        new Structure("Assembly Line x15", 1170, 15),
+        new Structure("LSC x40 layers", 13106, 40),
+        new Structure("Fusion MK1", 1193, 1),
+        new Structure("EBF", 1000, 1));
     private static final int BUILD_TICK = 40;
     private static final int MEASURE_TICK = 200;
     private static final int WARMUP_BATCHES = 20;
     private static final int MEASURED_BATCHES = 5;
-    private static final int BATCH = 100;
-    /** Blocks between structures along x, and the height above spawn. */
-    private static final int SPACING = 48;
-    private static final int HEIGHT = 60;
+    private static final int CHECKS_PER_BATCH = 100;
+    private static final int SPACING_ALONG_X = 48;
+    private static final int HEIGHT_ABOVE_SPAWN = 60;
 
     private final MinecraftServer server;
-    private final File outDir;
+    private final Path outDir;
     private final List<IGregTechTileEntity> built = new ArrayList<>();
     private int tick;
 
-    public StructureBench(MinecraftServer server, File outDir) {
+    public StructureBench(MinecraftServer server, Path outDir) {
         this.server = server;
         this.outDir = outDir;
     }
@@ -81,42 +79,40 @@ public final class StructureBench {
                 writeReport(measure());
                 server.initiateShutdown();
             }
-        } catch (Throwable t) {
-            GtnhSpeedrunAudit.LOG.error("[structurebench] failed", t);
+        } catch (IOException | RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over GT
+                                                                    // structure code
+            GtnhSpeedrunAudit.LOG.error("[structurebench] failed", e);
             server.initiateShutdown();
         }
     }
 
+    /**
+     * Place and construct each structure in {@link #STRUCTURES} in a row along x above the spawn point.
+     *
+     * @throws IllegalStateException when a placed controller is not a constructable GT machine
+     */
     private void build(WorldServer world) {
         final Block machines = (Block) Block.blockRegistry.getObject("gregtech:gt.blockmachines");
         final ChunkCoordinates spawn = world.getSpawnPoint();
-        for (int i = 0; i < STRUCTURES.length; i++) {
-            final int x = spawn.posX + i * SPACING;
-            final int y = spawn.posY + HEIGHT;
+        for (int i = 0; i < STRUCTURES.size(); i++) {
+            final Structure structure = STRUCTURES.get(i);
+            final int x = spawn.posX + i * SPACING_ALONG_X;
+            final int y = spawn.posY + HEIGHT_ABOVE_SPAWN;
             final int z = spawn.posZ;
-            final ItemStack controller = new ItemStack(machines, STRUCTURES[i][1], STRUCTURES[i][0]);
-            world.setBlockToAir(x, y, z);
-            ((ItemBlock) controller.getItem()).placeBlockAt(
-                controller,
-                FakePlayerFactory.getMinecraft(world),
-                world,
-                x,
-                y,
-                z,
-                1,
-                0.5f,
-                0.5f,
-                0.5f,
-                controller.getItemDamage());
+            final ItemStack controller = new ItemStack(machines, structure.stackSize(), structure.mteId());
+            TecTechFixture.place(FakePlayerFactory.getMinecraft(world), controller, new WorldPos(world, x, y, z));
             final TileEntity te = world.getTileEntity(x, y, z);
-            if (!(te instanceof IGregTechTileEntity base) || !(base.getMetaTileEntity() instanceof IConstructable c)) {
-                throw new IllegalStateException(NAMES[i] + ": no constructable controller at " + x + "," + y + "," + z);
+            if (!(te instanceof IGregTechTileEntity base
+                && base.getMetaTileEntity() instanceof IConstructable constructable)) {
+                throw new IllegalStateException(
+                    structure.name() + ": no constructable controller at " + x + "," + y + "," + z);
             }
-            c.construct(controller, false);
+            constructable.construct(controller, false);
             built.add(base);
         }
     }
 
+    /** Time the checks of each built structure. The rows are a mode row, a header row, then one row per structure. */
     private List<String> measure() {
         final List<String> rows = new ArrayList<>();
         rows.add(
@@ -127,23 +123,24 @@ public final class StructureBench {
             final IGregTechTileEntity base = built.get(i);
             final MTEMultiBlockBase multi = (MTEMultiBlockBase) base.getMetaTileEntity();
             for (int b = 0; b < WARMUP_BATCHES; b++) {
-                batch(multi, base);
+                runCheckBatch(multi, base);
             }
             final long[] nanos = new long[MEASURED_BATCHES];
             long minBytes = Long.MAX_VALUE;
             for (int b = 0; b < MEASURED_BATCHES; b++) {
-                final long bytesBefore = Ae2Bench.threadAllocatedBytes();
+                final long bytesBefore = AllocationMeter.readThreadAllocatedBytes();
                 final long start = System.nanoTime();
-                batch(multi, base);
-                nanos[b] = (System.nanoTime() - start) / BATCH;
-                final long bytes = Ae2Bench.threadAllocatedBytes() - bytesBefore;
+                runCheckBatch(multi, base);
+                nanos[b] = (System.nanoTime() - start) / CHECKS_PER_BATCH;
+                final long bytes = AllocationMeter.readThreadAllocatedBytes() - bytesBefore;
                 if (bytesBefore >= 0 && bytes >= 0) {
-                    minBytes = Math.min(minBytes, bytes / BATCH);
+                    minBytes = Math.min(minBytes, bytes / CHECKS_PER_BATCH);
                 }
             }
             Arrays.sort(nanos);
             rows.add(
-                NAMES[i] + "\t"
+                STRUCTURES.get(i)
+                    .name() + "\t"
                     + nanos[0]
                     + "\t"
                     + nanos[MEASURED_BATCHES / 2]
@@ -155,20 +152,25 @@ public final class StructureBench {
         return rows;
     }
 
-    private static void batch(MTEMultiBlockBase multi, IGregTechTileEntity base) {
-        for (int n = 0; n < BATCH; n++) {
+    private static void runCheckBatch(MTEMultiBlockBase multi, IGregTechTileEntity base) {
+        for (int n = 0; n < CHECKS_PER_BATCH; n++) {
             multi.checkStructure(true, base);
         }
     }
 
     private void writeReport(List<String> rows) throws IOException {
-        outDir.mkdirs();
+        Files.createDirectories(outDir);
         final String mode = System.getProperty(AuditMixinPlugin.NO_STRUCTURE_BOUNDS_PROPERTY) == null ? "bounds"
             : "baseline";
-        final File out = new File(outDir, "structurebench-" + mode + ".tsv");
-        Files.write(out.toPath(), rows, StandardCharsets.UTF_8);
+        Files.write(outDir.resolve("structurebench-" + mode + ".tsv"), rows, StandardCharsets.UTF_8);
         for (String row : rows) {
             GtnhSpeedrunAudit.LOG.info("[structurebench] {}", row);
         }
     }
+
+    /**
+     * One benchmarked GT multiblock. The creative construct reads {@code stackSize} as the slice count of an Assembly
+     * Line and the layer count of an LSC.
+     */
+    private record Structure(String name, int mteId, int stackSize) {}
 }

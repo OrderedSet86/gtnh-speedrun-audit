@@ -64,7 +64,9 @@ jobs:
       - name: Collect artifact
         run: |
           mkdir -p dist
-          cp $(ls build/libs/*.jar | grep -v -- -dev | grep -v -- -sources | head -1) \
+          # jvmDowngrader also writes -downgraded and -predowngrade jars with MCP names. Only the plain jar is
+          # reobfuscated to SRG names, and it sorts after -downgraded.
+          cp $(ls build/libs/*.jar | grep -v -- '-dev\.jar$\|-sources\.jar$\|-downgraded\.jar$\|-predowngrade\.jar$' | head -1) \
              "dist/gtnhspeedrunaudit-${{ inputs.version }}.jar"
           ls -la dist/
 

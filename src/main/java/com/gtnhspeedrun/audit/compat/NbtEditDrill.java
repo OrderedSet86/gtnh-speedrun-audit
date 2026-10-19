@@ -10,23 +10,32 @@ import net.minecraft.world.World;
 
 import com.gtnhspeedrun.audit.core.JsonUtil;
 
+import serverutils.command.CmdEditNBT;
+import serverutils.net.MessageEditNBTResponse;
+
 /**
- * Self-test drill for the /nbtedit mixin: a real ServerUtilities edit, applied through the same packet handler
- * the editor's save button reaches. serverutils classes only exist on a pack server, so the touch lives in its
- * own class behind the Compat gate, like BaublesAccess.
+ * Drive a real ServerUtilities /nbtedit edit for the self-test of the /nbtedit mixin, through the packet handler
+ * that the editor's save button reaches. The serverutils classes exist only when ServerUtilities is installed, so
+ * every reference to them is in the nested {@code Holder} class, behind the {@code Compat.SERVER_UTILITIES} guard.
  */
 public final class NbtEditDrill {
 
     private NbtEditDrill() {}
 
     /**
-     * Puts one diamond in a chest at (x, y, z), then edits the chest to hold two. Returns the canonical hashes the
-     * nbt_edit line must carry: { before, after }. Null when ServerUtilities is absent.
+     * Put one diamond in a chest at {@code pos}, then edit the chest's stack to two diamonds as {@code player}.
+     *
+     * @return the canonical NBT hashes {before, after} that the self-test expects in the {@code nbt_edit} line, or
+     *         null without ServerUtilities
      */
-    public static String[] editChest(World world, EntityPlayerMP player, int x, int y, int z) {
+    public static String[] editChest(EntityPlayerMP player, WorldPos pos) {
         if (!Compat.SERVER_UTILITIES.isLoaded()) {
             return null;
         }
+        final World world = pos.world();
+        final int x = pos.x();
+        final int y = pos.y();
+        final int z = pos.z();
         world.setBlock(x, y, z, Blocks.chest);
         final TileEntityChest chest = (TileEntityChest) world.getTileEntity(x, y, z);
         chest.setInventorySlotContents(0, new ItemStack(Items.diamond, 1));
@@ -34,7 +43,8 @@ public final class NbtEditDrill {
         chest.writeToNBT(before);
 
         final NBTTagCompound after = (NBTTagCompound) before.copy();
-        after.getTagList("Items", 10)
+        final int TAG_COMPOUND = 10;
+        after.getTagList("Items", TAG_COMPOUND)
             .getCompoundTagAt(0)
             .setByte("Count", (byte) 2);
         final NBTTagCompound info = new NBTTagCompound();
@@ -43,19 +53,19 @@ public final class NbtEditDrill {
         info.setInteger("y", y);
         info.setInteger("z", z);
         info.setString("id", before.getString("id"));
-        Holder.apply(player, info, after);
+        Holder.applyEdit(player, info, after);
         return new String[] { JsonUtil.canonicalNbtHash(before), JsonUtil.canonicalNbtHash(after) };
     }
 
     private static final class Holder {
 
-        static void apply(EntityPlayerMP player, NBTTagCompound info, NBTTagCompound nbt) {
-            // onMessage only applies an edit the player has open, as /nbtedit block registers it
-            serverutils.command.CmdEditNBT.EDITING.put(
+        private static void applyEdit(EntityPlayerMP player, NBTTagCompound info, NBTTagCompound nbt) {
+            // onMessage() applies only an edit that the player has open. Open the edit the way /nbtedit block does
+            CmdEditNBT.EDITING.put(
                 player.getGameProfile()
                     .getId(),
                 info);
-            new serverutils.net.MessageEditNBTResponse(info, nbt).onMessage(player);
+            new MessageEditNBTResponse(info, nbt).onMessage(player);
         }
     }
 }

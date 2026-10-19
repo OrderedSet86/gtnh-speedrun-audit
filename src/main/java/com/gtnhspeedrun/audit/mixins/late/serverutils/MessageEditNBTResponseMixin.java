@@ -20,19 +20,19 @@ import serverutils.lib.data.Universe;
 import serverutils.net.MessageEditNBTResponse;
 
 /**
- * ServerUtilities' /nbtedit applies its edit through this packet, not through a second command — without this
- * hook the command log shows the editor being OPENED but never what was written. HEAD: forged packets that
- * fail the pending-edit check downstream still get recorded as attempts.
+ * Logs each /nbtedit write. ServerUtilities applies the edit of /nbtedit through this packet, not through a second
+ * command. Without this hook, the command log has the opening of the editor and not the written NBT. The hook runs at
+ * HEAD, so forged packets that fail the pending-edit check later in onMessage() are logged as attempts.
  *
  * <p>
- * HEAD is also the last moment the target still holds its old NBT, so the line carries that too: the payload
- * alone says what was set, never what it replaced. The target is read the way CmdEditNBT reads it for the
- * editor, without loading a chunk; a target that cannot be read gets a reason instead of a payload.
+ * At HEAD the target still has its current NBT, so the log line has the current NBT next to the new NBT. The payload
+ * of the packet has only the new NBT. For a target that cannot be read, the line has a reason in place of the current
+ * NBT.
  */
 @Mixin(value = MessageEditNBTResponse.class, remap = false)
 public class MessageEditNBTResponseMixin {
 
-    /** Payloads above this stay hash-only — a full player NBT can be hundreds of KB. */
+    /** An NBT whose Base64 is longer than this is logged as a hash only. A full player NBT can be hundreds of KB. */
     private static final int MAX_B64_CHARS = 65536;
 
     @Shadow(remap = false)
@@ -41,13 +41,14 @@ public class MessageEditNBTResponseMixin {
     @Shadow(remap = false)
     private NBTTagCompound mainNbt;
 
+    /** Logs the edit, with the hash and Base64 of the new NBT and of the target's current NBT. */
     @Inject(method = "onMessage", at = @At("HEAD"), require = 1)
-    private void audit$logEdit(EntityPlayerMP player, CallbackInfo ci) {
-        if (info == null || mainNbt == null) {
+    private void audit$logEdit(EntityPlayerMP player, CallbackInfo ci) { // noqa: NAR130
+        if (!(info != null && mainNbt != null)) {
             return;
         }
         final String type = info.getString("type");
-        final String desc = switch (type) {
+        final String description = switch (type) {
             case "block" -> "block " + info.getInteger("x") + "," + info.getInteger("y") + "," + info.getInteger("z");
             case "player" -> "player " + info.getString("id");
             case "entity" -> "entity " + info.getInteger("id");
@@ -56,37 +57,28 @@ public class MessageEditNBTResponseMixin {
         Object before;
         try {
             before = audit$readBefore(player, type);
-        } catch (Throwable t) {
-            // the edit must go through whatever the audit fails to read
-            before = "error: " + t;
+        } catch (RuntimeException | LinkageError failure) { // noqa: NAR142, degrade over another mod's writeToNBT()
+            // the edit must go through even when the read of the current NBT fails
+            before = "error: " + failure;
         }
-        String beforeHash = null;
-        String beforeB64 = null;
-        String beforeMissing = null;
+        final AuditSinks.NbtEdit edit = AuditSinks.NbtEdit.of(type, description);
         if (before instanceof NBTTagCompound beforeNbt) {
-            beforeHash = JsonUtil.canonicalNbtHash(beforeNbt);
             final String encoded = JsonUtil.nbtToB64(beforeNbt);
-            beforeB64 = encoded.length() <= MAX_B64_CHARS ? encoded : null;
+            edit.before(JsonUtil.canonicalNbtHash(beforeNbt), encoded.length() <= MAX_B64_CHARS ? encoded : null);
         } else {
-            beforeMissing = (String) before;
+            edit.beforeMissing((String) before);
         }
         final String b64 = JsonUtil.nbtToB64(mainNbt);
-        AuditSinks.nbtEdit(
-            type,
-            desc,
-            player.getGameProfile()
-                .getId()
-                .toString(),
-            player.getCommandSenderName(),
-            JsonUtil.canonicalNbtHash(mainNbt),
-            b64.length() <= MAX_B64_CHARS ? b64 : null,
-            beforeHash,
-            beforeB64,
-            beforeMissing);
+        edit.player(player)
+            .written(JsonUtil.canonicalNbtHash(mainNbt), b64.length() <= MAX_B64_CHARS ? b64 : null)
+            .log();
     }
 
-    /** The target's current NBT, or why there is none. Mirrors the target lookup in onMessage. */
-    private Object audit$readBefore(EntityPlayerMP player, String type) {
+    /**
+     * Reads the target's current NBT, or returns the reason why there is none. The lookup is the lookup of onMessage(),
+     * so no chunk is loaded.
+     */
+    private Object audit$readBefore(EntityPlayerMP player, String type) { // noqa: NAR130
         switch (type) {
             case "block" -> {
                 final int x = info.getInteger("x");

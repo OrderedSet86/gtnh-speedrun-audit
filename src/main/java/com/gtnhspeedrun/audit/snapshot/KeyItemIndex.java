@@ -8,13 +8,16 @@ import net.minecraft.item.ItemStack;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.core.AuditLogger;
 import com.gtnhspeedrun.audit.core.ChainAnchorData;
+import com.gtnhspeedrun.audit.core.JsonUtil;
 
 /**
- * The configured key-item watchlist. First sighting of each entry becomes a key_item_first_seen milestone;
- * the dedupe set rides in the anchor so a rollback legitimately re-arms the milestone.
+ * Match stacks against the configured key-item watchlist, and log the first sighting of each entry as a
+ * {@code key_item_first_seen} milestone.
  *
  * <p>
- * Config entries are {@code modid:name@meta}; {@code @meta} may be omitted to match any meta ("modid:name").
+ * The set of entries already seen is saved in the chain anchor. A rollback restores the anchor, so the milestone is
+ * logged again after a rollback. Config entries are {@code modid:name@meta}, or {@code modid:name} to match any
+ * meta.
  */
 public final class KeyItemIndex {
 
@@ -35,20 +38,19 @@ public final class KeyItemIndex {
         }
     }
 
-    public boolean isEmpty() {
-        return exact.isEmpty() && anyMeta.isEmpty();
-    }
-
-    /** Server thread only (mutates the anchor's dedupe set). */
+    /** Call on the server thread only. The call adds to the anchor's {@code seenKeyItems} set. */
     public void checkStack(ItemStack stack, String source, String playerUuid) {
         if (stack == null || isEmpty()) {
             return;
         }
-        checkBase(ItemKey.base(stack), stack.getDisplayName(), source, playerUuid);
+        checkBase(ItemKey.formatBaseKey(stack), stack.getDisplayName(), new Sighting(source, playerUuid));
     }
 
-    /** Key-only variant for scans that already have the string (AE2 census entries). */
-    public void checkBase(String base, String displayName, String source, String playerUuid) {
+    /**
+     * Check an item key in the {@link ItemKey#formatBaseKey} form, for scans that have the key and no stack. Call on
+     * the server thread only.
+     */
+    public void checkBase(String base, String displayName, Sighting sighting) {
         if (isEmpty()) {
             return;
         }
@@ -56,8 +58,8 @@ public final class KeyItemIndex {
         if (exact.contains(base)) {
             matched = base;
         } else {
-            final int at = base.indexOf('@');
-            final String noMeta = at < 0 ? base : base.substring(0, at);
+            final int metaSeparator = base.indexOf('@');
+            final String noMeta = metaSeparator < 0 ? base : base.substring(0, metaSeparator);
             matched = anyMeta.contains(noMeta) ? noMeta : null;
         }
         if (matched == null || !anchor.seenKeyItems.add(matched)) {
@@ -67,11 +69,23 @@ public final class KeyItemIndex {
         final JsonObject data = new JsonObject();
         data.addProperty("itemKey", base);
         data.addProperty("watchEntry", matched);
-        data.addProperty("displayName", com.gtnhspeedrun.audit.core.JsonUtil.stripFormatting(displayName));
-        data.addProperty("source", source);
-        if (playerUuid != null) {
-            data.addProperty("playerUuid", playerUuid);
+        data.addProperty("displayName", JsonUtil.stripFormatting(displayName));
+        data.addProperty("source", sighting.source());
+        if (sighting.playerUuid() != null) {
+            data.addProperty("playerUuid", sighting.playerUuid());
         }
         logger.log("key_item_first_seen", data);
     }
+
+    public boolean isEmpty() {
+        return exact.isEmpty() && anyMeta.isEmpty();
+    }
+
+    /**
+     * The source of a sighting, and the player.
+     *
+     * @param source     the scan or event, such as {@code inventory}, {@code craft} or {@code ae2}
+     * @param playerUuid null when the source has no player
+     */
+    public record Sighting(String source, String playerUuid) {}
 }

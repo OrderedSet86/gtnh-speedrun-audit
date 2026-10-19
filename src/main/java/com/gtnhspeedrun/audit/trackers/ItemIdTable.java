@@ -12,50 +12,59 @@ import com.gtnhspeedrun.audit.core.JsonUtil;
 import cpw.mods.fml.common.registry.GameData;
 
 /**
- * Numeric block and item IDs are per world, and NBT stores items by number (inventories, `ench`-bearing tools,
- * tile contents). Without this table a reviewer resolves them from the world's level.dat, which the bundle does
- * not carry. The map is the same one FML saves into level.dat: keys carry a \u0001 (block) or \u0002 (item)
- * prefix.
+ * Log the world's numeric block and item IDs, so a reviewer can resolve the numeric IDs in NBT.
  *
  * <p>
- * Every session logs the hash; the file is written only when the hash differs from the one the anchor last saw,
- * so an unchanged pack costs one line per restart. The anchor rewinds with a rollback, which at worst rewrites
- * a table the log directory already holds.
+ * Numeric IDs are per world, and the NBT of inventories and tile contents has items by number. Without this table, a
+ * reviewer needs the world's level.dat, and the bundle doesn't include level.dat. The map is the map that FML saves
+ * into level.dat. A key starts with \u0001 for a block or \u0002 for an item.
+ *
+ * <p>
+ * The hash is logged in every session. The table file is written only when the hash differs from the anchor's
+ * {@code idTableSha256}, so an unchanged pack costs one line per restart. A rollback restores the anchor, so a
+ * rollback can write a table that the log directory has already.
  */
 public final class ItemIdTable {
 
     private ItemIdTable() {}
 
+    /** Log the {@code item_id_table} line, and write the table file when the hash differs from the anchor's. */
     public static void log(AuditLogger logger, ChainAnchorData anchor, long ticks) {
         final Map<String, Integer> ids = new TreeMap<>(GameData.buildItemDataList().idMap);
-        final String sha = hash(ids);
-        final JsonObject ref = new JsonObject();
-        ref.addProperty("sha256", sha);
-        ref.addProperty("entries", ids.size());
-        if (sha.equals(anchor.idTableSha256)) {
-            ref.addProperty("unchanged", true);
-            logger.log("item_id_table", ref);
+        final String sha256 = hash(ids);
+        final JsonObject reference = new JsonObject();
+        reference.addProperty("sha256", sha256);
+        reference.addProperty("entries", ids.size());
+        if (sha256.equals(anchor.idTableSha256)) {
+            reference.addProperty("unchanged", true);
+            logger.log("item_id_table", reference);
             return;
         }
-        anchor.idTableSha256 = sha;
+        anchor.idTableSha256 = sha256;
         anchor.markDirty();
         final JsonObject table = new JsonObject();
-        for (Map.Entry<String, Integer> e : ids.entrySet()) {
-            table.addProperty(e.getKey(), e.getValue());
+        for (Map.Entry<String, Integer> entry : ids.entrySet()) {
+            table.addProperty(entry.getKey(), entry.getValue());
         }
-        logger.logSnapshot("item_id_table", String.format("idtable-%d.json.gz", ticks), () -> table, ref);
+        logger.logSnapshot(
+            new AuditLogger.Snapshot(
+                "item_id_table",
+                String.format("idtable-%d.json.gz", ticks),
+                () -> table,
+                reference));
     }
 
-    static String hash(Map<String, Integer> sortedIds) {
-        final StringBuilder sb = new StringBuilder(sortedIds.size() * 40);
-        for (Map.Entry<String, Integer> e : sortedIds.entrySet()) {
-            sb.append(e.getKey())
+    public static String hash(Map<String, Integer> sortedIds) {
+        final int AVERAGE_LINE_CHARS = 40;
+        final StringBuilder lines = new StringBuilder(sortedIds.size() * AVERAGE_LINE_CHARS);
+        for (Map.Entry<String, Integer> entry : sortedIds.entrySet()) {
+            lines.append(entry.getKey())
                 .append('=')
-                .append(e.getValue())
+                .append(entry.getValue())
                 .append('\n');
         }
         return JsonUtil.sha256Hex(
-            sb.toString()
+            lines.toString()
                 .getBytes(StandardCharsets.UTF_8));
     }
 }

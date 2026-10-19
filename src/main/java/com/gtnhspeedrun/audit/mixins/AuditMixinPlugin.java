@@ -3,32 +3,29 @@ package com.gtnhspeedrun.audit.mixins;
 import java.util.List;
 import java.util.Set;
 
+import net.minecraft.launchwrapper.Launch;
+
 import org.spongepowered.asm.lib.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
 /**
- * Gate for the EARLY (base-config) mixins. NEI is a coremod, so its classes are already defined by the time
- * the late phase prepares — the NEI mixins must ride the manifest-registered base config instead
- * (MixinTargetAlreadyLoadedException otherwise, found on daily 707). This runs at coremod time, long before
- * Loader knows any modids, so presence is probed as a classpath RESOURCE — Class.forName would define the
- * target class and recreate the exact problem being solved. StructureLib is a coremod too, so the structure bounds
- * mixin rides here as well. The system property speedrunaudit.noStructureBounds turns it off: a kill switch, and the
- * baseline for StructureBench.
+ * Choose which mixins of the base (early) config apply.
+ *
+ * <p>
+ * NEI is a coremod, so the game has defined the NEI classes before the late mixin phase starts. The NEI mixins are
+ * therefore in the base config. The jar manifest registers the base config. In the late config, Mixin throws
+ * MixinTargetAlreadyLoadedException for the NEI mixins (seen on daily 707). This plugin runs at coremod time, long
+ * before Loader has a list of mod ids, so the plugin probes for NEI as a classpath resource. Class.forName() would
+ * define the target class and cause the same exception. StructureLib is a coremod too, so the structure bounds mixin
+ * is in the base config as well. With the system property `speedrunaudit.noStructureBounds` set, the structure bounds
+ * mixin does not apply. The property is a kill switch, and the baseline for StructureBench.
  */
 public class AuditMixinPlugin implements IMixinConfigPlugin {
 
     public static final String NO_STRUCTURE_BOUNDS_PROPERTY = "speedrunaudit.noStructureBounds";
 
     private Boolean neiPresent;
-
-    private boolean isNeiPresent() {
-        if (neiPresent == null) {
-            neiPresent = net.minecraft.launchwrapper.Launch.classLoader
-                .getResource("codechicken/nei/NEIServerUtils.class") != null;
-        }
-        return neiPresent;
-    }
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
@@ -37,10 +34,17 @@ public class AuditMixinPlugin implements IMixinConfigPlugin {
         }
         if (mixinClassName.contains(".structurelib.")) {
             return System.getProperty(NO_STRUCTURE_BOUNDS_PROPERTY) == null
-                && net.minecraft.launchwrapper.Launch.classLoader
-                    .getResource("com/gtnewhorizon/structurelib/structure/StructureUtility.class") != null;
+                && Launch.classLoader.getResource("com/gtnewhorizon/structurelib/structure/StructureUtility.class")
+                    != null;
         }
         return true;
+    }
+
+    private boolean isNeiPresent() {
+        if (neiPresent == null) {
+            neiPresent = Launch.classLoader.getResource("codechicken/nei/NEIServerUtils.class") != null;
+        }
+        return neiPresent;
     }
 
     @Override
@@ -59,9 +63,11 @@ public class AuditMixinPlugin implements IMixinConfigPlugin {
         return null;
     }
 
+    /** The plugin changes no target class before a mixin applies. */
     @Override
     public void preApply(String targetClassName, ClassNode targetClass, String mixinClassName, IMixinInfo mixinInfo) {}
 
+    /** The plugin changes no target class after a mixin applies. */
     @Override
     public void postApply(String targetClassName, ClassNode targetClass, String mixinClassName, IMixinInfo mixinInfo) {}
 }

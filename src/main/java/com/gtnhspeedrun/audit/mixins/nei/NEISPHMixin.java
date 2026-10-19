@@ -14,17 +14,20 @@ import codechicken.lib.packet.PacketCustom;
 import codechicken.nei.NEISPH;
 
 /**
- * Every NEI cheat flows through here. HEAD lands before {@code NEIServerConfig.authenticatePacket}, so denied
- * attempts are recorded too. The packet is a live stream — do NOT read from it here; the decoded detail comes
- * from {@link NEIServerUtilsMixin}.
+ * Logs every NEI cheat packet. Every NEI cheat goes through NEISPH.handlePacket(). {@link NEIServerUtilsMixin} logs
+ * the decoded detail.
  */
 @Mixin(value = NEISPH.class, remap = false)
 public class NEISPHMixin {
 
+    /**
+     * Runs at HEAD, before {@code NEIServerConfig.authenticatePacket}, so a denied attempt is logged too. The packet
+     * is a live stream. Do NOT read from the packet here.
+     */
     @Inject(method = "handlePacket", at = @At("HEAD"), require = 1)
-    private void audit$logPacket(PacketCustom packet, EntityPlayerMP sender, INetHandlerPlayServer netHandler,
-        CallbackInfo ci) {
-        AuditSinks.neiPacket(
+    private void audit$logPacket(PacketCustom packet, EntityPlayerMP sender, // noqa: NAR130, NAR131
+        INetHandlerPlayServer netHandler, CallbackInfo ci) {
+        AuditSinks.logNeiPacket(
             sender.getGameProfile()
                 .getId()
                 .toString(),

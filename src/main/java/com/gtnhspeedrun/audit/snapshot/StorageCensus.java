@@ -1,11 +1,16 @@
 package com.gtnhspeedrun.audit.snapshot;
 
 import java.io.File;
-import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.DirectoryIteratorException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,16 +33,19 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * Item storage that inventory snapshots don't reach: EnderStorage chests and pouches (one shared inventory per
- * frequency, so a pouch on the Moon empties into a chest at base — R1) and the Backpack mod's backpacks, whose
- * contents live in world files rather than in the backpack item. Forestry and Adventure backpacks keep their
- * contents in item NBT, which the inventory snapshots already carry.
+ * Record the item storage that inventory snapshots don't reach, at a fixed interval.
  *
  * <p>
- * EnderStorage is read by reflection on its manager — the same private fields from 1.7.7 (pack 2.8.4) through
- * 1.8.7 — and never via saveToTag, which resizes inventories as a side effect. Storages loaded this session come
- * from the live inventories; the rest from the manager's saved tag. Backpack files are read on the writer thread
- * from disk, so they are as of the mod's last save of each backpack.
+ * EnderStorage chests and pouches share one inventory per frequency, so a pouch on the Moon empties into a chest at
+ * base. The Backpack mod saves a backpack's contents in world files, not in the backpack item. The contents of
+ * Forestry and Adventure backpacks are in item NBT, so the inventory snapshots already have those contents.
+ *
+ * <p>
+ * EnderStorage is read by reflection on its manager. The private fields are the same from EnderStorage 1.7.7
+ * (pack 2.8.4) through 1.8.7. The census never calls {@code saveToTag}, because {@code saveToTag} resizes
+ * inventories. Storages loaded in this session come from the live inventories, and the others come from the
+ * manager's saved tag. The writer thread reads the backpack files from disk, so each backpack is as of the
+ * Backpack mod's last save of that backpack.
  */
 public final class StorageCensus {
 
@@ -47,10 +55,11 @@ public final class StorageCensus {
 
     public StorageCensus(AuditLogger logger, int minutes) {
         this.logger = logger;
-        this.intervalTicks = minutes * 60L * 20L;
+        final long TICKS_PER_MINUTE = 60L * 20L;
+        this.intervalTicks = minutes * TICKS_PER_MINUTE;
     }
 
-    public static boolean anythingToCensus() {
+    public static boolean hasAnythingToCensus() {
         return Loader.isModLoaded("EnderStorage") || Loader.isModLoaded("Backpack");
     }
 
@@ -60,53 +69,55 @@ public final class StorageCensus {
             return;
         }
         if (++tickCounter >= intervalTicks) {
-            census("interval");
+            takeCensus("interval");
         }
     }
 
-    /** Also wired to /audit snapshot. */
-    public void census(String trigger) {
+    /** Write a {@code storage_census} snapshot file, and restart the interval. */
+    public void takeCensus(String trigger) {
         tickCounter = 0;
-        final JsonObject ref = new JsonObject();
-        ref.addProperty("trigger", trigger);
+        final JsonObject reference = new JsonObject();
+        reference.addProperty("trigger", trigger);
         JsonArray ender = null;
         if (Loader.isModLoaded("EnderStorage")) {
             try {
-                ender = enderStorage();
-                ref.addProperty("enderStorages", ender.size());
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-                ref.addProperty("enderStorageError", String.valueOf(e));
+                ender = readEnderStorage();
+                reference.addProperty("enderStorages", ender.size());
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) { // noqa: NAR142, reflection
+                                                                                         // into EnderStorage
+                reference.addProperty("enderStorageError", String.valueOf(e));
             }
         }
-        final File backpackDir = Loader.isModLoaded("Backpack")
-            && DimensionManager.getCurrentSaveRootDirectory() != null
-                ? new File(DimensionManager.getCurrentSaveRootDirectory(), "backpacks/backpacks")
-                : null;
+        final Path backpackDir = Loader.isModLoaded("Backpack") ? resolveBackpackDir() : null;
         final JsonArray enderFinal = ender;
         logger.logSnapshot(
-            "storage_census",
-            String.format(
-                "storage-%d.json.gz",
-                logger.clock()
-                    .get()),
-            () -> {
-                final JsonObject file = new JsonObject();
-                if (enderFinal != null) {
-                    file.add("enderStorage", enderFinal);
-                }
-                if (backpackDir != null) {
-                    file.add("backpacks", backpacks(backpackDir));
-                }
-                return file;
-            },
-            ref);
+            new AuditLogger.Snapshot(
+                "storage_census",
+                String.format(
+                    "storage-%d.json.gz",
+                    logger.clock()
+                        .get()),
+                () -> {
+                    final JsonObject file = new JsonObject();
+                    if (enderFinal != null) {
+                        file.add("enderStorage", enderFinal);
+                    }
+                    if (backpackDir != null) {
+                        file.add("backpacks", readBackpacks(backpackDir));
+                    }
+                    return file;
+                },
+                reference));
     }
 
-    /** Item storages only, keyed "freq|owner|item"; liquid tanks are skipped. Runs on the server thread. */
-    private static JsonArray enderStorage() throws ReflectiveOperationException {
+    /**
+     * Return each non-empty item storage, sorted by its {@code freq|owner|item} key. Liquid tanks are skipped.
+     * Call on the server thread.
+     */
+    private static JsonArray readEnderStorage() throws ReflectiveOperationException {
         final Class<?> managerClass = Class.forName("codechicken.enderstorage.api.EnderStorageManager");
-        final Method instance = managerClass.getMethod("instance", boolean.class);
-        final Object manager = instance.invoke(null, false);
+        final Method instanceMethod = managerClass.getMethod("instance", boolean.class);
+        final Object manager = instanceMethod.invoke(null, false);
         final Field mapField = managerClass.getDeclaredField("storageMap");
         final Field tagField = managerClass.getDeclaredField("saveTag");
         mapField.setAccessible(true);
@@ -115,44 +126,45 @@ public final class StorageCensus {
         final Map<String, JsonArray> byKey = new TreeMap<>();
         final NBTTagCompound saved = (NBTTagCompound) tagField.get(manager);
         if (saved != null) {
-            for (Object k : saved.func_150296_c()) {
-                final String key = (String) k;
+            for (Object rawKey : saved.func_150296_c()) {
+                final String key = (String) rawKey;
                 if (key.endsWith("|item")) {
-                    byKey.put(key, fromSavedTag(saved.getCompoundTag(key)));
+                    byKey.put(key, decodeSavedStorage(saved.getCompoundTag(key)));
                 }
             }
         }
         final Map<?, ?> live = (Map<?, ?>) mapField.get(manager);
-        final Map<Object, Object> copy;
+        final Map<Object, Object> liveCopy;
         synchronized (live) {
-            copy = new HashMap<>(live);
+            liveCopy = new HashMap<>(live);
         }
-        for (Map.Entry<Object, Object> e : copy.entrySet()) {
-            final String key = String.valueOf(e.getKey());
-            if (key.endsWith("|item") && e.getValue() instanceof IInventory inv) {
-                byKey.put(key, StackJson.inventory(inv));
+        for (Map.Entry<Object, Object> entry : liveCopy.entrySet()) {
+            final String key = String.valueOf(entry.getKey());
+            if (key.endsWith("|item") && entry.getValue() instanceof IInventory inventory) {
+                byKey.put(key, StackJson.inventory(inventory));
             }
         }
 
         final JsonArray out = new JsonArray();
-        for (Map.Entry<String, JsonArray> e : byKey.entrySet()) {
-            if (e.getValue()
+        for (Map.Entry<String, JsonArray> entry : byKey.entrySet()) {
+            if (entry.getValue()
                 .size() == 0) {
                 continue;
             }
-            final String[] parts = e.getKey()
+            final String[] parts = entry.getKey()
                 .split("\\|", 3);
-            final JsonObject o = new JsonObject();
-            o.addProperty("freq", parts.length > 0 ? parts[0] : "?");
-            o.addProperty("owner", parts.length > 1 ? parts[1] : "?");
-            o.add("items", e.getValue());
-            out.add(o);
+            final JsonObject storage = new JsonObject();
+            storage.addProperty("freq", parts.length > 0 ? parts[0] : "?");
+            storage.addProperty("owner", parts.length > 1 ? parts[1] : "?");
+            storage.add("items", entry.getValue());
+            out.add(storage);
         }
         return out;
     }
 
-    private static JsonArray fromSavedTag(NBTTagCompound storage) {
-        final NBTTagList items = storage.getTagList("Items", 10);
+    private static JsonArray decodeSavedStorage(NBTTagCompound storage) {
+        final int TAG_COMPOUND = 10;
+        final NBTTagList items = storage.getTagList("Items", TAG_COMPOUND);
         final List<ItemStack> stacks = new ArrayList<>();
         for (int i = 0; i < items.tagCount(); i++) {
             final NBTTagCompound tag = items.getCompoundTagAt(i);
@@ -165,31 +177,52 @@ public final class StorageCensus {
         return StackJson.list(stacks);
     }
 
-    /** Raw file NBT per backpack; its layout is the Backpack mod's, decoded by the reader. Writer thread. */
-    private static JsonArray backpacks(File dir) {
+    private static Path resolveBackpackDir() {
+        final File saveRoot = DimensionManager.getCurrentSaveRootDirectory();
+        return saveRoot == null ? null
+            : saveRoot.toPath()
+                .resolve("backpacks/backpacks");
+    }
+
+    /** Return each backpack file's raw NBT. The layout is the Backpack mod's. Call on the writer thread. */
+    private static JsonArray readBackpacks(Path backpackDir) {
+        final String BACKPACK_SUFFIX = ".dat";
         final JsonArray out = new JsonArray();
-        final File[] files = dir.listFiles((d, name) -> name.endsWith(".dat"));
-        if (files == null) {
+        final List<Path> files = new ArrayList<>();
+        try (DirectoryStream<Path> listing = Files.newDirectoryStream(
+            backpackDir,
+            path -> path.getFileName()
+                .toString()
+                .endsWith(BACKPACK_SUFFIX))) {
+            for (Path file : listing) {
+                files.add(file);
+            }
+        } catch (IOException | DirectoryIteratorException e) {
             return out;
         }
-        java.util.Arrays.sort(files);
-        for (File f : files) {
-            final JsonObject o = new JsonObject();
-            o.addProperty(
-                "uuid",
-                f.getName()
-                    .substring(
-                        0,
-                        f.getName()
-                            .length() - 4));
-            o.addProperty("lastModified", f.lastModified());
-            try (InputStream in = new FileInputStream(f)) {
-                o.addProperty("nbtB64", JsonUtil.nbtToB64(CompressedStreamTools.readCompressed(in)));
-            } catch (java.io.IOException | RuntimeException e) {
-                o.addProperty("error", String.valueOf(e));
+        Collections.sort(files);
+        for (Path file : files) {
+            final String fileName = file.getFileName()
+                .toString();
+            final JsonObject backpack = new JsonObject();
+            backpack.addProperty("uuid", fileName.substring(0, fileName.length() - BACKPACK_SUFFIX.length()));
+            backpack.addProperty("lastModified", readLastModifiedMillis(file));
+            try (InputStream in = Files.newInputStream(file)) {
+                backpack.addProperty("nbtB64", JsonUtil.nbtToB64(CompressedStreamTools.readCompressed(in)));
+            } catch (IOException | RuntimeException e) { // noqa: NAR142, NBT read of Backpack mod files
+                backpack.addProperty("error", String.valueOf(e));
             }
-            out.add(o);
+            out.add(backpack);
         }
         return out;
+    }
+
+    private static long readLastModifiedMillis(Path file) {
+        try {
+            return Files.getLastModifiedTime(file)
+                .toMillis();
+        } catch (IOException e) {
+            return 0L;
+        }
     }
 }

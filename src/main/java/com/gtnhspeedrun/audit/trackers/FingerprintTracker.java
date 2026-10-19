@@ -1,9 +1,12 @@
 package com.gtnhspeedrun.audit.trackers;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.DirectoryIteratorException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -19,127 +22,163 @@ import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
 
 /**
- * The session fingerprint: every mod jar's SHA-256 plus aggregate hashes of config/ and scripts/. A modified
- * GT jar, an edited recipe script or a tampered questbook (BQ's DefaultQuests lives under config/) changes a
- * hash that verifiers diff across sessions and against the known pack release.
+ * Log the session fingerprint: the SHA-256 of every mod jar, and aggregate hashes of config/ and scripts/.
  *
  * <p>
- * Hashing ~300 jars plus a config tree is multi-GB of IO — it runs on a background thread and lands as a
- * fingerprint line a few seconds into the session. Every file is hashed by content on every boot: there is no
- * (size, mtime) cache, because an edit that keeps the size and resets the mtime would reuse the old hash.
+ * A modified GT jar, an edited recipe script or a changed questbook changes a hash. BQ's DefaultQuests is under
+ * config/. Verifiers diff the hashes across sessions and against the known pack release.
+ *
+ * <p>
+ * The pack has about 300 jars, so hashing reads several GB. A background thread hashes the files, and the fingerprint
+ * line comes a few seconds into the session. With a (size, mtime) cache, a file edited to the same size, with its mtime
+ * restored, would get the stale hash. Every file is therefore hashed by content on every boot.
  */
 public final class FingerprintTracker {
 
     private final AuditLogger logger;
-    private final List<String[]> mods = new ArrayList<>(); // {id, version, sourcePath}
-    private final File configDir;
-    private final File scriptsDir;
+    private final List<ModEntry> mods = new ArrayList<>();
+    private final Path configDir;
+    private final Path scriptsDir;
 
     public FingerprintTracker(AuditLogger logger, File configDir, File scriptsDir) {
         this.logger = logger;
-        this.configDir = configDir;
-        this.scriptsDir = scriptsDir;
+        this.configDir = configDir == null ? null : configDir.toPath();
+        this.scriptsDir = scriptsDir == null ? null : scriptsDir.toPath();
     }
 
-    /** Server thread: capture the mod list, then hand the file IO to a daemon thread. */
+    /** Call on the server thread. The call reads the mod list, and a daemon thread hashes the files. */
     public void start() {
         for (ModContainer mod : Loader.instance()
             .getActiveModList()) {
             final File source = mod.getSource();
             mods.add(
-                new String[] { mod.getModId(), String.valueOf(mod.getVersion()),
-                    source == null ? "" : source.getAbsolutePath() });
+                new ModEntry(
+                    mod.getModId(),
+                    String.valueOf(mod.getVersion()),
+                    source == null ? null
+                        : source.toPath()
+                            .toAbsolutePath()));
         }
-        final Thread t = new Thread(this::run, "SpeedrunAudit-Fingerprint");
-        t.setDaemon(true);
-        t.start();
+        final Thread thread = new Thread(this::writeFingerprint, "SpeedrunAudit-Fingerprint");
+        thread.setDaemon(true);
+        // An unchecked exception or an Error ends the thread outside the IOException catch of writeFingerprint().
+        // The handler writes the same failure line.
+        thread.setUncaughtExceptionHandler((deadThread, failure) -> logFailure(failure));
+        thread.start();
     }
 
-    private void run() {
+    /**
+     * Log the {@code fingerprint} event, or a {@code fingerprint} event with only an {@code error} field when a
+     * file read fails. The thread's uncaught exception handler logs the error line for any other failure.
+     */
+    private void writeFingerprint() {
         try {
             final JsonObject data = new JsonObject();
 
-            final JsonArray modArr = new JsonArray();
-            mods.sort(Comparator.comparing(m -> m[0]));
-            for (String[] mod : mods) {
-                final JsonObject o = new JsonObject();
-                o.addProperty("id", mod[0]);
-                o.addProperty("version", mod[1]);
-                if (!mod[2].isEmpty()) {
-                    final File source = new File(mod[2]);
-                    o.addProperty("jar", source.getName());
-                    // Dev workspaces load mods from directories; only real files get content hashes.
-                    if (source.isFile()) {
-                        o.addProperty("sha256", hashFile(source));
+            final JsonArray modArray = new JsonArray();
+            mods.sort(Comparator.comparing(ModEntry::id));
+            for (ModEntry mod : mods) {
+                final JsonObject entry = new JsonObject();
+                entry.addProperty("id", mod.id());
+                entry.addProperty("version", mod.version());
+                if (mod.source() != null) {
+                    entry.addProperty(
+                        "jar",
+                        mod.source()
+                            .getFileName()
+                            .toString());
+                    // a dev workspace loads mods from directories. Only a regular file gets a content hash
+                    if (Files.isRegularFile(mod.source())) {
+                        entry.addProperty("sha256", hashFile(mod.source()));
                     }
                 }
-                modArr.add(o);
-                if ("dreamcraft".equals(mod[0])) {
-                    data.addProperty("packVersion", mod[1]);
+                modArray.add(entry);
+                if ("dreamcraft".equals(mod.id())) {
+                    data.addProperty("packVersion", mod.version());
                 }
             }
-            data.add("mods", modArr);
-            data.addProperty("configDirHash", dirHash(configDir));
-            data.addProperty("scriptsDirHash", dirHash(scriptsDir));
+            data.add("mods", modArray);
+            data.addProperty("configDirHash", hashDirectory(configDir));
+            data.addProperty("scriptsDirHash", hashDirectory(scriptsDir));
             logger.log("fingerprint", data);
-        } catch (Exception e) {
-            final JsonObject data = new JsonObject();
-            data.addProperty("error", String.valueOf(e));
-            logger.log("fingerprint", data);
+        } catch (IOException e) {
+            logFailure(e);
         }
     }
 
-    /** Aggregate over (relative path, content hash) of every file, order-independent input, sorted walk. */
-    private String dirHash(File dir) throws IOException {
-        if (dir == null || !dir.isDirectory()) {
+    private void logFailure(Throwable failure) {
+        final JsonObject data = new JsonObject();
+        data.addProperty("error", String.valueOf(failure));
+        logger.log("fingerprint", data);
+    }
+
+    /**
+     * Return the SHA-256 of one {@code relative/path:sha256} line per file, in absolute-path order, or
+     * {@code absent} when the directory doesn't exist. A directory that can't be listed adds no lines.
+     */
+    private static String hashDirectory(Path dir) throws IOException {
+        if (dir == null || !Files.isDirectory(dir)) {
             return "absent";
         }
-        final List<File> files = new ArrayList<>();
-        collect(dir, files);
-        files.sort(Comparator.comparing(File::getAbsolutePath));
-        final StringBuilder sb = new StringBuilder(files.size() * 80);
-        final int prefix = dir.getAbsolutePath()
+        final List<Path> files = new ArrayList<>();
+        collectFiles(dir, files);
+        files.sort(
+            Comparator.comparing(
+                file -> file.toAbsolutePath()
+                    .toString()));
+        final int AVERAGE_LINE_CHARS = 80;
+        final StringBuilder lines = new StringBuilder(files.size() * AVERAGE_LINE_CHARS);
+        final int prefix = dir.toAbsolutePath()
+            .toString()
             .length() + 1;
-        for (File f : files) {
-            sb.append(
-                f.getAbsolutePath()
+        for (Path file : files) {
+            lines.append(
+                file.toAbsolutePath()
+                    .toString()
                     .substring(prefix))
                 .append(':')
-                .append(hashFile(f))
+                .append(hashFile(file))
                 .append('\n');
         }
-        return JsonUtil.sha256Hex(sb.toString());
+        return JsonUtil.sha256Hex(lines.toString());
     }
 
-    private static void collect(File dir, List<File> into) {
-        final File[] children = dir.listFiles();
-        if (children == null) {
+    private static void collectFiles(Path dir, List<Path> into) {
+        final List<Path> children = new ArrayList<>();
+        try (DirectoryStream<Path> listing = Files.newDirectoryStream(dir)) {
+            for (Path child : listing) {
+                children.add(child);
+            }
+        } catch (IOException | DirectoryIteratorException e) {
             return;
         }
-        for (File child : children) {
-            if (child.isDirectory()) {
-                collect(child, into);
+        for (Path child : children) {
+            if (Files.isDirectory(child)) {
+                collectFiles(child, into);
             } else {
                 into.add(child);
             }
         }
     }
 
-    private static String hashFile(File file) throws IOException {
+    private static String hashFile(Path file) throws IOException {
         final MessageDigest digest;
         try {
             digest = MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
-        // Streamed, so a large jar is never held in memory whole.
-        final byte[] buffer = new byte[64 * 1024];
-        try (InputStream in = new FileInputStream(file)) {
-            int n;
-            while ((n = in.read(buffer)) > 0) {
-                digest.update(buffer, 0, n);
+        final int BUFFER_BYTES = 64 * 1024;
+        final byte[] buffer = new byte[BUFFER_BYTES];
+        try (InputStream in = Files.newInputStream(file)) {
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                digest.update(buffer, 0, read);
             }
         }
         return JsonUtil.toHex(digest.digest());
     }
+
+    // source is null for a mod with no source file
+    private record ModEntry(String id, String version, Path source) {}
 }

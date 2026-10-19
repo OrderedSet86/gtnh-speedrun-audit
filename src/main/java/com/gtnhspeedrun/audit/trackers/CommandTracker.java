@@ -12,18 +12,24 @@ import net.minecraftforge.event.CommandEvent;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.core.AuditLogger;
+import com.gtnhspeedrun.audit.core.JsonUtil;
 
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /**
- * Logs every command DISPATCH — player, console, RCON and command block all funnel through CommandEvent in
- * 1.7.10. Dispatch, not success: permission rejections thrown inside processCommand (ServerUtilities ranks)
- * still show up here uncanceled, which VERIFIERS.md documents.
+ * Log every command dispatch. In 1.7.10, {@code CommandHandler.executeCommand()} posts {@code CommandEvent} for player,
+ * console, RCON and command block commands. No event is posted for an unknown command or for a command that fails the
+ * vanilla permission check, so neither is logged.
  *
  * <p>
- * LOWEST + receiveCanceled so the recorded canceled flag is the final word after every other handler had its
- * say. May fire on the RCON thread — nothing here may touch world state beyond reading sender fields.
+ * A command is logged at dispatch, so a logged command can still fail. A permission rejection thrown inside
+ * {@code processCommand}, such as a ServerUtilities rank check, is logged with {@code canceled} false. VERIFIERS.md
+ * documents this case. The handler has priority LOWEST and receives canceled events, so the logged {@code canceled}
+ * flag is the value after every other handler.
+ *
+ * <p>
+ * The event can fire on the RCON thread. NEVER touch world state here beyond reading the sender's fields.
  */
 public final class CommandTracker {
 
@@ -36,7 +42,7 @@ public final class CommandTracker {
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
     public void onCommand(CommandEvent event) {
         final ICommandSender sender = event.sender;
-        // ClientCommandHandler fires this same event on the client thread for client-side commands in SP.
+        // in singleplayer, ClientCommandHandler fires CommandEvent on the client thread for client-side commands
         final World world = sender == null ? null : sender.getEntityWorld();
         if (world != null && world.isRemote) {
             return;
@@ -45,8 +51,8 @@ public final class CommandTracker {
         final JsonObject data = new JsonObject();
         data.addProperty("cmd", event.command.getCommandName());
         final JsonArray args = new JsonArray();
-        for (String p : event.parameters) {
-            args.add(com.gtnhspeedrun.audit.core.JsonUtil.GSON.toJsonTree(p));
+        for (String parameter : event.parameters) {
+            args.add(JsonUtil.GSON.toJsonTree(parameter));
         }
         data.add("args", args);
         data.addProperty("canceled", event.isCanceled());
@@ -54,6 +60,7 @@ public final class CommandTracker {
         logger.log("command", data);
     }
 
+    /** Add {@code senderType}, {@code sender}, and the position fields that the sender type has. */
     private static void describeSender(JsonObject data, ICommandSender sender) {
         if (sender instanceof EntityPlayerMP player) {
             data.addProperty("senderType", "player");
@@ -64,11 +71,11 @@ public final class CommandTracker {
                     .getId()
                     .toString());
             data.addProperty("dim", player.dimension);
-            addPos(data, sender.getPlayerCoordinates());
+            addPosition(data, sender.getPlayerCoordinates());
         } else if (sender instanceof CommandBlockLogic) {
             data.addProperty("senderType", "commandblock");
             data.addProperty("sender", sender.getCommandSenderName());
-            addPos(data, sender.getPlayerCoordinates());
+            addPosition(data, sender.getPlayerCoordinates());
         } else if (sender instanceof RConConsoleSource) {
             data.addProperty("senderType", "rcon");
             data.addProperty("sender", sender.getCommandSenderName());
@@ -86,13 +93,13 @@ public final class CommandTracker {
         }
     }
 
-    private static void addPos(JsonObject data, ChunkCoordinates pos) {
-        if (pos != null) {
-            final JsonArray arr = new JsonArray();
-            arr.add(com.gtnhspeedrun.audit.core.JsonUtil.GSON.toJsonTree(pos.posX));
-            arr.add(com.gtnhspeedrun.audit.core.JsonUtil.GSON.toJsonTree(pos.posY));
-            arr.add(com.gtnhspeedrun.audit.core.JsonUtil.GSON.toJsonTree(pos.posZ));
-            data.add("pos", arr);
+    private static void addPosition(JsonObject data, ChunkCoordinates coordinates) {
+        if (coordinates != null) {
+            final JsonArray position = new JsonArray();
+            position.add(JsonUtil.GSON.toJsonTree(coordinates.posX));
+            position.add(JsonUtil.GSON.toJsonTree(coordinates.posY));
+            position.add(JsonUtil.GSON.toJsonTree(coordinates.posZ));
+            data.add("pos", position);
         }
     }
 }

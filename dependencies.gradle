@@ -35,6 +35,10 @@ dependencies {
     // worldedit@v0.0.10, this fork). Dev runtime too, like AE2, so the self-test drives a real EditSession.
     devOnlyNonPublishable('com.github.GTNewHorizons:worldedit-gtnh:0.0.10:dev')
 
+    // AE2's IAEStackType has @NotNull type annotations on fastutil's ObjectLongPair. The JDK 25 javac of
+    // jvmDowngrader fails to read the class without both jars.
+    compileOnly('org.jetbrains:annotations:26.0.2')
+    compileOnly('it.unimi.dsi:fastutil:8.5.18')
     testImplementation('org.junit.jupiter:junit-jupiter:5.10.2')
     testRuntimeOnly('org.junit.platform:junit-platform-launcher:1.10.2')
 }

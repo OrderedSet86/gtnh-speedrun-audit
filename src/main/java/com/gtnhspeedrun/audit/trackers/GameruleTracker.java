@@ -13,10 +13,13 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * Game rules change through /gamerule, the ServerUtilities config GUI and mods writing them directly, so a poll
- * is the one hook that sees all of them. The rule set is a couple of dozen strings — comparing it every tick is
- * cheaper than the events that would replace it. Values at boot are already in session_start; this logs the
- * edges in between. The /gamerule command line just before a change says who made it.
+ * Log each change of a game rule, polled every tick.
+ *
+ * <p>
+ * Game rules change through /gamerule, the ServerUtilities config GUI, and mods that write the rules directly. No
+ * event fires on all of these paths, so the tracker polls. The rule set is a couple of dozen strings, so a comparison
+ * every tick costs little. {@code session_start} has the values at boot. For a /gamerule change, the {@code command}
+ * line just before the change has the player who made the change.
  */
 public final class GameruleTracker {
 
@@ -27,7 +30,7 @@ public final class GameruleTracker {
     public GameruleTracker(AuditLogger logger, MinecraftServer server) {
         this.logger = logger;
         this.server = server;
-        this.lastSeen = read(server.worldServers[0].getGameRules());
+        this.lastSeen = readRules(server.worldServers[0].getGameRules());
     }
 
     @SubscribeEvent
@@ -35,7 +38,7 @@ public final class GameruleTracker {
         if (event.phase != TickEvent.Phase.END) {
             return;
         }
-        final Map<String, String> now = read(server.worldServers[0].getGameRules());
+        final Map<String, String> now = readRules(server.worldServers[0].getGameRules());
         if (now.equals(lastSeen)) {
             return;
         }
@@ -49,7 +52,7 @@ public final class GameruleTracker {
         lastSeen = now;
     }
 
-    static Map<String, String> read(GameRules rules) {
+    private static Map<String, String> readRules(GameRules rules) {
         final Map<String, String> out = new TreeMap<>();
         for (String rule : rules.getRules()) {
             out.put(rule, rules.getGameRuleStringValue(rule));
@@ -57,13 +60,13 @@ public final class GameruleTracker {
         return out;
     }
 
-    /** Rules whose value differs, including rules that appeared or vanished (value null on the missing side). */
-    static Map<String, String> diff(Map<String, String> before, Map<String, String> after) {
+    /** Return each rule whose value differs, mapped to its value in {@code after}, or to null when absent there. */
+    public static Map<String, String> diff(Map<String, String> before, Map<String, String> after) {
         final Map<String, String> out = new TreeMap<>();
-        for (Map.Entry<String, String> e : after.entrySet()) {
-            if (!e.getValue()
-                .equals(before.get(e.getKey()))) {
-                out.put(e.getKey(), e.getValue());
+        for (Map.Entry<String, String> entry : after.entrySet()) {
+            if (!entry.getValue()
+                .equals(before.get(entry.getKey()))) {
+                out.put(entry.getKey(), entry.getValue());
             }
         }
         for (String rule : before.keySet()) {

@@ -6,32 +6,25 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.GtMachineSites;
 
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.metatileentity.MetaTileEntity;
 
 /**
- * Machine explosions are the usual reason a backup restore follows; logging them gives verifiers the "why"
+ * Logs GT machine explosions. An explosion is the usual reason for a backup restore, so verifiers see the cause
  * next to the WORLD_ROLLBACK verdict.
  */
 @Mixin(value = MetaTileEntity.class, remap = false)
 public class MetaTileEntityMixin {
 
     @Inject(method = "doExplosion", at = @At("HEAD"), require = 1)
-    private void audit$explosion(long aExplosionPower, CallbackInfo ci) {
+    private void audit$explosion(long aExplosionPower, CallbackInfo ci) { // noqa: NAR130
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
         final IGregTechTileEntity base = self.getBaseMetaTileEntity();
-        if (base == null || base.getWorld() == null || base.getWorld().isRemote) {
+        if (!(base != null && base.getWorld() != null && !base.getWorld().isRemote)) {
             return;
         }
-        AuditSinks.gtExplosion(
-            self.getClass()
-                .getSimpleName(),
-            AuditSinks.gtLocalName(self),
-            base.getWorld().provider.dimensionId,
-            base.getXCoord(),
-            base.getYCoord(),
-            base.getZCoord(),
-            aExplosionPower);
+        AuditSinks.logGtExplosion(GtMachineSites.readSite(self, base), aExplosionPower);
     }
 }

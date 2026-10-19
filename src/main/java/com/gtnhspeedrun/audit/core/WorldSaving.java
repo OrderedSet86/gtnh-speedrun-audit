@@ -10,36 +10,39 @@ import com.google.gson.JsonPrimitive;
 import com.gtnhspeedrun.audit.compat.BackupAccess;
 
 /**
- * Whether worlds are saving. While WorldServer.levelSaving is set, autosaves and the shutdown save both skip that
- * world (ChunkProviderServer.canSave), so a stop leaves it as of its last save and the next start reads
- * WORLD_ROLLBACK. ServerUtilities sets the flag on every world for the length of each backup; /save-off sets it
- * too.
+ * Report whether worlds are saving. The MCP name WorldServer.levelSaving is inverted: while the flag is set,
+ * autosaves and the shutdown save skip that world (ChunkProviderServer.canSave()). A stop then leaves the world as of
+ * its last save, and the next start is classified as WORLD_ROLLBACK. ServerUtilities sets the flag on every world for
+ * the length of each backup. The flag is also set by /save-off.
  *
  * <p>
- * The overworld decides: the chain anchor is saved with it. Some worlds never save (Gadomancy's Outer
- * Lands, dim 173), so "any world off" would be true all session.
+ * Only the overworld counts, because the chain anchor is saved with the overworld. Some worlds never save, such as
+ * the Outer Lands of Gadomancy (dim 173), so "any world off" would be true for the whole session.
  */
-final class WorldSaving {
+public final class WorldSaving {
 
     private WorldSaving() {}
 
-    static boolean overworldOff() {
+    public static boolean isOverworldSavingOff() {
         final WorldServer overworld = DimensionManager.getWorld(0);
         return overworld != null && overworld.levelSaving;
     }
 
-    /** The saving state as log fields: savingOffDims (empty when every world saves) and backupRunning. */
-    static void describe(MinecraftServer server, JsonObject data) {
-        final JsonArray off = new JsonArray();
+    /**
+     * Add savingOffDims and backupRunning. savingOffDims is empty when every world saves, and backupRunning is absent
+     * when the backup state is unknown.
+     */
+    public static void addSavingFields(MinecraftServer server, JsonObject data) {
+        final JsonArray offDims = new JsonArray();
         for (WorldServer world : server.worldServers) {
             if (world != null && world.levelSaving) {
-                off.add(new JsonPrimitive(world.provider.dimensionId));
+                offDims.add(new JsonPrimitive(world.provider.dimensionId));
             }
         }
-        data.add("savingOffDims", off);
-        final Boolean backup = BackupAccess.running();
-        if (backup != null) {
-            data.addProperty("backupRunning", backup);
+        data.add("savingOffDims", offDims);
+        final Boolean backupRunning = BackupAccess.isBackupRunning();
+        if (backupRunning != null) {
+            data.addProperty("backupRunning", backupRunning);
         }
     }
 }

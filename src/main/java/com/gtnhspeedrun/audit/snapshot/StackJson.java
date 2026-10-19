@@ -1,68 +1,74 @@
 package com.gtnhspeedrun.audit.snapshot;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import net.minecraft.inventory.IInventory;
 import net.minecraft.item.ItemStack;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 
 /**
- * The one stack shape every record uses — snapshots, trash, NEI deletes, inventory-view clicks: {@code key}
- * ({@link ItemKey#base}), {@code count}, and for NBT-bearing stacks {@code nbtHash} (16 hex) plus the full
- * compressed {@code nbtB64}. A reader decoding one decodes all of them.
+ * Encode item stacks for snapshots, trash records, NEI deletes and inventory-view clicks, in one JSON shape.
+ *
+ * <p>
+ * A stack is {@code key} ({@link ItemKey#formatBaseKey}) and {@code count}. A stack with NBT also has {@code nbtHash},
+ * 16 hex digits of the NBT hash, and {@code nbtB64}, the Base64 of the gzipped full NBT.
  */
 public final class StackJson {
 
     private StackJson() {}
 
-    /** Null for an empty slot. */
-    public static JsonObject of(ItemStack stack) {
-        if (stack == null) {
-            return null;
-        }
-        final JsonObject o = new JsonObject();
-        o.addProperty("key", ItemKey.base(stack));
-        o.addProperty("count", stack.stackSize);
-        if (stack.hasTagCompound()) {
-            o.addProperty(
-                "nbtHash",
-                JsonUtil.canonicalNbtHash(stack.getTagCompound())
-                    .substring(0, 16));
-            o.addProperty("nbtB64", JsonUtil.nbtToB64(stack.getTagCompound()));
-        }
-        return o;
-    }
-
-    /** Non-empty slots only, each tagged with its index. */
-    public static JsonArray list(List<ItemStack> stacks) {
-        final JsonArray arr = new JsonArray();
-        for (int slot = 0; slot < stacks.size(); slot++) {
-            final JsonObject o = of(stacks.get(slot));
-            if (o == null) {
-                continue;
-            }
-            final JsonObject withSlot = new JsonObject();
-            withSlot.addProperty("slot", slot);
-            for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : o.entrySet()) {
-                withSlot.add(e.getKey(), e.getValue());
-            }
-            arr.add(withSlot);
-        }
-        return arr;
-    }
-
-    public static JsonArray inventory(IInventory inv) {
-        final List<ItemStack> list = new java.util.ArrayList<>(inv.getSizeInventory());
-        for (int i = 0; i < inv.getSizeInventory(); i++) {
-            list.add(inv.getStackInSlot(i));
+    public static JsonArray inventory(IInventory inventory) {
+        final List<ItemStack> list = new ArrayList<>(inventory.getSizeInventory());
+        for (int slot = 0; slot < inventory.getSizeInventory(); slot++) {
+            list.add(inventory.getStackInSlot(slot));
         }
         return list(list);
     }
 
-    /** Detached copy, so a later read sees the stack as it was, not as the game mutated it since. */
+    /** Return the non-empty slots only, each with a {@code slot} index. */
+    public static JsonArray list(List<ItemStack> stacks) {
+        final JsonArray encoded = new JsonArray();
+        for (int slot = 0; slot < stacks.size(); slot++) {
+            final JsonObject stack = toJson(stacks.get(slot));
+            if (stack == null) {
+                continue;
+            }
+            final JsonObject withSlot = new JsonObject();
+            withSlot.addProperty("slot", slot);
+            for (Map.Entry<String, JsonElement> property : stack.entrySet()) {
+                withSlot.add(property.getKey(), property.getValue());
+            }
+            encoded.add(withSlot);
+        }
+        return encoded;
+    }
+
+    /** Return null for an empty slot. */
+    public static JsonObject toJson(ItemStack stack) {
+        if (stack == null) {
+            return null;
+        }
+        final JsonObject encoded = new JsonObject();
+        encoded.addProperty("key", ItemKey.formatBaseKey(stack));
+        encoded.addProperty("count", stack.stackSize);
+        if (stack.hasTagCompound()) {
+            final int HASH_HEX_DIGITS = 16;
+            encoded.addProperty(
+                "nbtHash",
+                JsonUtil.canonicalNbtHash(stack.getTagCompound())
+                    .substring(0, HASH_HEX_DIGITS));
+            encoded.addProperty("nbtB64", JsonUtil.nbtToB64(stack.getTagCompound()));
+        }
+        return encoded;
+    }
+
+    /** Return a copy for a later diff. The game changes a slot's stack in place. */
     public static ItemStack copy(ItemStack stack) {
         return stack == null ? null : stack.copy();
     }

@@ -1,118 +1,93 @@
 package com.gtnhspeedrun.audit.export;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.text.SimpleDateFormat;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.TimeZone;
+import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import com.gtnhspeedrun.audit.core.AuditDirs;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.Verifier;
 
 /**
- * The one-file submission bundle: every session log, every snapshot, a fresh full-chain verify report, the
- * anchor's view of the world, and a generated SUMMARY.txt — the artifact a speedrun.com verifier reads first,
- * drilling into the JSONL only on suspicion. Built entirely from files + primitives on a background thread.
+ * Build the one-file submission bundle: every session log, every snapshot, a new verify report of the whole chain,
+ * the anchor values, and a generated SUMMARY.txt. A speedrun.com verifier reads SUMMARY.txt first and opens the JSONL
+ * only on suspicion. The export reads files and primitives only, so {@link #writeZip()} can run on a background
+ * thread.
  */
 public final class AuditExport {
 
-    private final File auditDir;
-    private final File logDir;
-    private final File snapshotDir;
-    private final String worldAuditUuid;
-    private final long anchorSeq;
-    private final long anchorTicks;
-    private final long anchorOnlineTicks;
-    private final long timingStartWallMs;
+    private final AuditDirs dirs;
+    private final AnchorView anchor;
 
-    public AuditExport(File auditDir, File logDir, File snapshotDir, String worldAuditUuid, long anchorSeq,
-        long anchorTicks, long anchorOnlineTicks, long timingStartWallMs) {
-        this.auditDir = auditDir;
-        this.logDir = logDir;
-        this.snapshotDir = snapshotDir;
-        this.worldAuditUuid = worldAuditUuid;
-        this.anchorSeq = anchorSeq;
-        this.anchorTicks = anchorTicks;
-        this.anchorOnlineTicks = anchorOnlineTicks;
-        this.timingStartWallMs = timingStartWallMs;
+    public AuditExport(AuditDirs dirs, AnchorView anchor) {
+        this.dirs = dirs;
+        this.anchor = anchor;
     }
 
-    /** @return the created zip */
-    public File run() throws IOException {
-        final File exportDir = new File(auditDir, "export");
-        exportDir.mkdirs();
-        final SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HHmmss");
-        final File zipFile = new File(exportDir, "audit-export-" + fmt.format(new Date()) + ".zip");
+    /** Write the bundle to a new zip in the export directory, and return the path of the zip. */
+    public Path writeZip() throws IOException {
+        Files.createDirectories(dirs.export());
+        final DateTimeFormatter fileTime = DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmmss");
+        final Path zipFile = dirs.export()
+            .resolve("audit-export-" + fileTime.format(LocalDateTime.now()) + ".zip");
 
-        final Verifier.Result verify = Verifier.verify(logDir, worldAuditUuid, -1);
+        final Verifier.Result verify = Verifier.verify(dirs.log(), anchor.worldAuditUuid(), -1);
         final List<JsonObject> lines = readAllLines();
 
-        try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(zipFile))) {
-            put(zip, "SUMMARY.txt", summary(lines, verify).getBytes(StandardCharsets.UTF_8));
-            put(zip, "verify-report.json", verifyJson(verify).getBytes(StandardCharsets.UTF_8));
-            put(zip, "anchor.json", anchorJson().getBytes(StandardCharsets.UTF_8));
-            addDir(zip, logDir, "log/");
-            addDir(zip, snapshotDir, "snapshots/");
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(zipFile))) {
+            putEntry(zip, "SUMMARY.txt", formatSummary(lines, verify).getBytes(StandardCharsets.UTF_8));
+            putEntry(zip, "verify-report.json", formatVerifyJson(verify).getBytes(StandardCharsets.UTF_8));
+            putEntry(zip, "anchor.json", formatAnchorJson().getBytes(StandardCharsets.UTF_8));
+            putDirectory(zip, dirs.log(), "log/");
+            putDirectory(zip, dirs.snapshots(), "snapshots/");
         }
         return zipFile;
     }
 
     // ------------------------------------------------------------------ pieces
 
-    private String anchorJson() {
-        final JsonObject o = new JsonObject();
-        o.addProperty("worldAuditUuid", worldAuditUuid);
-        o.addProperty("anchorSeq", anchorSeq);
-        o.addProperty("anchorTicks", anchorTicks);
-        o.addProperty("anchorOnlineTicks", anchorOnlineTicks);
-        o.addProperty("timingStartWallMs", timingStartWallMs);
-        o.addProperty("exportedAtWallMs", System.currentTimeMillis());
-        return JsonUtil.GSON.toJson(o);
-    }
-
-    private static String verifyJson(Verifier.Result verify) {
-        final JsonObject o = new JsonObject();
-        o.addProperty("verdict", verify.verdict);
-        o.addProperty("lines", verify.lines);
-        o.addProperty("firstSeq", verify.firstSeq);
-        o.addProperty("lastSeq", verify.lastSeq);
-        o.addProperty("lastHash", verify.lastHash);
-        final com.google.gson.JsonArray problems = new com.google.gson.JsonArray();
-        for (String p : verify.problems) {
-            problems.add(JsonUtil.GSON.toJsonTree(p));
-        }
-        o.add("problems", problems);
-        return JsonUtil.GSON.toJson(o);
-    }
-
+    /**
+     * Parse every line of every JSONL file in the log directory, sorted by seq. A line that does not parse is skipped.
+     */
     private List<JsonObject> readAllLines() throws IOException {
         final List<JsonObject> lines = new ArrayList<>();
-        final File[] files = logDir.listFiles((d, n) -> n.endsWith(".jsonl"));
-        if (files != null) {
-            for (File f : files) {
-                for (String line : Files.readAllLines(f.toPath(), StandardCharsets.UTF_8)) {
-                    if (line.isEmpty()) {
-                        continue;
-                    }
-                    try {
-                        lines.add(
-                            new JsonParser().parse(line)
-                                .getAsJsonObject());
-                    } catch (RuntimeException ignored) {
-                        // The verify report already flags corrupt lines.
-                    }
+        for (Path file : AuditDirs.listEntriesOrEmpty(dirs.log())) {
+            if (!file.getFileName()
+                .toString()
+                .endsWith(".jsonl")) {
+                continue;
+            }
+            for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                if (line.isEmpty()) {
+                    continue;
+                }
+                try {
+                    lines.add(
+                        new JsonParser().parse(line)
+                            .getAsJsonObject());
+                } catch (JsonParseException | IllegalStateException ignored) {
+                    // the corrupt lines are in the problems of verify-report.json
                 }
             }
         }
@@ -125,47 +100,74 @@ public final class AuditExport {
 
     // ------------------------------------------------------------------ summary
 
-    private String summary(List<JsonObject> lines, Verifier.Result verify) {
+    // FLAGS FOR REVIEW, in print order
+    private static final List<Flag> FLAGS = List.of(
+        new Flag("nei_cheat", "NEI cheat actions"),
+        new Flag("nbt_edit", "/nbtedit applications"),
+        new Flag("difficulty_change", "difficulty changes"),
+        new Flag("nei_packet", "NEI cheat-channel packets"),
+        new Flag("gamemode_change", "gamemode changes"),
+        new Flag("gt_explosion", "GT machine explosions"),
+        new Flag("ae2_census_failed", "AE2 census failures (missing AE2 evidence)"),
+        new Flag("multiblock_log_failed", "multiblock formations not recorded (missing evidence)"),
+        new Flag("death", "player deaths"),
+        new Flag("gamerule_change", "game rule changes"),
+        new Flag("gt_global_energy", "wireless EU commands"),
+        new Flag("quest_edit", "quest book edits"),
+        new Flag("invsee_click", "/inv view item moves"),
+        new Flag("trash_insert", "trash can inserts"),
+        new Flag("trash_can_closed", "/trash_can uses"),
+        new Flag("watched_block", "magic block place/break"),
+        new Flag("gt_powerfail", "GT power failures"),
+        new Flag("creative_block", "creative block place/break"),
+        new Flag("worldedit_edit", "WorldEdit edits"));
+
+    /**
+     * Render SUMMARY.txt: the header, SESSIONS, MILESTONES, MACHINE STATS, TRACKED PLACEMENTS, FLAGS FOR REVIEW and
+     * EVENT COUNTS. § codes are stripped from display names, because logs from older versions still contain § codes.
+     */
+    private String formatSummary(List<JsonObject> lines, Verifier.Result verify) {
         final StringBuilder sb = new StringBuilder(16 * 1024);
-        final SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'");
-        fmt.setTimeZone(TimeZone.getTimeZone("UTC"));
 
         sb.append("GTNH SPEEDRUN AUDIT — SUMMARY\n");
         sb.append("world audit uuid : ")
-            .append(worldAuditUuid)
+            .append(anchor.worldAuditUuid())
             .append('\n');
         sb.append("chain verdict    : ")
-            .append(verify.verdict);
-        if (!verify.problems.isEmpty()) {
+            .append(verify.verdict());
+        if (!verify.problems()
+            .isEmpty()) {
             sb.append("  (")
-                .append(verify.problems.size())
+                .append(
+                    verify.problems()
+                        .size())
                 .append(" problems, see verify-report.json)");
         }
         sb.append('\n');
         sb.append("events           : ")
-            .append(verify.lines)
+            .append(verify.lines())
             .append(" (seq ")
-            .append(verify.firstSeq)
+            .append(verify.firstSeq())
             .append("..")
-            .append(verify.lastSeq)
+            .append(verify.lastSeq())
             .append(")\n");
         sb.append("IGT (main)       : ")
-            .append(ticksHuman(anchorTicks))
+            .append(formatTicks(anchor.ticks()))
             .append('\n');
         sb.append("player-online    : ")
-            .append(ticksHuman(anchorOnlineTicks))
+            .append(formatTicks(anchor.onlineTicks()))
             .append('\n');
         sb.append("RTA              : ")
             .append(
-                timingStartWallMs == 0 ? "not started"
-                    : msHuman(System.currentTimeMillis() - timingStartWallMs) + " (timer started "
-                        + fmt.format(new Date(timingStartWallMs))
+                anchor.timingStartWallMs() == 0 ? "not started"
+                    : formatDuration(System.currentTimeMillis() - anchor.timingStartWallMs()) + " (timer started "
+                        + formatUtc(anchor.timingStartWallMs())
                         + ")")
             .append('\n');
         sb.append('\n');
 
         sb.append("== SESSIONS ==\n");
-        final Map<String, Integer> counts = new HashMap<>();
+        final SortedMap<String, Integer> counts = new TreeMap<>();
         long lastStartWall = -1;
         for (JsonObject line : lines) {
             final String type = line.get("t")
@@ -181,21 +183,20 @@ public final class AuditExport {
                             "#%-4d start %s  verdict=%s",
                             line.get("sidx")
                                 .getAsInt(),
-                            fmt.format(
-                                new Date(
-                                    line.get("wall")
-                                        .getAsLong())),
+                            formatUtc(
+                                line.get("wall")
+                                    .getAsLong()),
                             data.get("verifyVerdict")
                                 .getAsString()));
                     if (data.has("rollback")) {
-                        final JsonObject rb = data.getAsJsonObject("rollback");
+                        final JsonObject rollback = data.getAsJsonObject("rollback");
                         sb.append(
                             String.format(
                                 "  [%s events rewound, %s real-time gap]",
-                                rb.get("eventsRewound")
+                                rollback.get("eventsRewound")
                                     .getAsLong(),
-                                msHuman(
-                                    rb.get("wallGapMs")
+                                formatDuration(
+                                    rollback.get("wallGapMs")
                                         .getAsLong())));
                     }
                     if (data.has("previousCrashed") && data.get("previousCrashed")
@@ -210,30 +211,30 @@ public final class AuditExport {
                     sb.append(
                         String.format(
                             "      end   %s  uptime %s%s%s%n",
-                            fmt.format(new Date(endWall)),
-                            ticksHuman(
+                            formatUtc(endWall),
+                            formatTicks(
                                 data.get("uptimeTicks")
                                     .getAsLong()),
-                            lastStartWall < 0 ? "" : " / " + msHuman(endWall - lastStartWall) + " real",
-                            savingOffNote(data)));
+                            lastStartWall < 0 ? "" : " / " + formatDuration(endWall - lastStartWall) + " real",
+                            describeSavingOff(data)));
                 }
                 default -> {}
             }
         }
 
         sb.append("\n== MILESTONES ==\n");
-        // A Stargate is ~20 tracked blocks: the timeline shows the first of each, TRACKED PLACEMENTS the rest.
-        final java.util.Set<String> placedSeen = new java.util.HashSet<>();
+        // A Stargate is about 20 tracked blocks. MILESTONES has the first placement of each block, and TRACKED
+        // PLACEMENTS has the count of every placement.
+        final Set<String> placedSeen = new HashSet<>();
         for (JsonObject line : lines) {
             final String type = line.get("t")
                 .getAsString();
             final JsonObject data = line.getAsJsonObject("data");
-            final String when = fmt.format(
-                new Date(
-                    line.get("wall")
-                        .getAsLong()))
+            final String when = formatUtc(
+                line.get("wall")
+                    .getAsLong())
                 + "  "
-                + ticksHuman(
+                + formatTicks(
                     line.get("ticks")
                         .getAsLong());
             switch (type) {
@@ -246,7 +247,7 @@ public final class AuditExport {
                 case "quest_complete" -> sb.append(when)
                     .append("  QUEST      ")
                     .append(
-                        plain(
+                        JsonUtil.stripFormatting(
                             data.get("questName")
                                 .getAsString()))
                     .append('\n');
@@ -278,7 +279,7 @@ public final class AuditExport {
                 case "key_item_first_seen" -> sb.append(when)
                     .append("  KEY ITEM   ")
                     .append(
-                        plain(
+                        JsonUtil.stripFormatting(
                             data.get("displayName")
                                 .getAsString()))
                     .append(" (")
@@ -292,7 +293,7 @@ public final class AuditExport {
                             .getAsString())) {
                         sb.append(when)
                             .append("  PLACED     ")
-                            .append(placedLabel(data))
+                            .append(describePlacedBlock(data))
                             .append(" at dim ")
                             .append(
                                 data.get("dim")
@@ -320,29 +321,13 @@ public final class AuditExport {
             }
         }
 
-        machineStats(sb, lines);
-        trackedPlacements(sb, lines);
+        appendMachineStats(sb, lines);
+        appendTrackedPlacements(sb, lines);
 
         sb.append("\n== FLAGS FOR REVIEW ==\n");
-        flagCount(sb, counts, "nei_cheat", "NEI cheat actions");
-        flagCount(sb, counts, "nbt_edit", "/nbtedit applications");
-        flagCount(sb, counts, "difficulty_change", "difficulty changes");
-        flagCount(sb, counts, "nei_packet", "NEI cheat-channel packets");
-        flagCount(sb, counts, "gamemode_change", "gamemode changes");
-        flagCount(sb, counts, "gt_explosion", "GT machine explosions");
-        flagCount(sb, counts, "ae2_census_failed", "AE2 census failures (missing AE2 evidence)");
-        flagCount(sb, counts, "multiblock_log_failed", "multiblock formations not recorded (missing evidence)");
-        flagCount(sb, counts, "death", "player deaths");
-        flagCount(sb, counts, "gamerule_change", "game rule changes");
-        flagCount(sb, counts, "gt_global_energy", "wireless EU commands");
-        flagCount(sb, counts, "quest_edit", "quest book edits");
-        flagCount(sb, counts, "invsee_click", "/inv view item moves");
-        flagCount(sb, counts, "trash_insert", "trash can inserts");
-        flagCount(sb, counts, "trash_can_closed", "/trash_can uses");
-        flagCount(sb, counts, "watched_block", "magic block place/break");
-        flagCount(sb, counts, "gt_powerfail", "GT power failures");
-        flagCount(sb, counts, "creative_block", "creative block place/break");
-        flagCount(sb, counts, "worldedit_edit", "WorldEdit edits");
+        for (Flag flag : FLAGS) {
+            sb.append(String.format("%-28s %d%n", flag.label() + ":", counts.getOrDefault(flag.type(), 0)));
+        }
         sb.append(
             String.format(
                 "%-28s %d%n",
@@ -361,17 +346,16 @@ public final class AuditExport {
                 || type.equals("gamerule_change")
                 || type.equals("gt_global_energy")
                 || type.equals("quest_edit")
-                || type.equals("invsee_close") && invseeNeedsReview(line.getAsJsonObject("data"))
+                || (type.equals("invsee_close") && invseeNeedsReview(line.getAsJsonObject("data")))
                 || flaggedJoin
                 || isCofhTeleport(line)) {
-                // Bulky payloads stay in the JSONL; SUMMARY shows the line without them.
+                // the line goes into SUMMARY.txt without NBT payloads and mod lists. The JSONL has the full line
                 final JsonObject printable = withoutBulk(line.getAsJsonObject("data"));
                 sb.append("  ")
                     .append(
-                        fmt.format(
-                            new Date(
-                                line.get("wall")
-                                    .getAsLong())))
+                        formatUtc(
+                            line.get("wall")
+                                .getAsLong()))
                     .append("  ")
                     .append(type)
                     .append("  ")
@@ -381,63 +365,73 @@ public final class AuditExport {
         }
 
         sb.append("\n== EVENT COUNTS ==\n");
-        counts.entrySet()
-            .stream()
-            .sorted(Map.Entry.comparingByKey())
-            .forEach(e -> sb.append(String.format("%-24s %d%n", e.getKey(), e.getValue())));
+        counts.forEach((type, count) -> sb.append(String.format("%-24s %d%n", type, count)));
 
         sb.append("\nRead VERIFIERS.md in the mod repository for how to independently re-verify this bundle.\n");
         return sb.toString();
     }
 
-    /** A view whose target-side changes were dropped or overwritten: duplicated or lost items. */
-    static boolean invseeNeedsReview(JsonObject close) {
-        final String outcome = close.has("outcome") ? close.get("outcome")
-            .getAsString() : "";
-        return outcome.startsWith("changes") || outcome.contains("overwritten") || outcome.contains("last writer");
+    private static final DateTimeFormatter UTC_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'")
+        .withZone(ZoneOffset.UTC);
+
+    private static String formatUtc(long wallMs) {
+        return UTC_TIME.format(Instant.ofEpochMilli(wallMs));
     }
 
-    private static final java.util.Set<String> BULKY_KEYS = new java.util.HashSet<>(
-        java.util.Arrays.asList("nbtB64", "beforeB64", "mods", "payloadB64", "tileNbtB64"));
-
-    /**
-     * A copy without NBT payloads and mod lists, at any depth: NEI delete lines list whole stacks with their NBT.
-     * Copied by entry — MC's gson 2.2.4 predates a public deepCopy.
-     */
-    static JsonObject withoutBulk(JsonObject in) {
-        final JsonObject out = new JsonObject();
-        for (Map.Entry<String, com.google.gson.JsonElement> e : in.entrySet()) {
-            if (!BULKY_KEYS.contains(e.getKey())) {
-                out.add(e.getKey(), withoutBulk(e.getValue()));
-            }
-        }
-        return out;
+    private static String formatTicks(long ticks) {
+        final long TICKS_PER_SECOND = 20;
+        final long seconds = ticks / TICKS_PER_SECOND;
+        return String.format("[%dh%02dm%02ds igt]", seconds / 3600, seconds % 3600 / 60, seconds % 60);
     }
 
-    private static com.google.gson.JsonElement withoutBulk(com.google.gson.JsonElement in) {
-        if (in.isJsonObject()) {
-            return withoutBulk(in.getAsJsonObject());
+    private static String formatDuration(long ms) {
+        final long MS_PER_SECOND = 1000;
+        final long seconds = ms / MS_PER_SECOND;
+        if (seconds >= 3600) {
+            return String.format("%dh%02dm%02ds", seconds / 3600, seconds % 3600 / 60, seconds % 60);
         }
-        if (in.isJsonArray()) {
-            final com.google.gson.JsonArray out = new com.google.gson.JsonArray();
-            for (com.google.gson.JsonElement e : in.getAsJsonArray()) {
-                out.add(withoutBulk(e));
-            }
-            return out;
-        }
-        return in;
+        return String.format("%dm%02ds", seconds / 60, seconds % 60);
     }
 
     /**
-     * The fun numbers: how many machines a run actually placed. Placements count every deliberate placement
-     * (a machine moved with a wrench counts twice — it was placed twice); multiblocks count distinct formed
-     * positions across the whole run, so chunk-reload re-formations don't inflate them.
+     * Return the SESSIONS note for a stop with overworld saving off, or an empty string when overworld saving was on.
+     * With saving off, the shutdown save skipped the overworld and the anchor.
      */
-    private static void machineStats(StringBuilder sb, List<JsonObject> lines) {
+    private static String describeSavingOff(JsonObject sessionEnd) {
+        boolean overworldOff = false;
+        if (sessionEnd.has("savingOffDims")) {
+            for (JsonElement dim : sessionEnd.getAsJsonArray("savingOffDims")) {
+                overworldOff |= dim.getAsInt() == 0;
+            }
+        }
+        if (!overworldOff) {
+            return "";
+        }
+        final boolean backup = sessionEnd.has("backupRunning") && sessionEnd.get("backupRunning")
+            .getAsBoolean();
+        return "  [world saving OFF" + (backup ? ", backup running" : "") + ": not saved at stop]";
+    }
+
+    private static String describePlacedBlock(JsonObject data) {
+        return data.has("displayName") ? JsonUtil.stripFormatting(
+            data.get("displayName")
+                .getAsString())
+            : data.get("block")
+                .getAsString();
+    }
+
+    /**
+     * Append MACHINE STATS: the GT machines and pipes placed in the run, and the multiblocks formed. A placement counts
+     * every time, so a machine moved with a wrench counts twice. A multiblock counts once per class and position over
+     * the whole run, so a re-formation after a chunk reload adds nothing.
+     */
+    private static void appendMachineStats(StringBuilder sb, List<JsonObject> lines) {
+        final int META_TILE_ID = 3;
+        final int TOP_COUNT = 10;
         long machines = 0;
         long pipes = 0;
         final Map<String, Integer> byType = new HashMap<>();
-        final Map<String, java.util.Set<String>> multiSpots = new HashMap<>();
+        final Map<String, Set<String>> multiSpots = new HashMap<>();
         for (JsonObject line : lines) {
             final String type = line.get("t")
                 .getAsString();
@@ -456,14 +450,14 @@ public final class AuditExport {
                     byType.merge(name, 1, Integer::sum);
                 }
             } else if (type.equals("bulk_placed")) {
-                // a Matter Manipulator build: [x, y, z, meta tile ID] per block, names by meta tile ID
+                // a Matter Manipulator build: [x, y, z, meta tile ID] per block, and names keyed by meta tile ID
                 pipes += data.getAsJsonArray("pipes")
                     .size();
                 final JsonObject names = data.getAsJsonObject("names");
-                for (com.google.gson.JsonElement entry : data.getAsJsonArray("machines")) {
+                for (JsonElement entry : data.getAsJsonArray("machines")) {
                     machines++;
                     final String id = entry.getAsJsonArray()
-                        .get(3)
+                        .get(META_TILE_ID)
                         .getAsString();
                     final String name = names.has(id) ? names.get(id)
                         .getAsString() : "gregtech:gt.blockmachines@" + id;
@@ -473,7 +467,7 @@ public final class AuditExport {
                 multiSpots.computeIfAbsent(
                     data.get("class")
                         .getAsString(),
-                    k -> new java.util.HashSet<>())
+                    k -> new HashSet<>())
                     .add(
                         data.get("dim")
                             .getAsInt() + ":"
@@ -493,7 +487,7 @@ public final class AuditExport {
         sb.append("\n== MACHINE STATS ==\n");
         final long multiTotal = multiSpots.values()
             .stream()
-            .mapToLong(java.util.Set::size)
+            .mapToLong(Set::size)
             .sum();
         sb.append(
             String.format(
@@ -508,7 +502,7 @@ public final class AuditExport {
             .sorted(
                 Map.Entry.<String, Integer>comparingByValue()
                     .reversed())
-            .limit(10)
+            .limit(TOP_COUNT)
             .forEach(e -> sb.append(String.format("  %-40s %d%n", e.getKey(), e.getValue())));
         multiSpots.entrySet()
             .stream()
@@ -517,7 +511,7 @@ public final class AuditExport {
                     .size()
                     - a.getValue()
                         .size())
-            .limit(10)
+            .limit(TOP_COUNT)
             .forEach(
                 e -> sb.append(
                     String.format(
@@ -527,32 +521,30 @@ public final class AuditExport {
                             .size())));
     }
 
-    /** Counts per tracked block (configured trackedPlacements); each line's coordinates stay in the JSONL. */
-    private static void trackedPlacements(StringBuilder sb, List<JsonObject> lines) {
-        final Map<String, Integer> byBlock = new java.util.TreeMap<>();
+    /**
+     * Append TRACKED PLACEMENTS, the count per block of the trackedPlacements setting. The coordinates of each
+     * placement are in the JSONL only.
+     */
+    private static void appendTrackedPlacements(StringBuilder sb, List<JsonObject> lines) {
+        final SortedMap<String, Integer> byBlock = new TreeMap<>();
         for (JsonObject line : lines) {
             if (line.get("t")
                 .getAsString()
                 .equals("block_placed")) {
-                byBlock.merge(placedLabel(line.getAsJsonObject("data")), 1, Integer::sum);
+                byBlock.merge(describePlacedBlock(line.getAsJsonObject("data")), 1, Integer::sum);
             }
         }
         if (byBlock.isEmpty()) {
             return;
         }
         sb.append("\n== TRACKED PLACEMENTS ==\n");
-        byBlock.forEach((name, n) -> sb.append(String.format("  %-40s %d%n", name, n)));
+        byBlock.forEach((name, count) -> sb.append(String.format("  %-40s %d%n", name, count)));
     }
 
-    private static String placedLabel(JsonObject data) {
-        return data.has("displayName") ? plain(
-            data.get("displayName")
-                .getAsString())
-            : data.get("block")
-                .getAsString();
-    }
-
-    /** CoFHCore's /cofh tpx: a teleport to any player, dimension or position, so a dimension can be skipped. */
+    /**
+     * Return whether {@code line} is a /cofh tpx command. CoFHCore's /cofh tpx teleports to any player, dimension or
+     * position, so the command can skip the travel into a dimension.
+     */
     private static boolean isCofhTeleport(JsonObject line) {
         if (!"command".equals(
             line.get("t")
@@ -560,73 +552,102 @@ public final class AuditExport {
             return false;
         }
         final JsonObject data = line.getAsJsonObject("data");
-        if (!data.has("cmd") || !"cofh".equals(
+        if (!(data.has("cmd") && "cofh".equals(
             data.get("cmd")
                 .getAsString())
-            || !data.has("args")) {
+            && data.has("args"))) {
             return false;
         }
-        final com.google.gson.JsonArray args = data.getAsJsonArray("args");
+        final JsonArray args = data.getAsJsonArray("args");
         return args.size() > 0 && "tpx".equalsIgnoreCase(
             args.get(0)
                 .getAsString());
     }
 
-    private static void flagCount(StringBuilder sb, Map<String, Integer> counts, String key, String label) {
-        sb.append(String.format("%-28s %d%n", label + ":", counts.getOrDefault(key, 0)));
+    /**
+     * Return whether an /inv view dropped or overwrote changes on the target side. Such a view duplicates or loses
+     * items.
+     */
+    private static boolean invseeNeedsReview(JsonObject close) {
+        final String outcome = close.has("outcome") ? close.get("outcome")
+            .getAsString() : "";
+        return outcome.startsWith("changes") || outcome.contains("overwritten") || outcome.contains("last writer");
     }
 
-    private static String ticksHuman(long ticks) {
-        final long seconds = ticks / 20;
-        return String.format("[%dh%02dm%02ds igt]", seconds / 3600, seconds % 3600 / 60, seconds % 60);
-    }
+    private static final Set<String> BULKY_KEYS = Set.of("nbtB64", "beforeB64", "mods", "payloadB64", "tileNbtB64");
 
-    /** Session ledger note for a stop with overworld saving off: the shutdown save skipped it and the anchor. */
-    private static String savingOffNote(JsonObject sessionEnd) {
-        boolean overworldOff = false;
-        if (sessionEnd.has("savingOffDims")) {
-            for (com.google.gson.JsonElement dim : sessionEnd.getAsJsonArray("savingOffDims")) {
-                overworldOff |= dim.getAsInt() == 0;
+    /**
+     * Copy {@code in} without NBT payloads and mod lists, at any depth. An NEI delete line has whole stacks with their
+     * NBT. The copy goes entry by entry, because the Gson 2.2.4 of Minecraft has no public deepCopy().
+     */
+    private static JsonObject withoutBulk(JsonObject in) {
+        final JsonObject out = new JsonObject();
+        for (Map.Entry<String, JsonElement> e : in.entrySet()) {
+            if (!BULKY_KEYS.contains(e.getKey())) {
+                out.add(e.getKey(), withoutBulk(e.getValue()));
             }
         }
-        if (!overworldOff) {
-            return "";
-        }
-        final boolean backup = sessionEnd.has("backupRunning") && sessionEnd.get("backupRunning")
-            .getAsBoolean();
-        return "  [world saving OFF" + (backup ? ", backup running" : "") + ": not saved at stop]";
+        return out;
     }
 
-    private static String msHuman(long ms) {
-        final long seconds = ms / 1000;
-        if (seconds >= 3600) {
-            return String.format("%dh%02dm%02ds", seconds / 3600, seconds % 3600 / 60, seconds % 60);
+    private static JsonElement withoutBulk(JsonElement in) {
+        if (in.isJsonObject()) {
+            return withoutBulk(in.getAsJsonObject());
         }
-        return String.format("%dm%02ds", seconds / 60, seconds % 60);
+        if (in.isJsonArray()) {
+            final JsonArray out = new JsonArray();
+            for (JsonElement e : in.getAsJsonArray()) {
+                out.add(withoutBulk(e));
+            }
+            return out;
+        }
+        return in;
     }
 
-    /** Old logs may carry §-codes; render-time stripping keeps SUMMARY clean regardless of log vintage. */
-    private static String plain(String s) {
-        return s == null ? null : s.replaceAll("§.", "");
+    private static String formatVerifyJson(Verifier.Result verify) {
+        final JsonObject o = new JsonObject();
+        o.addProperty("verdict", verify.verdict());
+        o.addProperty("lines", verify.lines());
+        o.addProperty("firstSeq", verify.firstSeq());
+        o.addProperty("lastSeq", verify.lastSeq());
+        o.addProperty("lastHash", verify.lastHash());
+        final JsonArray problems = new JsonArray();
+        for (String problem : verify.problems()) {
+            problems.add(JsonUtil.GSON.toJsonTree(problem));
+        }
+        o.add("problems", problems);
+        return JsonUtil.GSON.toJson(o);
+    }
+
+    private String formatAnchorJson() {
+        final JsonObject o = new JsonObject();
+        o.addProperty("worldAuditUuid", anchor.worldAuditUuid());
+        o.addProperty("anchorSeq", anchor.seq());
+        o.addProperty("anchorTicks", anchor.ticks());
+        o.addProperty("anchorOnlineTicks", anchor.onlineTicks());
+        o.addProperty("timingStartWallMs", anchor.timingStartWallMs());
+        o.addProperty("exportedAtWallMs", System.currentTimeMillis());
+        return JsonUtil.GSON.toJson(o);
     }
 
     // ------------------------------------------------------------------ zip plumbing
 
-    private static void put(ZipOutputStream zip, String name, byte[] bytes) throws IOException {
+    private static void putEntry(ZipOutputStream zip, String name, byte[] bytes) throws IOException {
         zip.putNextEntry(new ZipEntry(name));
         zip.write(bytes);
         zip.closeEntry();
     }
 
-    private static void addDir(ZipOutputStream zip, File dir, String prefix) throws IOException {
-        final File[] files = dir.listFiles();
-        if (files == null) {
-            return;
-        }
-        for (File f : files) {
-            if (f.isFile()) {
-                put(zip, prefix + f.getName(), Files.readAllBytes(f.toPath()));
+    private static void putDirectory(ZipOutputStream zip, Path dir, String prefix) throws IOException {
+        for (Path entry : AuditDirs.listEntriesOrEmpty(dir)) {
+            if (Files.isRegularFile(entry)) {
+                putEntry(zip, prefix + entry.getFileName(), Files.readAllBytes(entry));
             }
         }
     }
+
+    /** The run state at export time, written to anchor.json. */
+    public record AnchorView(String worldAuditUuid, long seq, long ticks, long onlineTicks, long timingStartWallMs) {}
+
+    private record Flag(String type, String label) {}
 }

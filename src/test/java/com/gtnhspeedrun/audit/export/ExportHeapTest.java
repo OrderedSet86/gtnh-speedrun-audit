@@ -1,5 +1,6 @@
 package com.gtnhspeedrun.audit.export;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -12,16 +13,15 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 /**
- * {@code AuditExport.readAllLines} holds the entire run — every JSONL line of every session — as parsed
- * JsonObjects in one list so it can sort by seq. Gson's object model is far larger than the bytes it came
- * from, and a GTNH run logs a line per machine placed, so the question is whether a 500-hour run can still
- * be exported on a server that is already near its heap ceiling. Exporting is the last thing a runner does;
- * OOMing there would lose the submission at the worst possible moment.
+ * Measure the heap that {@code AuditExport.readAllLines} needs. That method parses every JSONL line of every session
+ * into one list of JsonObjects, to sort the lines by seq. The Gson object model is much larger than the source bytes,
+ * and a GTNH run logs a line per machine placed. The printed numbers show whether a 500-hour run can be exported on a
+ * server near its heap ceiling. The export is the last step of a run, and the submission is lost on an
+ * OutOfMemoryError there.
  *
  * <p>
- * This measures the real expansion factor on representative lines rather than guessing at it. It does not
- * assert a budget — heap measurement is too noisy for a build gate — it asserts only that the measurement
- * itself worked, and prints the number that the sizing decision rests on.
+ * The test asserts no budget, because heap measurement is too noisy for a build gate. The test asserts only that the
+ * measurement worked, and prints the expansion factor on representative lines.
  */
 class ExportHeapTest {
 
@@ -64,12 +64,13 @@ class ExportHeapTest {
                 perLine * lines / 1073741824.0);
         }
 
-        // Keep the list reachable past the measurement, or the JIT is free to collect it early.
-        assertTrue(parsed.size() == LINES);
+        // the list is still used here, after the measurement. Without this use, the JIT can treat the list as dead
+        // and the GC can collect the list early
+        assertEquals(LINES, parsed.size());
         assertTrue(heap > 0, "heap delta not measurable: " + heap);
     }
 
-    /** Shaped like a real machine_placed line — the type that dominates a GTNH run's log volume. */
+    /** Build a line shaped like a real machine_placed line, the type with the most lines in the log of a GTNH run. */
     private static String sampleLine(int seq) {
         return "{\"v\":1,\"seq\":" + seq
             + ",\"sid\":\"6f1c0f4e-5f1a-4a9e-9f2a-2b3c4d5e6f70\",\"sidx\":7,\"t\":\"machine_placed\","
@@ -88,7 +89,7 @@ class ExportHeapTest {
     }
 
     private static long usedHeap() {
-        final Runtime rt = Runtime.getRuntime();
+        final Runtime runtime = Runtime.getRuntime();
         for (int i = 0; i < 4; i++) {
             System.gc();
             try {
@@ -99,6 +100,6 @@ class ExportHeapTest {
                 break;
             }
         }
-        return rt.totalMemory() - rt.freeMemory();
+        return runtime.totalMemory() - runtime.freeMemory();
     }
 }

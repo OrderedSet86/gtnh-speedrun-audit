@@ -10,12 +10,14 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.MachineSite;
 
 import mods.railcraft.common.blocks.machine.TileMultiBlock;
 
 /**
- * Railcraft multiblocks (the coke oven of coke% among them) form in testIfMasterBlock: the tile that becomes
- * master when the pattern validates. Logged for every Railcraft multiblock; verifiers filter by class.
+ * Logs Railcraft multiblock formation. Railcraft multiblocks, the coke oven of the coke% category among them, form in
+ * testIfMasterBlock(), on the tile that becomes master once Railcraft validates the pattern. Every Railcraft multiblock
+ * is logged. Verifiers filter the lines by class.
  */
 @Mixin(value = TileMultiBlock.class, remap = false)
 public class TileMultiBlockMixin {
@@ -24,27 +26,18 @@ public class TileMultiBlockMixin {
     protected boolean isMaster;
 
     @Unique
-    private boolean audit$wasMaster;
+    private boolean audit$wasMaster; // noqa: NAR130
 
     @Inject(method = "testIfMasterBlock", at = @At("HEAD"), require = 1)
-    private void audit$before(CallbackInfo ci) {
+    private void audit$before(CallbackInfo ci) { // noqa: NAR130
         audit$wasMaster = isMaster;
     }
 
     @Inject(method = "testIfMasterBlock", at = @At("RETURN"), require = 1)
-    private void audit$after(CallbackInfo ci) {
-        if (audit$wasMaster || !isMaster) {
+    private void audit$after(CallbackInfo ci) { // noqa: NAR130
+        if (!(!audit$wasMaster && isMaster)) {
             return;
         }
-        final TileEntity self = (TileEntity) (Object) this;
-        AuditSinks.multiblockFormed(
-            "railcraft",
-            self.getClass()
-                .getSimpleName(),
-            null,
-            self.getWorldObj().provider.dimensionId,
-            self.xCoord,
-            self.yCoord,
-            self.zCoord);
+        AuditSinks.logMultiblockFormed("railcraft", MachineSite.ofTile((TileEntity) (Object) this));
     }
 }

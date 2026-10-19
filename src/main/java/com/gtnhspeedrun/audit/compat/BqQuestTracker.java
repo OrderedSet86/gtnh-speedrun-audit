@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.core.AuditLogger;
+import com.gtnhspeedrun.audit.core.JsonUtil;
 
 import betterquesting.api.events.QuestEvent;
 import betterquesting.api.properties.NativeProps;
@@ -13,12 +14,12 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /**
- * Quest completions for the milestone timeline. Only instantiated when BetterQuesting is loaded — this class
- * references BQ types directly.
+ * Log quest completions for the milestone timeline. The class references BQ types, so construct it only when
+ * BetterQuesting is loaded.
  *
  * <p>
- * BQ's passive detector posts a COMPLETED QuestEvent every 60 player-ticks even when nothing completed (empty
- * ID set), so the empty check is load-bearing, and quest timestamps are inherently ±3 s.
+ * The BQ passive detector posts a COMPLETED {@code QuestEvent} every 60 player ticks, with an empty quest ID set
+ * when no quest completed. The handler skips an empty set. A quest timestamp is accurate to ±3 s.
  */
 public final class BqQuestTracker {
 
@@ -30,28 +31,27 @@ public final class BqQuestTracker {
 
     @SubscribeEvent
     public void onQuest(QuestEvent event) {
-        if (event.getType() != QuestEvent.Type.COMPLETED || event.getQuestIDs()
+        if (!(event.getType() == QuestEvent.Type.COMPLETED && !event.getQuestIDs()
             .isEmpty()
-            || !FMLCommonHandler.instance()
+            && FMLCommonHandler.instance()
                 .getEffectiveSide()
-                .isServer()) {
+                .isServer())) {
             return;
         }
         for (UUID questId : event.getQuestIDs()) {
             final JsonObject data = new JsonObject();
             data.addProperty("playerUuid", String.valueOf(event.getPlayerID()));
             data.addProperty("questId", questId.toString());
-            data.addProperty("questName", questName(questId));
+            data.addProperty("questName", readQuestName(questId));
             logger.log("quest_complete", data);
         }
     }
 
-    private static String questName(UUID questId) {
+    private static String readQuestName(UUID questId) {
         try {
             final IQuest quest = QuestDatabase.INSTANCE.get(questId);
-            return quest == null ? "?"
-                : com.gtnhspeedrun.audit.core.JsonUtil.stripFormatting(quest.getProperty(NativeProps.NAME));
-        } catch (RuntimeException | LinkageError e) {
+            return quest == null ? "?" : JsonUtil.stripFormatting(quest.getProperty(NativeProps.NAME));
+        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over BQ database code
             return "?";
         }
     }

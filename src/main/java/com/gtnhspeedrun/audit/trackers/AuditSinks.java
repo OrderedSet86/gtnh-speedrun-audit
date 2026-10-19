@@ -1,10 +1,13 @@
 package com.gtnhspeedrun.audit.trackers;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityList;
@@ -12,130 +15,124 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatStyle;
 import net.minecraft.util.EnumChatFormatting;
+import net.minecraft.util.StatCollector;
+
+import org.jetbrains.annotations.Nullable;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.snapshot.ItemKey;
+import com.gtnhspeedrun.audit.snapshot.StackJson;
 
 /**
- * Static entry points for the late mixins. Signatures use only vanilla/JDK types — the mixin computes any
- * modded-API values before calling in, so this class loads on packs missing any (or all) of the target mods.
- * Every method is null-session-safe and safe from netty/server threads alike (the logger is thread-safe and
- * dedupe is synchronized).
+ * Log the events of the mixins, through static entry points.
+ *
+ * <p>
+ * Signatures use only vanilla, JDK and audit types. A mixin computes any modded-API values before the call, so this
+ * class loads on a pack without some or all of the target mods. Every log method returns early when no session is
+ * logging, and can run on the netty thread or the server thread. The logger is thread-safe, and the dedupe is
+ * synchronized.
  */
 public final class AuditSinks {
 
+    // static: the mixins call these sinks with no instance. The cached reflection results stay valid for the
+    // JVM's lifetime.
     private static volatile Map<Integer, String> neiPacketNames;
-    private static volatile java.lang.reflect.Method gtNameMethod;
-    private static volatile boolean gtNameUnavailable;
+    private static volatile Method gtNameMethod; // static: GT has one name getter for the JVM's lifetime
+    private static volatile boolean gtNameUnavailable; // static: set once when GT has neither name getter
+
+    /**
+     * The client handshake mod lists by connection. 1.7.10 FML logs the client's handshake mod list and then
+     * discards the list, so the handshake mixin passes the list to {@link #storeClientModList}. The
+     * {@code PlayerLoggedInEvent} handler reads the joining player's list. The keys are weak, so a dropped
+     * connection's entry is removed once the connection is garbage-collected. The netty thread writes and the server
+     * thread reads, so the map is synchronized.
+     */
+    private static final Map<Object, Map<String, String>> CLIENT_MODS = Collections
+        .synchronizedMap(new WeakHashMap<>());
 
     private AuditSinks() {}
 
     /**
-     * GT renamed MetaTileEntity.getLocalName() (≤5.09.51.x, pack 2.8.4) to getLocalNameKey() (5.09.54.x,
-     * dailies). The mixins must run on both lines, so the name is resolved reflectively — a call compiled
-     * against either one would NoSuchMethodError on the other.
+     * Return the MTE's local name key, or null when GT has no such method.
+     *
+     * <p>
+     * GT renamed {@code MetaTileEntity.getLocalName()} (5.09.51.x and earlier, pack 2.8.4) to
+     * {@code getLocalNameKey()} (5.09.54.x, dailies). The mixins run on both GT versions. A call compiled against
+     * either name would throw NoSuchMethodError on the other version, so the method is looked up by reflection.
      */
     public static String gtLocalName(Object mte) {
         if (gtNameUnavailable) {
             return null;
         }
-        java.lang.reflect.Method m = gtNameMethod;
-        if (m == null) {
+        Method method = gtNameMethod;
+        if (method == null) {
             try {
-                m = mte.getClass()
+                method = mte.getClass()
                     .getMethod("getLocalNameKey");
             } catch (NoSuchMethodException e) {
                 try {
-                    m = mte.getClass()
+                    method = mte.getClass()
                         .getMethod("getLocalName");
-                } catch (NoSuchMethodException e2) {
+                } catch (NoSuchMethodException oldNameMissing) {
                     gtNameUnavailable = true;
                     return null;
                 }
             }
-            gtNameMethod = m;
+            gtNameMethod = method;
         }
         try {
-            return String.valueOf(m.invoke(mte));
-        } catch (ReflectiveOperationException | RuntimeException e) {
+            return String.valueOf(method.invoke(mte));
+        } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, reflection into GT code
             return null;
         }
     }
 
     // ------------------------------------------------------------------ NEI
 
-    /** HEAD of NEISPH.handlePacket — before authentication, so DENIED attempts land here too. */
-    public static void neiPacket(String uuid, String name, int type) {
+    /**
+     * Call at the head of {@code NEISPH.handlePacket}. The head runs before authentication, so a denied packet is
+     * logged too.
+     */
+    public static void logNeiPacket(String uuid, String name, int type) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
             return;
         }
         final JsonObject data = new JsonObject();
         data.addProperty("packetType", type);
-        data.addProperty("packetName", neiPacketName(type));
+        data.addProperty("packetName", readNeiPacketName(type));
         data.addProperty("uuid", uuid);
         data.addProperty("name", name);
         session.logger()
             .log("nei_packet", data);
     }
 
-    /** Decoded cheat actions from NEIServerUtils — the "what exactly" companion to nei_packet. */
-    public static void neiCheat(String action, String uuid, String name, String itemKey, int count, String detail) {
-        neiCheat(action, uuid, name, itemKey, count, detail, null);
-    }
-
-    /** {@code extra}'s members are copied into the line: previous slot contents, deleted items, inserted count. */
-    public static void neiCheat(String action, String uuid, String name, String itemKey, int count, String detail,
-        JsonObject extra) {
-        final SessionManager session = GtnhSpeedrunAudit.session();
-        if (session == null) {
-            return;
-        }
-        final JsonObject data = new JsonObject();
-        data.addProperty("action", action);
-        data.addProperty("uuid", uuid);
-        data.addProperty("name", name);
-        if (itemKey != null) {
-            data.addProperty("itemKey", itemKey);
-            data.addProperty("count", count);
-        }
-        if (detail != null) {
-            data.addProperty("detail", detail);
-        }
-        if (extra != null) {
-            for (Map.Entry<String, com.google.gson.JsonElement> e : extra.entrySet()) {
-                data.add(e.getKey(), e.getValue());
-            }
-        }
-        session.logger()
-            .log("nei_cheat", data);
-    }
-
     /**
-     * Only C2S packet types that reach the log matter; resolve names from NEI's own PacketIDs so a NEI update
-     * that renumbers them stays truthful. Reflection is once, lazily, and only ever runs when NEI is present
-     * (the caller is a NEI mixin).
+     * Return the name of a client-to-server packet type from NEI's {@code PacketIDs$C2S} constants, so the names stay
+     * right after an NEI update renumbers the packets. The reflection runs once, on the first call. The caller is an
+     * NEI mixin, so NEI is present.
      */
-    private static String neiPacketName(int type) {
+    private static String readNeiPacketName(int type) {
         Map<Integer, String> names = neiPacketNames;
         if (names == null) {
             names = new HashMap<>();
             try {
                 final Class<?> c2s = Class.forName("codechicken.nei.PacketIDs$C2S");
-                for (Field f : c2s.getFields()) {
-                    if (Modifier.isStatic(f.getModifiers()) && f.getType() == int.class) {
-                        names.put(f.getInt(null), f.getName());
+                for (Field field : c2s.getFields()) {
+                    if (Modifier.isStatic(field.getModifiers()) && field.getType() == int.class) {
+                        names.put(field.getInt(null), field.getName());
                     }
                 }
             } catch (ReflectiveOperationException | LinkageError ignored) {
-                // Names stay numeric; the type int is still logged.
+                // every name is then UNKNOWN_<type>, and the line still has the packetType int
             }
             neiPacketNames = names;
         }
@@ -145,259 +142,167 @@ public final class AuditSinks {
 
     // ------------------------------------------------------------------ FML handshake client mod list
 
-    /**
-     * 1.7.10 FML logs the client's handshake mod list and discards it; the handshake mixin parks it here,
-     * keyed by connection, until PlayerLoggedInEvent can attach it to a player. Weak keys: a dropped
-     * connection takes its entry with it. Netty-thread writes, server-thread reads — synchronized.
-     */
-    private static final Map<Object, Map<String, String>> CLIENT_MODS = java.util.Collections
-        .synchronizedMap(new java.util.WeakHashMap<>());
-
-    public static void clientModList(Object dispatcher, Map<String, String> mods) {
+    public static void storeClientModList(Object dispatcher, Map<String, String> mods) {
         if (dispatcher != null && mods != null) {
             CLIENT_MODS.put(dispatcher, new HashMap<>(mods));
         }
     }
 
-    /** Null when the connection did no FML mod handshake (integrated-server local channel, vanilla client). */
-    public static Map<String, String> takeClientMods(Object dispatcher) {
-        return dispatcher == null ? null : CLIENT_MODS.get(dispatcher);
-    }
-
-    // ------------------------------------------------------------------ ServerUtilities /nbtedit
-
     /**
-     * The applied half of /nbtedit. The command dispatch is already in the command log; this is the packet
-     * that actually writes NBT into a player/block/entity/item, logged with the full payload (or its hash
-     * alone when oversized) so verifiers can see exactly what was set — and, the same way, the target's NBT
-     * just before the write, so they can see what it replaced. beforeMissing says why there is no before
-     * state (chunk not loaded, no tile entity, ...); it is null whenever beforeHash is set.
+     * Return null when the connection had no FML mod handshake, such as an integrated-server local channel or a
+     * vanilla client.
      */
-    public static void nbtEdit(String targetType, String targetDesc, String uuid, String name, String nbtHash,
-        String nbtB64, String beforeHash, String beforeB64, String beforeMissing) {
-        final SessionManager session = GtnhSpeedrunAudit.session();
-        if (session == null) {
-            return;
-        }
-        final JsonObject data = new JsonObject();
-        data.addProperty("targetType", targetType);
-        data.addProperty("target", targetDesc);
-        data.addProperty("uuid", uuid);
-        data.addProperty("name", name);
-        data.addProperty("nbtHash", nbtHash);
-        if (nbtB64 != null) {
-            data.addProperty("nbtB64", nbtB64);
-        }
-        if (beforeHash != null) {
-            data.addProperty("beforeHash", beforeHash);
-        }
-        if (beforeB64 != null) {
-            data.addProperty("beforeB64", beforeB64);
-        }
-        if (beforeMissing != null) {
-            data.addProperty("beforeMissing", beforeMissing);
-        }
-        session.logger()
-            .log("nbt_edit", data);
+    public static Map<String, String> readClientMods(Object dispatcher) {
+        return dispatcher == null ? null : CLIENT_MODS.get(dispatcher);
     }
 
     // ------------------------------------------------------------------ multiblocks
 
-    /** A formation with no hatch information (Railcraft, the bricked blast furnace). */
-    public static void multiblockFormed(String kind, String className, String localName, int dim, int x, int y, int z) {
-        multiblockFormed(kind, className, localName, dim, x, y, z, null);
-    }
-
-    /**
-     * A multiblock "forms" again every time its chunk reloads (the MTE is recreated unformed and rechecks), so
-     * formations are deduped per (class, position, hatch tiers) per session: swapping LV energy hatches for UV
-     * ones re-logs the formation, a chunk reload does not. A server restart logs every formed multiblock again;
-     * GT multiblocks avoid that through {@link #gtMultiblockFormed}. The cross-session first-per-class milestone
-     * is deduped through the anchor and rewinds with the world.
-     */
-    public static void multiblockFormed(String kind, String className, String localName, int dim, int x, int y, int z,
-        MultiblockPower power) {
+    /** Log a formation with no hatch information, such as a Railcraft multiblock or the bricked blast furnace. */
+    public static void logMultiblockFormed(String kind, MachineSite site) {
         final SessionManager session = GtnhSpeedrunAudit.session();
-        if (session == null) {
+        if (!(session != null && session.isFirstTime("mb:" + site.formatKey()))) {
             return;
         }
-        final String key = "mb:" + className + "@" + dim + ":" + x + "," + y + "," + z;
-        if (!session.once(power == null ? key : key + power.dedupeSuffix())) {
-            return;
-        }
-        logFormation(session, kind, className, localName, dim, x, y, z, power, null);
-    }
-
-    /** A GT formation with no footprint: the self-test's sink-level formations. */
-    public static String gtMultiblockFormed(String loggedMarker, String className, String localName, int dim, int x,
-        int y, int z, MultiblockPower power) {
-        return gtMultiblockFormed(loggedMarker, className, localName, dim, x, y, z, power, null);
+        session.logger()
+            .log("multiblock_formed", describeFormation(session, kind, site));
     }
 
     /**
-     * A GT multiblock formation, deduped by a marker its controller saves in its own NBT: the formation is logged
-     * once, and again only when the hatch, coil or structure tiers change. A server restart or chunk reload loads
-     * the marker back, so the re-check logs nothing. A restored backup restores the older marker, so a formation
-     * the backup undid logs again.
+     * Log a formation once per session for each class, position and {@link MultiblockPower#dedupeSuffix}.
      *
      * <p>
-     * The footprint rides on the line but is not part of the marker, so adding it re-logs no existing formation.
+     * A multiblock forms again each time its chunk reloads, because the MTE is recreated unformed and checks its
+     * structure again. With this key, the formation is logged again after a swap of LV energy hatches for UV energy
+     * hatches, and not after a chunk reload. After a server restart, every formed multiblock is logged again.
+     * {@link #logGtMultiblockFormed} dedupes GT multiblocks across restarts. The {@code firstOfClass} flag comes from
+     * the anchor, so the flag spans sessions and rewinds with the world.
+     */
+    public static void logMultiblockFormed(String kind, MachineSite site, MultiblockPower power) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (!(session != null && session.isFirstTime("mb:" + site.formatKey() + power.dedupeSuffix()))) {
+            return;
+        }
+        final JsonObject data = describeFormation(session, kind, site);
+        power.writeTo(data);
+        session.logger()
+            .log("multiblock_formed", data);
+    }
+
+    /**
+     * Log a GT multiblock formation, deduped by a marker that the controller saves in its NBT. The formation is logged
+     * once, and again only when the hatch tiers, the amperages, or the coil or structure tiers change.
      *
-     * @param loggedMarker the controller's marker, null when it has never logged a formation
-     * @param footprint    null when unknown
+     * <p>
+     * A server restart or a chunk reload loads the marker back, so no formation is logged at the next check. A
+     * restored backup restores the earlier marker, so a formation that the backup undid is logged again. The footprint
+     * is on the line and not in the marker, so no formation is logged again for a footprint change alone.
+     *
+     * @param loggedMarker the controller's marker, null when the controller has never logged a formation
      * @return the marker to save, unchanged when nothing was logged
      */
-    public static String gtMultiblockFormed(String loggedMarker, String className, String localName, int dim, int x,
-        int y, int z, MultiblockPower power, MultiblockFootprint footprint) {
+    public static String logGtMultiblockFormed(String loggedMarker, GtFormation formation) {
         final SessionManager session = GtnhSpeedrunAudit.session();
-        final String marker = power.dedupeSuffix();
+        final String marker = formation.power()
+            .dedupeSuffix();
         if (session == null || marker.equals(loggedMarker)) {
             return loggedMarker;
         }
-        logFormation(session, "gt", className, localName, dim, x, y, z, power, footprint);
+        final JsonObject data = describeFormation(session, "gt", formation.site());
+        formation.power()
+            .writeTo(data);
+        if (formation.footprint() != null) {
+            formation.footprint()
+                .writeTo(data);
+        }
+        session.logger()
+            .log("multiblock_formed", data);
         return marker;
     }
 
     /**
-     * A formed GT multiblock whose footprint changed with no new formation logged: a wrench rotation, an LSC that
-     * grew layers, or the first check after the mod version that added footprints.
-     *
-     * @return true when a line was logged
+     * Mark the class in the anchor's {@code formedMultiblocks} set, and return the start of the
+     * {@code multiblock_formed} line.
      */
-    public static boolean gtMultiblockFootprint(String className, String localName, int dim, int x, int y, int z,
-        MultiblockFootprint footprint) {
-        final SessionManager session = GtnhSpeedrunAudit.session();
-        if (session == null) {
-            return false;
-        }
-        final JsonObject data = new JsonObject();
-        data.addProperty("class", className);
-        if (localName != null) {
-            data.addProperty("localName", localName);
-        }
-        data.addProperty("dim", dim);
-        data.addProperty("x", x);
-        data.addProperty("y", y);
-        data.addProperty("z", z);
-        footprint.writeTo(data);
-        session.logger()
-            .log("multiblock_footprint", data);
-        return true;
-    }
-
-    private static void logFormation(SessionManager session, String kind, String className, String localName, int dim,
-        int x, int y, int z, MultiblockPower power, MultiblockFootprint footprint) {
-        final boolean firstOfClass = session.anchor().formedMultiblocks.add(className);
+    private static JsonObject describeFormation(SessionManager session, String kind, MachineSite site) {
+        final boolean firstOfClass = session.anchor().formedMultiblocks.add(site.className());
         if (firstOfClass) {
             session.anchor()
                 .markDirty();
         }
         final JsonObject data = new JsonObject();
         data.addProperty("kind", kind);
-        data.addProperty("class", className);
-        if (localName != null) {
-            data.addProperty("localName", localName);
-        }
-        data.addProperty("dim", dim);
-        data.addProperty("x", x);
-        data.addProperty("y", y);
-        data.addProperty("z", z);
+        site.writeTo(data);
         data.addProperty("firstOfClass", firstOfClass);
-        if (power != null) {
-            data.addProperty("energyHatches", power.energyHatches);
-            if (power.energyTier != null) {
-                data.addProperty("energyTier", power.energyTier);
-            }
-            if (power.energyAmps > 0) {
-                data.addProperty("energyAmps", power.energyAmps);
-            }
-            data.addProperty("dynamoHatches", power.dynamoHatches);
-            if (power.dynamoTier != null) {
-                data.addProperty("dynamoTier", power.dynamoTier);
-            }
-            if (power.dynamoAmps > 0) {
-                data.addProperty("dynamoAmps", power.dynamoAmps);
-            }
-            if (!power.structure.isEmpty()) {
-                final JsonObject structure = new JsonObject();
-                for (Map.Entry<String, String> e : power.structure.entrySet()) {
-                    structure.addProperty(e.getKey(), e.getValue());
-                }
-                data.add("structure", structure);
-            }
-            if (!power.structureUnreadable.isEmpty()) {
-                final JsonArray unreadable = new JsonArray();
-                for (String c : power.structureUnreadable) {
-                    unreadable.add(new JsonPrimitive(c));
-                }
-                data.add("structureUnreadable", unreadable);
-            }
-        }
-        if (footprint != null) {
-            footprint.writeTo(data);
-        }
-        session.logger()
-            .log("multiblock_formed", data);
+        return data;
     }
 
-    /** Context for verifiers: the usual reason a backup restore follows. */
-    public static void gtExplosion(String className, String localName, int dim, int x, int y, int z, long power) {
+    /**
+     * Log the footprint of a formed GT multiblock whose footprint changed with no new formation. Examples are a wrench
+     * rotation, an LSC that grew layers, and the first check after the mod version that added footprints.
+     *
+     * @return true when a line was logged
+     */
+    public static boolean logGtMultiblockFootprint(MachineSite site, MultiblockFootprint footprint) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null) {
+            return false;
+        }
+        final JsonObject data = new JsonObject();
+        site.writeTo(data);
+        footprint.writeTo(data);
+        session.logger()
+            .log("multiblock_footprint", data);
+        return true;
+    }
+
+    /** Log a GT machine explosion. A backup restore usually follows an explosion. */
+    public static void logGtExplosion(MachineSite site, long power) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
             return;
         }
         final JsonObject data = new JsonObject();
-        data.addProperty("class", className);
-        if (localName != null) {
-            data.addProperty("localName", localName);
-        }
-        data.addProperty("dim", dim);
-        data.addProperty("x", x);
-        data.addProperty("y", y);
-        data.addProperty("z", z);
+        site.writeTo(data);
         data.addProperty("power", power);
         session.logger()
             .log("gt_explosion", data);
     }
 
-    /** A multiblock stopped for lack of power (GT's /powerfails source). */
-    public static void gtPowerfail(String className, String localName, int dim, int x, int y, int z) {
+    /** Log a multiblock that stopped for lack of power, the event that GT's /powerfails lists. */
+    public static void logGtPowerfail(MachineSite site) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
             return;
         }
         final JsonObject data = new JsonObject();
-        data.addProperty("class", className);
-        if (localName != null) {
-            data.addProperty("localName", localName);
-        }
-        data.addProperty("dim", dim);
-        data.addProperty("x", x);
-        data.addProperty("y", y);
-        data.addProperty("z", z);
+        site.writeTo(data);
         session.logger()
             .log("gt_powerfail", data);
     }
 
-    /** A Blood Altar re-read its runes and changed tier (upgradeLevel: 0 unchecked, 1 = tier I … 6). */
-    public static void bloodAltarTier(int dim, int x, int y, int z, int from, int to) {
+    /**
+     * Log a Blood Altar tier change after the altar checked its runes. In {@code upgradeLevel}, 0 is unchecked and 1
+     * to 6 are tiers I to VI. The line has the altar's position and no class name.
+     */
+    public static void logBloodAltarTier(MachineSite site, int from, int to) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
             return;
         }
         final JsonObject data = new JsonObject();
-        data.addProperty("dim", dim);
-        data.addProperty("x", x);
-        data.addProperty("y", y);
-        data.addProperty("z", z);
+        site.writePositionTo(data);
         data.addProperty("from", from);
         data.addProperty("to", to);
         session.logger()
             .log("blood_altar_tier", data);
     }
 
-    /** A player put a stack into an Extra Utilities trash can's GUI slot; it is voided immediately. */
-    public static void trashInsert(EntityPlayerMP player, net.minecraft.tileentity.TileEntity can, ItemStack stack) {
+    /**
+     * Log a stack that a player put into an Extra Utilities trash can's GUI slot. The trash can deletes the stack at
+     * once, except a node-upgrade filter in slot 0.
+     */
+    public static void logTrashInsert(EntityPlayerMP player, TileEntity can, ItemStack stack) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
             return;
@@ -417,53 +322,18 @@ public final class AuditSinks {
             data.addProperty("y", can.yCoord);
             data.addProperty("z", can.zCoord);
         }
-        data.add("stack", com.gtnhspeedrun.audit.snapshot.StackJson.of(stack));
+        data.add("stack", StackJson.toJson(stack));
         session.logger()
             .log("trash_insert", data);
     }
 
-    /** One /inv view click that changed something: the slots it changed, tagged viewer or target. */
-    public static void invseeClick(String viewId, EntityPlayer viewer, String targetName, String targetUuid,
-        boolean targetOnline, int slotId, int button, int mode, com.google.gson.JsonArray changes,
-        JsonObject cursorBefore, JsonObject cursorAfter) {
-        final SessionManager session = GtnhSpeedrunAudit.session();
-        if (session == null) {
-            return;
-        }
-        final JsonObject data = invseeBase(viewer, targetName, targetUuid);
-        data.addProperty("viewId", viewId);
-        data.addProperty("targetOnline", targetOnline);
-        data.addProperty("slotId", slotId);
-        data.addProperty("button", button);
-        data.addProperty("mode", mode);
-        data.add("changes", changes);
-        if (cursorBefore != null) {
-            data.add("cursorBefore", cursorBefore);
-        }
-        if (cursorAfter != null) {
-            data.add("cursorAfter", cursorAfter);
-        }
-        session.logger()
-            .log("invsee_click", data);
-    }
-
-    private static JsonObject invseeBase(EntityPlayer viewer, String targetName, String targetUuid) {
-        final JsonObject data = new JsonObject();
-        data.addProperty(
-            "uuid",
-            viewer.getGameProfile()
-                .getId()
-                .toString());
-        data.addProperty("name", viewer.getCommandSenderName());
-        data.addProperty("targetName", targetName);
-        data.addProperty("targetUuid", targetUuid);
-        return data;
-    }
-
     // ------------------------------------------------------------------ deaths
 
-    /** "player:Name" for a player, the registered entity name ("Zombie") otherwise, null for no entity. */
-    public static String entityName(Entity entity) {
+    /**
+     * Return {@code player:<name>} for a player, the registered entity name such as {@code Zombie} for another
+     * entity, or null for no entity.
+     */
+    public static String describeEntity(Entity entity) {
         if (entity == null) {
             return null;
         }
@@ -479,15 +349,18 @@ public final class AuditSinks {
     // ------------------------------------------------------------------ creative inventory
 
     /**
-     * One creative-inventory packet: the client setting a slot of its own inventory to a stack, or dropping
-     * one (slot < 0). Taking an item from the creative tabs and moving an item between slots both arrive as
-     * slot sets, so the slot's previous contents are logged too: a verifier nets "previous" against "item"
-     * across a player's lines to tell a spawn from a move. A packet from a player not in creative is ignored
-     * by vanilla and can only come from a modified client — logged with inCreative=false. A packet that leaves
-     * the slot as it was is not logged.
+     * Log a creative-inventory packet: a slot of the player's inventory set to a stack, or a stack dropped with a slot
+     * below 0. A packet that leaves the slot unchanged is not logged.
+     *
+     * <p>
+     * A take from the creative tabs and a move between slots both arrive as slot sets, so the line has the slot's
+     * previous contents too. A verifier nets {@code previousKey} against {@code itemKey} across a player's lines to
+     * tell a spawn from a move. Vanilla ignores the packet from a player not in creative, and only a modified client
+     * sends the packet outside creative. Such a packet is logged with {@code inCreative} false.
      */
-    public static void creativeSlot(EntityPlayerMP player, int slot, ItemStack stack, ItemStack previous,
-        boolean inCreative) {
+    public static void logCreativeSlot(EntityPlayerMP player, SlotChange change, boolean inCreative) {
+        final ItemStack stack = change.stack();
+        final ItemStack previous = change.previous();
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null || ItemStack.areItemStacksEqual(stack, previous)) {
             return;
@@ -499,13 +372,13 @@ public final class AuditSinks {
                 .getId()
                 .toString());
         data.addProperty("name", player.getCommandSenderName());
-        data.addProperty("slot", slot);
+        data.addProperty("slot", change.slot());
         if (stack != null && stack.getItem() != null) {
-            data.addProperty("itemKey", ItemKey.base(stack));
+            data.addProperty("itemKey", ItemKey.formatBaseKey(stack));
             data.addProperty("count", stack.stackSize);
         }
         if (previous != null && previous.getItem() != null) {
-            data.addProperty("previousKey", ItemKey.base(previous));
+            data.addProperty("previousKey", ItemKey.formatBaseKey(previous));
             data.addProperty("previousCount", previous.stackSize);
         }
         data.addProperty("inCreative", inCreative);
@@ -516,82 +389,83 @@ public final class AuditSinks {
 
     // ------------------------------------------------------------------ multiblock log failures
 
+    // The server resolves the chat text, because a client may have no lang file for this server-only mod. Such a
+    // client shows a translation component as its raw key. The Forge 1614 dedicated server loads
+    // assets/gtnhspeedrunaudit/lang/en_US.lang into StringTranslate.
+
     /**
-     * A multiblock formation or footprint change this mod failed to log. A missing multiblock_formed line otherwise
-     * reads as a multiblock that never formed, so the gap goes in the ledger once per controller per session and in
-     * red chat to every player once per controller class per session.
+     * Report a multiblock formation or footprint change that this mod failed to log. A missing
+     * {@code multiblock_formed} line reads as a multiblock that never formed. The failure is therefore logged once per
+     * controller per session, and sent in red chat to every player once per controller class per session. The line has
+     * no local name.
      *
      * @param what "formation" or "footprint"
      */
-    public static void multiblockLogFailed(String what, String className, int dim, int x, int y, int z,
-        Throwable error) {
+    public static void logMultiblockLogFailed(String what, MachineSite site, Throwable error) {
         final SessionManager session = GtnhSpeedrunAudit.session();
-        if (session == null || !session.once("mbfail:" + className + "@" + dim + ":" + x + "," + y + "," + z)) {
+        if (session == null || !session.isFirstTime("mbfail:" + site.formatKey())) {
             return;
         }
         final JsonObject data = new JsonObject();
         data.addProperty("what", what);
-        data.addProperty("class", className);
-        data.addProperty("dim", dim);
-        data.addProperty("x", x);
-        data.addProperty("y", y);
-        data.addProperty("z", z);
+        data.addProperty("class", site.className());
+        site.writePositionTo(data);
         data.addProperty("error", String.valueOf(error));
         session.logger()
             .log("multiblock_log_failed", data);
         final MinecraftServer server = MinecraftServer.getServer();
-        if (server == null || !session.once("mbfail-chat:" + className)) {
+        if (server == null || !session.isFirstTime("mbfail-chat:" + site.className())) {
             return;
         }
+        final String key = "formation".equals(what) ? "gtnhspeedrunaudit.multiblock.formingNotRecorded"
+            : "gtnhspeedrunaudit.multiblock.footprintNotRecorded";
         server.getConfigurationManager()
             .sendChatMsg(
                 new ChatComponentText(
-                    "[GTNH Speedrun Audit] The audit mod could not record a multiblock "
-                        + ("formation".equals(what) ? "forming" : "footprint change")
-                        + " ("
-                        + className
-                        + " at dim "
-                        + dim
-                        + ", "
-                        + x
-                        + " "
-                        + y
-                        + " "
-                        + z
-                        + ": "
-                        + error
-                        + "). The machine is not affected. This run is missing that evidence: please report this "
-                        + "to @.order on Discord.").setChatStyle(new ChatStyle().setColor(EnumChatFormatting.RED)));
+                    StatCollector.translateToLocalFormatted(
+                        key,
+                        site.className(),
+                        site.dim(),
+                        site.x(),
+                        site.y(),
+                        site.z(),
+                        error)).setChatStyle(new ChatStyle().setColor(EnumChatFormatting.RED)));
     }
 
     // ------------------------------------------------------------------ AE2 census failures
 
     /**
-     * One grid (or the whole grid list) the AE2 census could not read. Lives here rather than in the compat
-     * package so it stays AE2-free: SelfTest drives it on servers without AE2. Returns a one-line description
-     * for {@link #announceAe2CensusFailure}.
+     * Log a grid, or the whole grid list, that the AE2 census could not read. The method uses no AE2 types, so the
+     * self-test calls the method on a server without AE2.
+     *
+     * @return a one-line description for {@link #announceAe2CensusFailure}
      */
-    public static String ae2CensusFailed(int census, String where, String gridId, Throwable error) {
-        GtnhSpeedrunAudit.LOG
-            .error("AE2 census {} failed ({}{})", census, where, gridId == null ? "" : " " + gridId, error);
+    public static String logAe2CensusFailure(Ae2CensusFailure failure) {
+        final String gridId = failure.gridId();
+        GtnhSpeedrunAudit.LOG.error(
+            "AE2 census {} failed ({}{})",
+            failure.census(),
+            failure.where(),
+            gridId == null ? "" : " " + gridId,
+            failure.error());
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session != null) {
             final JsonObject data = new JsonObject();
-            data.addProperty("census", census);
-            data.addProperty("where", where);
+            data.addProperty("census", failure.census());
+            data.addProperty("where", failure.where());
             if (gridId != null) {
                 data.addProperty("gridId", gridId);
             }
-            data.addProperty("error", String.valueOf(error));
+            data.addProperty("error", String.valueOf(failure.error()));
             session.logger()
                 .log("ae2_census_failed", data);
         }
-        return (gridId == null ? where : where + " " + gridId) + ": " + error;
+        return (gridId == null ? failure.where() : failure.where() + " " + gridId) + ": " + failure.error();
     }
 
     /**
-     * Red chat line to every player, the way ServerUtilities announces a failed backup. Worded so nobody reads
-     * it as AE2 itself breaking: what failed is this mod's record of the network, not the network.
+     * Send a red chat line to every player, in the style of the ServerUtilities message for a failed backup. The line
+     * is about a failure of this mod's record of the network, so no player reads the line as a failure of AE2.
      */
     public static void announceAe2CensusFailure(List<String> failures) {
         final MinecraftServer server = MinecraftServer.getServer();
@@ -599,13 +473,293 @@ public final class AuditSinks {
             return;
         }
         final String detail = failures.size() == 1 ? failures.get(0)
-            : failures.size() + " failures, first: " + failures.get(0);
+            : StatCollector
+                .translateToLocalFormatted("gtnhspeedrunaudit.ae2.censusFailures", failures.size(), failures.get(0));
         server.getConfigurationManager()
             .sendChatMsg(
                 new ChatComponentText(
-                    "[GTNH Speedrun Audit] The audit mod could not record its AE2 network snapshot (" + detail
-                        + "). Your AE2 network is not affected. This run is missing AE2 evidence: please report "
-                        + "this to @.order on Discord.")
-                            .setChatStyle(new ChatStyle().setColor(EnumChatFormatting.RED)));
+                    StatCollector.translateToLocalFormatted("gtnhspeedrunaudit.ae2.censusNotRecorded", detail))
+                        .setChatStyle(new ChatStyle().setColor(EnumChatFormatting.RED)));
+    }
+
+    /**
+     * The site, power and footprint of a GT multiblock at formation.
+     *
+     * @param footprint null when unknown
+     */
+    public record GtFormation(MachineSite site, MultiblockPower power, @Nullable MultiblockFootprint footprint) {}
+
+    /**
+     * The slot of a creative-inventory packet, with the stack that the packet sets and the stack the slot had.
+     *
+     * @param stack    null for an empty stack
+     * @param previous null for an empty slot
+     */
+    public record SlotChange(int slot, @Nullable ItemStack stack, @Nullable ItemStack previous) {}
+
+    /**
+     * One failed read of an AE2 census.
+     *
+     * @param census the session's census number
+     * @param where  {@code grid list} or {@code grid}
+     * @param gridId null for the grid list, or for a grid whose id read failed
+     */
+    public record Ae2CensusFailure(int census, String where, @Nullable String gridId, Throwable error) {}
+
+    /**
+     * Build an {@code nei_cheat} line: a decoded cheat action of {@code NEIServerUtils}, with the detail that the
+     * {@code nei_packet} line lacks. For a cheat with no player, such as NEI's time change, the line has a null
+     * {@code uuid} and {@code name}.
+     */
+    public static final class NeiCheat {
+
+        private final String action;
+        private String uuid;
+        private String name;
+        private String itemKey;
+        private int count;
+        private String detail;
+        private JsonObject extra;
+
+        private NeiCheat(String action) {
+            this.action = action;
+        }
+
+        public static NeiCheat of(String action) {
+            return new NeiCheat(action);
+        }
+
+        public NeiCheat player(EntityPlayer player) {
+            uuid = player.getGameProfile()
+                .getId()
+                .toString();
+            name = player.getCommandSenderName();
+            return this;
+        }
+
+        /** Set the item of the cheat. A null stack leaves the line with no {@code itemKey} and no {@code count}. */
+        public NeiCheat item(@Nullable ItemStack stack) {
+            if (stack != null) {
+                item(ItemKey.formatBaseKey(stack), stack.stackSize);
+            }
+            return this;
+        }
+
+        public NeiCheat item(String key, int stackSize) {
+            itemKey = key;
+            count = stackSize;
+            return this;
+        }
+
+        public NeiCheat detail(@Nullable String text) {
+            detail = text;
+            return this;
+        }
+
+        /**
+         * Set the members that {@link #log} copies into the line, such as the previous slot contents, the deleted items
+         * or the inserted count.
+         */
+        public NeiCheat extra(JsonObject members) {
+            extra = members;
+            return this;
+        }
+
+        /** Write the line when a session is logging. The members from {@code extra()} come after the fixed keys. */
+        public void log() {
+            final SessionManager session = GtnhSpeedrunAudit.session();
+            if (session == null) {
+                return;
+            }
+            final JsonObject data = new JsonObject();
+            data.addProperty("action", action);
+            data.addProperty("uuid", uuid);
+            data.addProperty("name", name);
+            if (itemKey != null) {
+                data.addProperty("itemKey", itemKey);
+                data.addProperty("count", count);
+            }
+            if (detail != null) {
+                data.addProperty("detail", detail);
+            }
+            if (extra != null) {
+                for (Map.Entry<String, JsonElement> member : extra.entrySet()) {
+                    data.add(member.getKey(), member.getValue());
+                }
+            }
+            session.logger()
+                .log("nei_cheat", data);
+        }
+    }
+
+    /**
+     * Build an {@code nbt_edit} line for the applied half of /nbtedit: the packet whose NBT ServerUtilities writes into
+     * a player, block, entity or item. The dispatch is in the {@code command} line.
+     *
+     * <p>
+     * The line has the payload's hash, and the full payload unless the payload is oversized, so verifiers can see what
+     * was set. The target's NBT just before the write is logged the same way, so verifiers can see what the write
+     * replaced. Without {@link #before}, the line has the reason from {@link #beforeMissing}, such as an unloaded
+     * chunk or a missing tile entity.
+     */
+    public static final class NbtEdit {
+
+        private final String targetType;
+        private final String target;
+        private String uuid;
+        private String name;
+        private String nbtHash;
+        private String nbtB64;
+        private String beforeHash;
+        private String beforeB64;
+        private String beforeMissing;
+
+        private NbtEdit(String targetType, String target) {
+            this.targetType = targetType;
+            this.target = target;
+        }
+
+        public static NbtEdit of(String targetType, String target) {
+            return new NbtEdit(targetType, target);
+        }
+
+        public NbtEdit player(EntityPlayer player) {
+            uuid = player.getGameProfile()
+                .getId()
+                .toString();
+            name = player.getCommandSenderName();
+            return this;
+        }
+
+        /** @param b64 null when the payload is oversized */
+        public NbtEdit written(String hash, @Nullable String b64) {
+            nbtHash = hash;
+            nbtB64 = b64;
+            return this;
+        }
+
+        /** @param b64 null when the NBT is oversized */
+        public NbtEdit before(String hash, @Nullable String b64) {
+            beforeHash = hash;
+            beforeB64 = b64;
+            return this;
+        }
+
+        public NbtEdit beforeMissing(@Nullable String reason) {
+            beforeMissing = reason;
+            return this;
+        }
+
+        /** Write the line when a session is logging. A null Base64, before-hash or reason is left off the line. */
+        public void log() {
+            final SessionManager session = GtnhSpeedrunAudit.session();
+            if (session == null) {
+                return;
+            }
+            final JsonObject data = new JsonObject();
+            data.addProperty("targetType", targetType);
+            data.addProperty("target", target);
+            data.addProperty("uuid", uuid);
+            data.addProperty("name", name);
+            data.addProperty("nbtHash", nbtHash);
+            if (nbtB64 != null) {
+                data.addProperty("nbtB64", nbtB64);
+            }
+            if (beforeHash != null) {
+                data.addProperty("beforeHash", beforeHash);
+            }
+            if (beforeB64 != null) {
+                data.addProperty("beforeB64", beforeB64);
+            }
+            if (beforeMissing != null) {
+                data.addProperty("beforeMissing", beforeMissing);
+            }
+            session.logger()
+                .log("nbt_edit", data);
+        }
+    }
+
+    /** Build an {@code invsee_click} line: an /inv view click that changed a slot. */
+    public static final class InvseeClick {
+
+        private final String viewId;
+        private final EntityPlayer viewer;
+        private String targetName;
+        private String targetUuid;
+        private boolean targetOnline;
+        private int slotId;
+        private int button;
+        private int mode;
+        private JsonArray changes;
+        private JsonObject cursorBefore;
+        private JsonObject cursorAfter;
+
+        private InvseeClick(String viewId, EntityPlayer viewer) {
+            this.viewId = viewId;
+            this.viewer = viewer;
+        }
+
+        public static InvseeClick of(String viewId, EntityPlayer viewer) {
+            return new InvseeClick(viewId, viewer);
+        }
+
+        public InvseeClick target(@Nullable String name, @Nullable String uuid, boolean online) {
+            targetName = name;
+            targetUuid = uuid;
+            targetOnline = online;
+            return this;
+        }
+
+        /** Set the arguments of {@code slotClick}. */
+        public InvseeClick click(int clickedSlotId, int clickedButton, int clickMode) {
+            slotId = clickedSlotId;
+            button = clickedButton;
+            mode = clickMode;
+            return this;
+        }
+
+        /** @param changedSlots each changed slot, tagged viewer or target */
+        public InvseeClick changes(JsonArray changedSlots) {
+            changes = changedSlots;
+            return this;
+        }
+
+        /** Set the cursor stack before and after the click. A null stack is left off the line. */
+        public InvseeClick cursor(@Nullable JsonObject before, @Nullable JsonObject after) {
+            cursorBefore = before;
+            cursorAfter = after;
+            return this;
+        }
+
+        /** Write the line when a session is logging. The target's name and uuid are written as null when unset. */
+        public void log() {
+            final SessionManager session = GtnhSpeedrunAudit.session();
+            if (session == null) {
+                return;
+            }
+            final JsonObject data = new JsonObject();
+            data.addProperty(
+                "uuid",
+                viewer.getGameProfile()
+                    .getId()
+                    .toString());
+            data.addProperty("name", viewer.getCommandSenderName());
+            data.addProperty("targetName", targetName);
+            data.addProperty("targetUuid", targetUuid);
+            data.addProperty("viewId", viewId);
+            data.addProperty("targetOnline", targetOnline);
+            data.addProperty("slotId", slotId);
+            data.addProperty("button", button);
+            data.addProperty("mode", mode);
+            data.add("changes", changes);
+            if (cursorBefore != null) {
+                data.add("cursorBefore", cursorBefore);
+            }
+            if (cursorAfter != null) {
+                data.add("cursorAfter", cursorAfter);
+            }
+            session.logger()
+                .log("invsee_click", data);
+        }
     }
 }

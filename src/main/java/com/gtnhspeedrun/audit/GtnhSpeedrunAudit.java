@@ -1,24 +1,48 @@
 package com.gtnhspeedrun.audit;
 
+import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.common.MinecraftForge;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.gtnhspeedrun.audit.command.CommandAudit;
+import com.gtnhspeedrun.audit.compat.Ae2Bench;
+import com.gtnhspeedrun.audit.compat.Ae2Snapshotter;
+import com.gtnhspeedrun.audit.compat.BqQuestDb;
+import com.gtnhspeedrun.audit.compat.BqQuestTracker;
+import com.gtnhspeedrun.audit.compat.Compat;
+import com.gtnhspeedrun.audit.compat.GtPowerCensus;
+import com.gtnhspeedrun.audit.compat.GtWirelessAudit;
+import com.gtnhspeedrun.audit.compat.StructureBench;
+import com.gtnhspeedrun.audit.compat.WorldEditAudit;
 import com.gtnhspeedrun.audit.core.SessionManager;
+import com.gtnhspeedrun.audit.selftest.SelfTest;
 import com.gtnhspeedrun.audit.snapshot.InventorySnapshotter;
 import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
+import com.gtnhspeedrun.audit.snapshot.NodeCensus;
 import com.gtnhspeedrun.audit.snapshot.SnapshotScheduler;
+import com.gtnhspeedrun.audit.snapshot.StorageCensus;
 import com.gtnhspeedrun.audit.trackers.CommandTracker;
+import com.gtnhspeedrun.audit.trackers.DifficultyTracker;
+import com.gtnhspeedrun.audit.trackers.FingerprintTracker;
 import com.gtnhspeedrun.audit.trackers.GamemodeTracker;
+import com.gtnhspeedrun.audit.trackers.GameruleTracker;
+import com.gtnhspeedrun.audit.trackers.InvseeViews;
+import com.gtnhspeedrun.audit.trackers.ItemIdTable;
+import com.gtnhspeedrun.audit.trackers.MachinePlacementTracker;
 import com.gtnhspeedrun.audit.trackers.MilestoneTracker;
 import com.gtnhspeedrun.audit.trackers.PlayerSessionTracker;
+import com.gtnhspeedrun.audit.trackers.StructureBounds;
+import com.gtnhspeedrun.audit.trackers.TrashCanCommandTracker;
 
 import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartedEvent;
@@ -27,9 +51,9 @@ import cpw.mods.fml.common.event.FMLServerStoppedEvent;
 import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 
 /**
- * Speedrun audit trail for GT: New Horizons. All logic is server-side; in singleplayer the integrated server
- * runs it identically, which is what makes one jar cover both setups. Clients without the mod may join an
- * audited server (acceptableRemoteVersions="*") — auditing is the server's job.
+ * Start an audit session with each server, register the trackers, and stop the session with the server. The mod runs
+ * on the server only, the integrated server of singleplayer included. Clients without the mod can join an audited
+ * server ({@code acceptableRemoteVersions = "*"}).
  */
 @Mod(
     modid = GtnhSpeedrunAudit.MODID,
@@ -42,14 +66,14 @@ public class GtnhSpeedrunAudit {
     public static final String MODID = "gtnhspeedrunaudit";
     public static final Logger LOG = LogManager.getLogger(MODID);
 
-    /** The live session, or null between worlds. Static because mixin sinks have no other path to it. */
+    /** The live session, or null between worlds. The field is static, so mixin sinks can read it through session(). */
     private static volatile SessionManager session;
 
-    /** Both buses tolerate listeners whose events belong to the other bus, so one list per bus suffices. */
     private final List<Object> forgeBusListeners = new ArrayList<>();
     private final List<Object> fmlBusListeners = new ArrayList<>();
     /**
-     * Unregisters from WorldEdit's own event bus; null without WorldEdit. A Runnable keeps WE types out of this class.
+     * The call that unregisters the audit from the WorldEdit event bus, or null without WorldEdit. The field is a
+     * Runnable, so no WorldEdit type appears in this class.
      */
     private Runnable worldEditStop;
 
@@ -62,11 +86,17 @@ public class GtnhSpeedrunAudit {
         AuditConfig.synchronizeConfiguration(event.getSuggestedConfigurationFile());
     }
 
+    /**
+     * Start the session and register every tracker for this server. After an IOException or RuntimeException, the
+     * error is logged and the server runs on with no session.
+     */
     @Mod.EventHandler
     public void serverStarting(FMLServerStartingEvent event) {
         try {
-            // The self-test shapes its own preconditions: it needs a watched key item to assert on.
-            if (System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY) != null) {
+            final String selftestDir = System.getProperty(SelfTest.PROPERTY);
+            final boolean selftest = selftestDir != null;
+            // the self-test scenarios use vanilla items and blocks. Point these settings at those items and blocks
+            if (selftest) {
                 AuditConfig.keyItems = new String[] { "minecraft:diamond" };
                 AuditConfig.trackedPlacements = new String[] { "minecraft:diamond_block" };
                 AuditConfig.watchedBlocks = new String[] { "minecraft:diamond_block" };
@@ -88,155 +118,126 @@ public class GtnhSpeedrunAudit {
             onForgeBus(new CommandTracker(sm.logger()));
             onForgeBus(inventory); // LivingDeathEvent
             onForgeBus(milestones); // AchievementEvent
-            final boolean selftest = System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY) != null;
-            final com.gtnhspeedrun.audit.trackers.MachinePlacementTracker placements = new com.gtnhspeedrun.audit.trackers.MachinePlacementTracker(
+            final MachinePlacementTracker placements = new MachinePlacementTracker(
                 sm.logger(),
-                nonBlank(AuditConfig.trackedPlacements),
-                nonBlank(AuditConfig.watchedBlocks),
-                selftest ? com.gtnhspeedrun.audit.selftest.SelfTest.STAND_IN_MACHINE_BLOCK
-                    : com.gtnhspeedrun.audit.trackers.MachinePlacementTracker.GT_MACHINE_BLOCK,
-                selftest ? com.gtnhspeedrun.audit.selftest.SelfTest.STAND_IN_MANIPULATOR_PREFIX
-                    : com.gtnhspeedrun.audit.trackers.MachinePlacementTracker.MANIPULATOR_PREFIX);
+                selftest ? SelfTest.STAND_IN_MACHINE_BLOCK : MachinePlacementTracker.GT_MACHINE_BLOCK,
+                selftest ? SelfTest.STAND_IN_MANIPULATOR_PREFIX : MachinePlacementTracker.MANIPULATOR_PREFIX);
             onForgeBus(placements); // PlaceEvent, BreakEvent
             onFmlBus(placements); // end of tick: Matter Manipulator placements
             onFmlBus(inventory); // login/logout snapshots
-            onFmlBus(milestones); // dim change, crafts
+            onFmlBus(milestones); // dimension changes, crafts
             onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp, AuditConfig.flagClientMods));
             onFmlBus(new GamemodeTracker(sm.logger(), inventory, event.getServer()));
-            onFmlBus(new com.gtnhspeedrun.audit.trackers.DifficultyTracker(sm.logger(), event.getServer()));
-            onFmlBus(new com.gtnhspeedrun.audit.trackers.GameruleTracker(sm.logger(), event.getServer()));
+            onFmlBus(new DifficultyTracker(sm.logger(), event.getServer()));
+            onFmlBus(new GameruleTracker(sm.logger(), event.getServer()));
             onFmlBus(scheduler);
 
-            // The compat classes reference modded types — only touch them behind the presence gate.
-            if (com.gtnhspeedrun.audit.compat.Compat.BETTER_QUESTING.isLoaded()) {
-                onForgeBus(new com.gtnhspeedrun.audit.compat.BqQuestTracker(sm.logger()));
+            // NEVER load a compat class before a check that its mod is loaded. Compat classes use the types of that mod
+            if (Compat.BETTER_QUESTING.isLoaded()) {
+                onForgeBus(new BqQuestTracker(sm.logger()));
             }
-            if (cpw.mods.fml.common.Loader.isModLoaded("Thaumcraft")
-                || cpw.mods.fml.common.Loader.isModLoaded("ThaumicHorizons")
-                || System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY) != null) {
-                final com.gtnhspeedrun.audit.snapshot.NodeCensus nodes = new com.gtnhspeedrun.audit.snapshot.NodeCensus(
-                    sm.logger(),
-                    event.getServer(),
-                    AuditConfig.nodeCensusTiles,
-                    AuditConfig.nodeCensusMinutes);
+            if (Loader.isModLoaded("Thaumcraft") || Loader.isModLoaded("ThaumicHorizons") || selftest) {
+                final NodeCensus nodes = new NodeCensus(sm.logger(), event.getServer());
                 onFmlBus(nodes);
-                sm.addSnapshotHook(() -> nodes.census("manual"));
+                sm.addSnapshotHook(() -> nodes.takeCensus("manual"));
             }
-            if (com.gtnhspeedrun.audit.snapshot.StorageCensus.anythingToCensus()) {
-                final com.gtnhspeedrun.audit.snapshot.StorageCensus storage = new com.gtnhspeedrun.audit.snapshot.StorageCensus(
-                    sm.logger(),
-                    AuditConfig.storageCensusMinutes);
+            if (StorageCensus.hasAnythingToCensus()) {
+                final StorageCensus storage = new StorageCensus(sm.logger(), AuditConfig.storageCensusMinutes);
                 onFmlBus(storage);
-                sm.addSnapshotHook(() -> storage.census("manual"));
+                sm.addSnapshotHook(() -> storage.takeCensus("manual"));
             }
-            // Vanilla types only; without ServerUtilities it never sees a view.
-            onFmlBus(new com.gtnhspeedrun.audit.trackers.InvseeViews()); // target logins, viewer logouts
-            // Vanilla types only; without ServerUtilities it simply never sees a trash chest.
-            onFmlBus(new com.gtnhspeedrun.audit.trackers.TrashCanCommandTracker(sm.logger()));
-            if (com.gtnhspeedrun.audit.compat.Compat.GT5.isLoaded()) {
-                // multiblock footprints: the frame stack serves only this thread and is cleared every tick
-                com.gtnhspeedrun.audit.trackers.StructureBounds.onServerStart();
-                onFmlBus(new com.gtnhspeedrun.audit.trackers.StructureBounds.Ticker());
-                final String structureBenchDir = System
-                    .getProperty(com.gtnhspeedrun.audit.compat.StructureBench.PROPERTY);
+            // InvseeViews and TrashCanCommandTracker reference vanilla types only, so they need no check for a mod.
+            // Without ServerUtilities no view and no trash chest opens.
+            onFmlBus(new InvseeViews()); // target logins, viewer logouts
+            onFmlBus(new TrashCanCommandTracker(sm.logger()));
+            if (Compat.GT5.isLoaded()) {
+                // multiblock footprints
+                StructureBounds.onServerStart();
+                onFmlBus(new StructureBounds.Ticker());
+                final String structureBenchDir = System.getProperty(StructureBench.PROPERTY);
                 if (structureBenchDir != null && !structureBenchDir.isEmpty()) {
                     LOG.warn(
                         "STRUCTURE BENCH MODE ACTIVE — this server run times structure checks and then shuts down");
-                    onFmlBus(
-                        new com.gtnhspeedrun.audit.compat.StructureBench(
-                            event.getServer(),
-                            new java.io.File(structureBenchDir)));
+                    onFmlBus(new StructureBench(event.getServer(), Paths.get(structureBenchDir)));
                 }
-                final com.gtnhspeedrun.audit.compat.GtWirelessAudit wireless = new com.gtnhspeedrun.audit.compat.GtWirelessAudit(
-                    sm.logger());
+                final GtWirelessAudit wireless = new GtWirelessAudit(sm.logger());
                 onForgeBus(wireless); // CommandEvent
                 onFmlBus(wireless); // end-of-tick balance read
-                final com.gtnhspeedrun.audit.compat.GtPowerCensus power = new com.gtnhspeedrun.audit.compat.GtPowerCensus(
-                    sm.logger(),
-                    event.getServer(),
-                    AuditConfig.powerCensusClasses,
-                    AuditConfig.powerCensusMinutes);
+                final GtPowerCensus power = new GtPowerCensus(sm.logger(), event.getServer());
                 onFmlBus(power);
-                sm.addSnapshotHook(() -> power.census("manual"));
+                sm.addSnapshotHook(() -> power.takeCensus("manual"));
             }
-            if (com.gtnhspeedrun.audit.compat.Compat.AE2.isLoaded()) {
-                final com.gtnhspeedrun.audit.compat.Ae2Snapshotter ae2 = new com.gtnhspeedrun.audit.compat.Ae2Snapshotter(
-                    sm.logger(),
-                    keyItems,
-                    event.getServer(),
-                    AuditConfig.ae2SnapshotActiveMinutes,
-                    AuditConfig.ae2SnapshotIdleMinutes);
+            if (Compat.AE2.isLoaded()) {
+                final Ae2Snapshotter ae2 = new Ae2Snapshotter(sm.logger(), keyItems, event.getServer());
                 onFmlBus(ae2);
                 sm.addSnapshotHook(ae2::requestCensus);
 
-                final String benchDir = System.getProperty(com.gtnhspeedrun.audit.compat.Ae2Bench.PROPERTY);
+                final String benchDir = System.getProperty(Ae2Bench.PROPERTY);
                 if (benchDir != null && !benchDir.isEmpty()) {
                     LOG.warn("AE2 BENCH MODE ACTIVE — this server run measures the census and then shuts down");
-                    onFmlBus(new com.gtnhspeedrun.audit.compat.Ae2Bench(event.getServer(), new java.io.File(benchDir)));
+                    onFmlBus(new Ae2Bench(event.getServer(), Paths.get(benchDir)));
                 }
             }
 
-            if (com.gtnhspeedrun.audit.compat.Compat.WORLDEDIT.isLoaded()) {
+            if (Compat.WORLDEDIT.isLoaded()) {
                 try {
-                    final com.gtnhspeedrun.audit.compat.WorldEditAudit worldEdit = new com.gtnhspeedrun.audit.compat.WorldEditAudit(
-                        sm.logger());
+                    final WorldEditAudit worldEdit = new WorldEditAudit(sm.logger());
                     worldEdit.register();
                     onFmlBus(worldEdit); // end of tick: one worldedit_edit per edit session
                     worldEditStop = worldEdit::unregister;
-                } catch (LinkageError | RuntimeException e) {
-                    // A WorldEdit build with a different API: everything else is still audited.
+                } catch (LinkageError | RuntimeException e) { // noqa: NAR142, degrade and report over the WorldEdit API
+                    // a WorldEdit build with another API leaves only WorldEdit edits unaudited
                     LOG.error("WorldEdit edits NOT audited — WorldEdit API mismatch", e);
                 }
             }
 
             event.registerServerCommand(new CommandAudit());
 
-            new com.gtnhspeedrun.audit.trackers.FingerprintTracker(
+            new FingerprintTracker(
                 sm.logger(),
                 event.getServer()
                     .getFile("config"),
                 event.getServer()
                     .getFile("scripts")).start();
 
-            final String selftestDir = System.getProperty(com.gtnhspeedrun.audit.selftest.SelfTest.PROPERTY);
-            if (selftestDir != null && !selftestDir.isEmpty()) {
+            if (selftest && !selftestDir.isEmpty()) {
                 LOG.warn("SELFTEST MODE ACTIVE — this server run is a harness scenario, not a real session");
                 final List<Object> auditListeners = new ArrayList<>(forgeBusListeners);
                 auditListeners.addAll(fmlBusListeners);
-                onFmlBus(
-                    new com.gtnhspeedrun.audit.selftest.SelfTest(
-                        event.getServer(),
-                        sm,
-                        new java.io.File(selftestDir),
-                        auditListeners));
+                onFmlBus(new SelfTest(sm, Paths.get(selftestDir), auditListeners));
             }
-        } catch (Exception e) {
-            // A broken audit trail must be loud but must not brick someone's server mid-run.
+        } catch (IOException | RuntimeException e) { // noqa: NAR142, degrade and report over the trackers of pack mods
+                                                     // at server start
+            // a broken audit trail must be loud, but the server of the run must keep running
             LOG.error("Speedrun audit failed to start — THIS RUN IS NOT BEING AUDITED", e);
             session = null;
         }
     }
 
-    /** Records that need every mod's serverStarting to have run first (BQ loads its quest book there). */
+    /**
+     * Log the item ID table and the quest database once every mod's serverStarting handler has run. BetterQuesting
+     * loads its quest book in serverStarting.
+     */
     @Mod.EventHandler
     public void serverStarted(FMLServerStartedEvent event) {
         final SessionManager sm = session;
         if (sm == null) {
             return;
         }
-        final net.minecraft.server.MinecraftServer server = net.minecraft.server.MinecraftServer.getServer();
+        final MinecraftServer server = MinecraftServer.getServer();
         try {
-            com.gtnhspeedrun.audit.trackers.ItemIdTable.log(
+            ItemIdTable.log(
                 sm.logger(),
                 sm.anchor(),
                 sm.logger()
                     .clock()
                     .get());
-        } catch (RuntimeException | LinkageError e) {
+        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over the item registry of
+                                                      // every mod
             LOG.error("Item ID table not recorded", e);
         }
-        if (com.gtnhspeedrun.audit.compat.Compat.BETTER_QUESTING.isLoaded()) {
-            com.gtnhspeedrun.audit.compat.BqQuestDb.log(sm.logger(), server);
+        if (Compat.BETTER_QUESTING.isLoaded()) {
+            BqQuestDb.log(sm.logger(), server);
         }
     }
 
@@ -267,13 +268,13 @@ public class GtnhSpeedrunAudit {
         if (sm != null) {
             sm.stopped();
         }
-        for (Object l : forgeBusListeners) {
-            MinecraftForge.EVENT_BUS.unregister(l);
+        for (Object listener : forgeBusListeners) {
+            MinecraftForge.EVENT_BUS.unregister(listener);
         }
-        for (Object l : fmlBusListeners) {
+        for (Object listener : fmlBusListeners) {
             FMLCommonHandler.instance()
                 .bus()
-                .unregister(l);
+                .unregister(listener);
         }
         forgeBusListeners.clear();
         fmlBusListeners.clear();
@@ -281,16 +282,5 @@ public class GtnhSpeedrunAudit {
             worldEditStop.run();
             worldEditStop = null;
         }
-    }
-
-    private static java.util.Set<String> nonBlank(String[] entries) {
-        final java.util.Set<String> out = new java.util.HashSet<>();
-        for (String entry : entries) {
-            if (!entry.trim()
-                .isEmpty()) {
-                out.add(entry.trim());
-            }
-        }
-        return out;
     }
 }

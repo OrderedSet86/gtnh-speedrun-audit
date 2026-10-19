@@ -18,12 +18,12 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 
 /**
- * Full-NBT player inventory snapshots: main, armor, baubles, ender chest. Captured on the server thread as
- * plain strings/bytes (small — a player is ~80 stacks), then assembled and gzipped on the writer thread.
+ * Write full-NBT snapshots of a player's main inventory, armor, baubles and ender chest.
  *
  * <p>
- * Event-triggered captures are where the verification value is: join/leave bracket every play segment, death
- * fires BEFORE the drops, and the gamemode tracker calls in on every transition.
+ * The stacks are encoded on the server thread. A player has about 80 stacks. The writer thread gzips the snapshot
+ * file. A snapshot is taken on join, on leave, on death and on each {@link #capture} call. Forge fires
+ * {@code LivingDeathEvent} before the drops spawn, so the death snapshot has the items the player died with.
  */
 public final class InventorySnapshotter {
 
@@ -51,6 +51,7 @@ public final class InventorySnapshotter {
         }
     }
 
+    /** Log a {@code death} event with the killer and the death message, then take the death snapshot. */
     @SubscribeEvent
     public void onDeath(LivingDeathEvent event) {
         if (event.entityLiving instanceof EntityPlayerMP player) {
@@ -62,13 +63,13 @@ public final class InventorySnapshotter {
                     .toString());
             data.addProperty("name", player.getCommandSenderName());
             data.addProperty("damageSource", event.source.damageType);
-            final String killer = AuditSinks.entityName(event.source.getEntity());
+            final String killer = AuditSinks.describeEntity(event.source.getEntity());
             if (killer != null) {
                 data.addProperty("killer", killer);
             }
-            final String direct = AuditSinks.entityName(event.source.getSourceOfDamage());
-            if (direct != null && !direct.equals(killer)) {
-                data.addProperty("directKiller", direct);
+            final String directKiller = AuditSinks.describeEntity(event.source.getSourceOfDamage());
+            if (directKiller != null && !directKiller.equals(killer)) {
+                data.addProperty("directKiller", directKiller);
             }
             data.addProperty(
                 "message",
@@ -82,14 +83,15 @@ public final class InventorySnapshotter {
 
     // ------------------------------------------------------------------ capture
 
+    /** Snapshot the player's inventories, and check the main inventory against the key-item watchlist. */
     public void capture(EntityPlayerMP player, String trigger) {
         final JsonObject sections = new JsonObject();
         sections.add("main", captureSlots(player.inventory.mainInventory));
         sections.add("armor", captureSlots(player.inventory.armorInventory));
-        sections.add("enderChest", captureInventory(player.getInventoryEnderChest()));
-        final IInventory baubles = BaublesAccess.get(player);
+        sections.add("enderChest", StackJson.inventory(player.getInventoryEnderChest()));
+        final IInventory baubles = BaublesAccess.readBaubles(player);
         if (baubles != null) {
-            sections.add("baubles", captureInventory(baubles));
+            sections.add("baubles", StackJson.inventory(baubles));
         }
 
         checkKeyItems(player);
@@ -103,13 +105,14 @@ public final class InventorySnapshotter {
         snapshot.addProperty("trigger", trigger);
         snapshot.add("sections", sections);
 
-        final JsonObject ref = new JsonObject();
-        ref.addProperty("uuid", uuid);
-        ref.addProperty("name", player.getCommandSenderName());
-        ref.addProperty("trigger", trigger);
+        final JsonObject reference = new JsonObject();
+        reference.addProperty("uuid", uuid);
+        reference.addProperty("name", player.getCommandSenderName());
+        reference.addProperty("trigger", trigger);
+        final int UUID_PREFIX_LENGTH = 8;
         final String fileName = "inv-" + logger.clock()
-            .get() + "-" + uuid.substring(0, 8) + "-" + trigger + ".json.gz";
-        logger.logSnapshot("inv_snapshot", fileName, () -> snapshot, ref);
+            .get() + "-" + uuid.substring(0, UUID_PREFIX_LENGTH) + "-" + trigger + ".json.gz";
+        logger.logSnapshot(new AuditLogger.Snapshot("inv_snapshot", fileName, () -> snapshot, reference));
     }
 
     private void checkKeyItems(EntityPlayerMP player) {
@@ -126,21 +129,9 @@ public final class InventorySnapshotter {
 
     private static JsonArray captureSlots(ItemStack[] slots) {
         final List<ItemStack> list = new ArrayList<>(slots.length);
-        for (ItemStack s : slots) {
-            list.add(s);
+        for (ItemStack stack : slots) {
+            list.add(stack);
         }
-        return captureList(list);
-    }
-
-    private static JsonArray captureInventory(IInventory inv) {
-        final List<ItemStack> list = new ArrayList<>(inv.getSizeInventory());
-        for (int i = 0; i < inv.getSizeInventory(); i++) {
-            list.add(inv.getStackInSlot(i));
-        }
-        return captureList(list);
-    }
-
-    private static JsonArray captureList(List<ItemStack> stacks) {
-        return StackJson.list(stacks);
+        return StackJson.list(list);
     }
 }

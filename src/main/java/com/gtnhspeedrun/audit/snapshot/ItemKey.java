@@ -3,29 +3,18 @@ package com.gtnhspeedrun.audit.snapshot;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
-import com.gtnhspeedrun.audit.core.JsonUtil;
-
 /**
- * Canonical item identity for snapshots and milestones: {@code modid:name@meta}, plus {@code #hash16} when the
- * stack carries NBT. GT meta-items make the meta half load-bearing — item id alone collapses thousands of
- * distinct materials.
+ * Build the item key of snapshots and milestones: {@code modid:name@meta}.
+ *
+ * <p>
+ * GT meta-items put thousands of materials under one item id, so the key includes the meta.
  */
 public final class ItemKey {
 
     private ItemKey() {}
 
-    public static String of(ItemStack stack) {
-        final String base = base(stack);
-        if (!stack.hasTagCompound()) {
-            return base;
-        }
-        return base + "#"
-            + JsonUtil.canonicalNbtHash(stack.getTagCompound())
-                .substring(0, 16);
-    }
-
-    /** Key without the NBT discriminator — what the config's keyItems list matches against. */
-    public static String base(ItemStack stack) {
+    /** Return the key with no NBT hash. The {@code keyItems} config entries have this form, or no {@code @meta}. */
+    public static String formatBaseKey(ItemStack stack) {
         final String name = String.valueOf(Item.itemRegistry.getNameForObject(stack.getItem()));
         return name + "@" + stack.getItemDamage();
     }

@@ -1,5 +1,6 @@
 package com.gtnhspeedrun.audit.command;
 
+import java.io.IOException;
 import java.util.List;
 
 import net.minecraft.command.CommandBase;
@@ -8,13 +9,17 @@ import net.minecraft.command.WrongUsageException;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.StatCollector;
 
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
+import com.gtnhspeedrun.audit.core.LogWriter;
 import com.gtnhspeedrun.audit.core.SessionManager;
+import com.gtnhspeedrun.audit.core.TickClock;
 import com.gtnhspeedrun.audit.core.Verifier;
 
-public class CommandAudit extends CommandBase {
+/** Run the {@code /audit} subcommands: status, verify, snapshot and export. */
+public final class CommandAudit extends CommandBase {
 
     @Override
     public String getCommandName() {
@@ -23,7 +28,7 @@ public class CommandAudit extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/audit status|verify|snapshot|export";
+        return StatCollector.translateToLocal("gtnhspeedrunaudit.command.usage");
     }
 
     @Override
@@ -33,7 +38,7 @@ public class CommandAudit extends CommandBase {
 
     @Override
     public boolean canCommandSenderUseCommand(ICommandSender sender) {
-        // A singleplayer owner is op only with cheats allowed. Let the owner audit without them.
+        // in singleplayer the owner is op only with cheats on. Let the owner run /audit with cheats off
         final MinecraftServer server = MinecraftServer.getServer();
         if (server != null && server.isSinglePlayer()
             && sender instanceof EntityPlayerMP player
@@ -54,14 +59,14 @@ public class CommandAudit extends CommandBase {
     public void processCommand(ICommandSender sender, String[] args) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
-            reply(sender, "Audit is NOT running — this run is not being audited (see server log).");
+            reply(sender, "gtnhspeedrunaudit.command.not_running");
             return;
         }
         if (args.length == 0) {
             throw new WrongUsageException(getCommandUsage(sender));
         }
         switch (args[0]) {
-            case "status" -> status(sender, session);
+            case "status" -> reportStatus(sender, session);
             case "verify" -> verify(sender, session);
             case "snapshot" -> session.snapshotNow(sender);
             case "export" -> session.export(sender);
@@ -69,88 +74,95 @@ public class CommandAudit extends CommandBase {
         }
     }
 
-    private void status(ICommandSender sender, SessionManager session) {
-        reply(sender, "session #" + session.sessionIndex() + "  startup verdict: " + session.verifyVerdict());
-        final long startWall = session.anchor().timingStartWallMs;
-        reply(
-            sender,
-            "chain head seq " + session.logger()
-                .writer()
-                .publishedSeq()
-                + "  |  igt "
-                + formatTicks(
-                    session.logger()
-                        .clock()
-                        .get())
-                + "  |  online "
-                + formatTicks(
-                    session.logger()
-                        .clock()
-                        .getOnline())
-                + "  |  rta "
-                + (startWall == 0 ? "not started"
-                    : ((System.currentTimeMillis() - startWall) / 1000 / 3600) + "h"
-                        + ((System.currentTimeMillis() - startWall) / 1000 % 3600 / 60)
-                        + "m"));
-        reply(
-            sender,
-            session.logger()
-                .writer()
-                .isDead()
-                    ? "WRITER DEAD — logging has stopped, check the server log!"
-                    : "writer alive, queue depth " + session.logger()
-                        .writer()
-                        .queueDepth());
-        reply(
-            sender,
-            "audit dir: " + session.auditDir()
-                .getAbsolutePath());
+    // The server resolves every lang key of this command. A client without the mod has no lang file and would show
+    // the raw key. The dedicated server of Forge 1614 loads the en_US.lang of each mod too.
+    public static void reply(ICommandSender sender, String key, Object... values) {
+        sender.addChatMessage(
+            new ChatComponentText(
+                StatCollector.translateToLocalFormatted(
+                    "gtnhspeedrunaudit.command.reply",
+                    StatCollector.translateToLocalFormatted(key, values))));
     }
 
-    /** The walk re-hashes months of log; keep the server thread out of it. */
-    private void verify(ICommandSender sender, SessionManager session) {
+    /** Reply with the session, the chain head, the three clocks, the writer state and the audit directory. */
+    private static void reportStatus(ICommandSender sender, SessionManager session) {
+        final LogWriter writer = session.logger()
+            .writer();
+        final TickClock clock = session.logger()
+            .clock();
+        reply(sender, "gtnhspeedrunaudit.command.status.session", session.sessionIndex(), session.verifyVerdict());
+        reply(
+            sender,
+            "gtnhspeedrunaudit.command.status.clocks",
+            writer.publishedSeq(),
+            formatTicks(clock.get()),
+            formatTicks(clock.getOnline()),
+            formatRta(session.anchor().timingStartWallMs));
+        if (writer.isDead()) {
+            reply(sender, "gtnhspeedrunaudit.command.status.writer_dead");
+        } else {
+            reply(sender, "gtnhspeedrunaudit.command.status.writer_alive", writer.queueDepth());
+        }
+        reply(
+            sender,
+            "gtnhspeedrunaudit.command.status.dir",
+            session.auditDir()
+                .toAbsolutePath());
+    }
+
+    private static String formatTicks(long ticks) {
+        final long TICKS_PER_SECOND = 20;
+        final long seconds = ticks / TICKS_PER_SECOND;
+        return StatCollector
+            .translateToLocalFormatted("gtnhspeedrunaudit.command.ticks", ticks, seconds / 3600, seconds % 3600 / 60);
+    }
+
+    private static String formatRta(long timingStartWallMs) {
+        final long MS_PER_SECOND = 1000;
+        if (timingStartWallMs == 0) {
+            return StatCollector.translateToLocal("gtnhspeedrunaudit.command.rta.not_started");
+        }
+        final long seconds = (System.currentTimeMillis() - timingStartWallMs) / MS_PER_SECOND;
+        return StatCollector
+            .translateToLocalFormatted("gtnhspeedrunaudit.command.rta", seconds / 3600, seconds % 3600 / 60);
+    }
+
+    /**
+     * Verify the chain up to the current head on a background thread, because the walk hashes months of log again.
+     * The result goes to {@code sender} and into a verify_report line.
+     */
+    private static void verify(ICommandSender sender, SessionManager session) {
         final long upToSeq = session.logger()
             .writer()
             .publishedSeq();
         final String uuid = session.anchor().worldAuditUuid;
-        reply(sender, "verifying chain up to seq " + upToSeq + "…");
-        final Thread t = new Thread(() -> {
-            JsonObject data = new JsonObject();
+        reply(sender, "gtnhspeedrunaudit.command.verify.started", upToSeq);
+        final Thread verifyThread = new Thread(() -> {
+            final JsonObject data = new JsonObject();
             try {
                 final Verifier.Result result = Verifier.verify(session.logDir(), uuid, upToSeq);
-                data.addProperty("verdict", result.verdict);
-                data.addProperty("lines", result.lines);
-                data.addProperty("lastSeq", result.lastSeq);
-                for (String p : result.problems) {
-                    reply(sender, "  " + p);
+                data.addProperty("verdict", result.verdict());
+                data.addProperty("lines", result.lines());
+                data.addProperty("lastSeq", result.lastSeq());
+                for (String problem : result.problems()) {
+                    reply(sender, "gtnhspeedrunaudit.command.verify.problem", problem);
                 }
                 reply(
                     sender,
-                    "chain " + result.verdict
-                        + " ("
-                        + result.lines
-                        + " lines, seq "
-                        + result.firstSeq
-                        + ".."
-                        + result.lastSeq
-                        + ")");
-            } catch (Exception e) {
+                    "gtnhspeedrunaudit.command.verify.result",
+                    result.verdict(),
+                    result.lines(),
+                    result.firstSeq(),
+                    result.lastSeq());
+            } catch (IOException | RuntimeException e) {
                 data.addProperty("verdict", "VERIFY_ERROR");
                 data.addProperty("error", String.valueOf(e));
-                reply(sender, "verify failed: " + e);
+                reply(sender, "gtnhspeedrunaudit.command.verify.failed", e);
             }
             session.logger()
                 .log("verify_report", data);
         }, "SpeedrunAudit-Verify");
-        t.setDaemon(true);
-        t.start();
-    }
-
-    private static String formatTicks(long ticks) {
-        return ticks + " ticks (" + (ticks / 20 / 3600) + "h" + (ticks / 20 % 3600 / 60) + "m in-game)";
-    }
-
-    public static void reply(ICommandSender sender, String msg) {
-        sender.addChatMessage(new ChatComponentText("[audit] " + msg));
+        verifyThread.setDaemon(true);
+        verifyThread.start();
     }
 }

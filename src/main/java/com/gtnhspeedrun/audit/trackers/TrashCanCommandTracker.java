@@ -22,14 +22,17 @@ import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * ServerUtilities' /trash_can opens a plain chest GUI over a throwaway 36-slot InventoryBasic. Nothing voids the
- * items explicitly: whatever is in it when the GUI closes is garbage-collected with it. So the record is the
- * inventory's contents at the moment the player's open container stops being that chest — on the next player
- * tick, or at logout if they disconnect with it open.
+ * Log the items that a player leaves in a ServerUtilities /trash_can chest.
  *
  * <p>
- * The chest is recognised the way the command builds it: an InventoryBasic with a custom name equal to the
- * server-side translation of {@code key.serverutilities.trash}. No ServerUtilities types are touched.
+ * /trash_can opens a plain chest GUI over a throwaway 36-slot {@code InventoryBasic}. ServerUtilities doesn't
+ * delete the items. The items in the inventory are garbage-collected with the inventory after the GUI closes. So
+ * the logged items are the inventory's contents when the player's open container stops being that chest, in the
+ * next player tick, or at logout when the player disconnects with the chest open.
+ *
+ * <p>
+ * The chest is recognised by how the command builds the chest: a 36-slot {@code InventoryBasic} whose custom name
+ * equals the server-side translation of {@code key.serverutilities.trash}. The class uses no ServerUtilities types.
  */
 public final class TrashCanCommandTracker {
 
@@ -56,7 +59,7 @@ public final class TrashCanCommandTracker {
         }
         if (was != null) {
             open.remove(id);
-            record(player, was, "closed");
+            logTrash(player, was, "closed");
         }
         if (now instanceof ContainerChest chest && isTrash(chest.getLowerChestInventory())) {
             open.put(id, chest);
@@ -67,11 +70,11 @@ public final class TrashCanCommandTracker {
     public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         final ContainerChest was = open.remove(event.player.getUniqueID());
         if (was != null) {
-            record(event.player, was, "logout");
+            logTrash(event.player, was, "logout");
         }
     }
 
-    private void record(EntityPlayer player, ContainerChest chest, String how) {
+    private void logTrash(EntityPlayer player, ContainerChest chest, String how) {
         final JsonArray items = StackJson.inventory(chest.getLowerChestInventory());
         if (items.size() == 0) {
             return;
@@ -88,10 +91,10 @@ public final class TrashCanCommandTracker {
         logger.log("trash_can_closed", data);
     }
 
-    static boolean isTrash(IInventory inv) {
-        return inv instanceof InventoryBasic && inv.hasCustomInventoryName()
-            && inv.getSizeInventory() == TRASH_SLOTS
+    private static boolean isTrash(IInventory inventory) {
+        return inventory instanceof InventoryBasic && inventory.hasCustomInventoryName()
+            && inventory.getSizeInventory() == TRASH_SLOTS
             && StatCollector.translateToLocal("key.serverutilities.trash")
-                .equals(inv.getInventoryName());
+                .equals(inventory.getInventoryName());
     }
 }

@@ -11,6 +11,7 @@ import net.minecraft.world.WorldServer;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.gtnhspeedrun.audit.AuditConfig;
 import com.gtnhspeedrun.audit.core.AuditLogger;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 
@@ -18,14 +19,17 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * Periodic record of every Thaumcraft node, node jar and Ethereal Shard in loaded chunks, as each tile's own
- * full NBT — aspects, base aspects, node type and modifier all live there, so no Thaumcraft API is bound and a
- * Thaumcraft-less pack simply finds nothing. Two consecutive censuses tell a bee's slow refill from an edit's
- * jump (R2b), and a node that vanishes between them was jarred or broken.
+ * Record every Thaumcraft node, node jar and Ethereal Shard in loaded chunks at a fixed interval.
  *
  * <p>
- * Loaded chunks only: a node in an unloaded chunk can't change, and appears again the next time its chunk is
- * loaded during a census. The walk is the loaded tile list, once per interval, on the server thread.
+ * Each entry is the tile's full NBT. Aspects, base aspects, node type and modifier are all in the NBT, so the class
+ * calls no Thaumcraft API, and a pack with no Thaumcraft gets an empty census. In two consecutive censuses, a verifier
+ * tells a bee's slow refill from the jump of an edit. A node that is gone in the second census was jarred or broken,
+ * or its chunk is unloaded.
+ *
+ * <p>
+ * The census reads only the loaded tile list of each world, on the server thread. A node in an unloaded chunk
+ * doesn't change, and is in the next census taken while its chunk is loaded.
  */
 public final class NodeCensus {
 
@@ -35,17 +39,22 @@ public final class NodeCensus {
     private final long intervalTicks;
     private long tickCounter;
 
-    public NodeCensus(AuditLogger logger, MinecraftServer server, String[] tileClasses, int minutes) {
+    /**
+     * Read the fully-qualified tile entity class names from {@link AuditConfig#nodeCensusTiles}, with blank entries
+     * skipped, and the interval in minutes from {@link AuditConfig#nodeCensusMinutes}.
+     */
+    public NodeCensus(AuditLogger logger, MinecraftServer server) {
         this.logger = logger;
         this.server = server;
         this.classes = new HashSet<>();
-        for (String c : tileClasses) {
-            if (!c.trim()
+        for (String rawClass : AuditConfig.nodeCensusTiles) {
+            if (!rawClass.trim()
                 .isEmpty()) {
-                classes.add(c.trim());
+                classes.add(rawClass.trim());
             }
         }
-        this.intervalTicks = minutes * 60L * 20L;
+        final long TICKS_PER_MINUTE = 60L * 20L;
+        this.intervalTicks = AuditConfig.nodeCensusMinutes * TICKS_PER_MINUTE;
     }
 
     @SubscribeEvent
@@ -54,12 +63,12 @@ public final class NodeCensus {
             return;
         }
         if (++tickCounter >= intervalTicks) {
-            census("interval");
+            takeCensus("interval");
         }
     }
 
-    /** Also wired to /audit snapshot. */
-    public void census(String trigger) {
+    /** Write a {@code node_census} snapshot file, and restart the interval. */
+    public void takeCensus(String trigger) {
         tickCounter = 0;
         final JsonArray nodes = new JsonArray();
         int worlds = 0;
@@ -70,44 +79,45 @@ public final class NodeCensus {
             worlds++;
             @SuppressWarnings("unchecked")
             final List<TileEntity> tiles = world.loadedTileEntityList;
-            for (TileEntity te : tiles) {
-                if (te == null || !classes.contains(
-                    te.getClass()
-                        .getName())) {
+            for (TileEntity tile : tiles) {
+                if (!(tile != null && classes.contains(
+                    tile.getClass()
+                        .getName()))) {
                     continue;
                 }
-                final JsonObject o = new JsonObject();
-                o.addProperty("dim", world.provider.dimensionId);
-                o.addProperty("x", te.xCoord);
-                o.addProperty("y", te.yCoord);
-                o.addProperty("z", te.zCoord);
-                o.addProperty(
+                final JsonObject node = new JsonObject();
+                node.addProperty("dim", world.provider.dimensionId);
+                node.addProperty("x", tile.xCoord);
+                node.addProperty("y", tile.yCoord);
+                node.addProperty("z", tile.zCoord);
+                node.addProperty(
                     "class",
-                    te.getClass()
+                    tile.getClass()
                         .getName());
                 try {
                     final NBTTagCompound tag = new NBTTagCompound();
-                    te.writeToNBT(tag);
-                    o.addProperty("nbtB64", JsonUtil.nbtToB64(tag));
-                } catch (RuntimeException e) {
-                    o.addProperty("nbtError", String.valueOf(e));
+                    tile.writeToNBT(tag);
+                    node.addProperty("nbtB64", JsonUtil.nbtToB64(tag));
+                } catch (RuntimeException e) { // noqa: NAR142, degrade and report over Thaumcraft writeToNBT()
+                    node.addProperty("nbtError", String.valueOf(e));
                 }
-                nodes.add(o);
+                nodes.add(node);
             }
         }
-        final JsonObject ref = new JsonObject();
-        ref.addProperty("trigger", trigger);
-        ref.addProperty("nodes", nodes.size());
-        ref.addProperty("worlds", worlds);
+        final JsonObject reference = new JsonObject();
+        reference.addProperty("trigger", trigger);
+        reference.addProperty("nodes", nodes.size());
+        reference.addProperty("worlds", worlds);
         final JsonObject file = new JsonObject();
         file.add("nodes", nodes);
         logger.logSnapshot(
-            "node_census",
-            String.format(
-                "nodes-%d.json.gz",
-                logger.clock()
-                    .get()),
-            () -> file,
-            ref);
+            new AuditLogger.Snapshot(
+                "node_census",
+                String.format(
+                    "nodes-%d.json.gz",
+                    logger.clock()
+                        .get()),
+                () -> file,
+                reference));
     }
 }

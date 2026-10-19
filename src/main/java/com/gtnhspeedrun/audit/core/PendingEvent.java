@@ -3,24 +3,8 @@ package com.gtnhspeedrun.audit.core;
 import com.google.gson.JsonObject;
 
 /**
- * An event captured on a game/network thread, waiting for the writer thread to assign it a seq and chain it.
- * The data tree must not be touched by the producer after handoff — build it fresh, pass it, drop the reference.
+ * An event captured on a game or network thread, queued for the writer thread. The writer thread assigns the event a
+ * seq and adds the event to the chain. Build {@code data} fresh for each event, and NEVER change {@code data} after
+ * the handoff.
  */
-public final class PendingEvent {
-
-    public final String type;
-    public final JsonObject data;
-    public final long wallMs;
-    public final long ticks;
-    public final long onlineTicks;
-    public final String thread;
-
-    public PendingEvent(String type, JsonObject data, long wallMs, long ticks, long onlineTicks, String thread) {
-        this.type = type;
-        this.data = data;
-        this.wallMs = wallMs;
-        this.ticks = ticks;
-        this.onlineTicks = onlineTicks;
-        this.thread = thread;
-    }
-}
+public record PendingEvent(String type, JsonObject data, TickClock.Reading clocks, String threadName) {}

@@ -1,12 +1,14 @@
 package com.gtnhspeedrun.audit.trackers;
 
+import org.jetbrains.annotations.Nullable;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
 /**
- * Where a formed multiblock sits: the box of the positions its structure check visited (StructureBounds) and the
- * controller's facing. rotation and flip are null for a controller that is not a StructureLib IAlignment.
+ * Describe where a formed multiblock is: the box of the positions that its structure check visited, from
+ * {@link StructureBounds}, and the controller's facing.
  */
 public final class MultiblockFootprint {
 
@@ -16,21 +18,30 @@ public final class MultiblockFootprint {
     public final String rotation;
     public final String flip;
 
-    public MultiblockFootprint(int[] bounds, String facing, String rotation, String flip) {
+    /** @param alignment null for a controller that is not a StructureLib {@code IAlignment} */
+    public MultiblockFootprint(int[] bounds, String facing, @Nullable Alignment alignment) {
         this.bounds = bounds;
         this.facing = facing;
-        this.rotation = rotation;
-        this.flip = flip;
+        this.rotation = alignment == null ? null : alignment.rotation();
+        this.flip = alignment == null ? null : alignment.flip();
     }
 
-    /** The controller's NBT keeps this key, so a footprint is logged again only when it changes. */
-    public String key() {
-        final StringBuilder sb = new StringBuilder();
-        for (int v : bounds) {
-            sb.append(v)
+    /** Describe a controller that is not a StructureLib {@code IAlignment}, and so has only a front facing. */
+    public static MultiblockFootprint ofFacing(int[] bounds, String facing) {
+        return new MultiblockFootprint(bounds, facing, null);
+    }
+
+    /**
+     * Return the dedupe key. The controller saves the key of the last logged footprint in its NBT, so a footprint is
+     * logged again only when the key changes.
+     */
+    public String formatKey() {
+        final StringBuilder key = new StringBuilder();
+        for (int coordinate : bounds) {
+            key.append(coordinate)
                 .append(',');
         }
-        return sb.append(facing)
+        return key.append(facing)
             .append('/')
             .append(rotation)
             .append('/')
@@ -38,11 +49,11 @@ public final class MultiblockFootprint {
             .toString();
     }
 
-    void writeTo(JsonObject data) {
+    public void writeTo(JsonObject data) {
         if (bounds != null) {
             final JsonArray box = new JsonArray();
-            for (int v : bounds) {
-                box.add(new JsonPrimitive(v));
+            for (int coordinate : bounds) {
+                box.add(new JsonPrimitive(coordinate));
             }
             data.add("bounds", box);
         }
@@ -56,4 +67,7 @@ public final class MultiblockFootprint {
             data.addProperty("flip", flip);
         }
     }
+
+    /** The rotation and the flip of a StructureLib {@code IAlignment} controller, by enum constant name. */
+    public record Alignment(String rotation, String flip) {}
 }

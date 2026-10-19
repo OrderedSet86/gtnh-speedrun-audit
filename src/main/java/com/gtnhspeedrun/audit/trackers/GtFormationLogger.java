@@ -1,14 +1,20 @@
 package com.gtnhspeedrun.audit.trackers;
 
 /**
- * Added to MTEMultiBlockBase by the audit mixin, so a subclass that forms outside checkStructure (TecTech's
- * TTMultiblockBase) logs through the same marker, hatch scan and footprint.
+ * Log a multiblock formation with the marker, hatch scan and footprint of {@code MTEMultiBlockBase}.
+ *
+ * <p>
+ * A mixin adds this interface to {@code MTEMultiBlockBase}. The mixin of a subclass that forms outside
+ * {@code checkStructure}, such as TecTech's {@code TTMultiblockBase}, then calls the same methods.
  */
 public interface GtFormationLogger {
 
-    /** Called right after the structure check that formed the multiblock, while its StructureBounds frame is open. */
-    void audit$logFormation();
+    /**
+     * Call right after the structure check that formed the multiblock, while the multiblock's
+     * {@link StructureBounds} frame is open.
+     */
+    void audit$logFormation(); // noqa: NAR130
 
-    /** Called after a check that found an already-formed multiblock still formed, while its frame is open. */
-    void audit$logFootprintChange();
+    /** Call after a check of a formed multiblock that left the multiblock formed, while its frame is open. */
+    void audit$logFootprintChange(); // noqa: NAR130
 }

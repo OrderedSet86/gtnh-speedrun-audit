@@ -2,6 +2,7 @@ package com.gtnhspeedrun.audit.compat;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import net.minecraft.item.Item;
@@ -9,6 +10,7 @@ import net.minecraft.server.MinecraftServer;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.gtnhspeedrun.audit.AuditConfig;
 import com.gtnhspeedrun.audit.core.AuditLogger;
 import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
@@ -18,40 +20,39 @@ import appeng.api.storage.data.IAEFluidStack;
 import appeng.api.storage.data.IAEItemStack;
 import appeng.hooks.TickHandler;
 import appeng.me.Grid;
+import appeng.me.GridStorage;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * Periodic per-network census of every loaded AE2 grid: counts only, taken in a single tick. Only
- * instantiated when AE2 is loaded.
+ * Take a periodic census of every loaded AE2 grid, as counts only, within one server tick. The class references AE2
+ * types, so construct it only when AE2 is loaded.
  *
  * <p>
- * Cadence is coarser while the server is empty — item injection needs a player online; AFK automation drift
- * between censuses is expected and the bracketing censuses still bound it.
+ * The interval is longer while the server is empty, because a player must be online to put items into a network.
+ * AFK automation still changes the counts between censuses, and the censuses before and after bound that drift.
  *
  * <p>
- * getStorageList() is the network's cached aggregate (O(distinct types), no cell scans). Grid identity for
- * diffing across restarts is the persistent GridStorage id, reached through the one package-private accessor
- * ({@code Grid.getMyStorage()}) via a cached reflective call — Grid.getId() is random per instantiation.
+ * {@code getStorageList()} returns the network's cached aggregate, so a walk costs one step per distinct type and
+ * scans no cell. The grid id is the {@code GridStorage} id. The {@code GridStorage} id stays the same across
+ * restarts, and {@code Grid.getId()} is random for each instance. The {@code GridStorage} id is read through the
+ * package-private {@code Grid.getMyStorage()}, by a cached reflective call.
  *
  * <p>
- * <b>Why the walk is not chunked.</b> Earlier versions spread it across ticks — first one grid per tick, then
- * a fixed number of item types per tick. Both were real machinery for a cost that does not need managing: at
- * the default hourly cadence a census is one tick in 72,000, and measured on the {@code Ae2Bench} harness a
- * full walk of a 100k-type network is ~12 ms of a 50 ms tick. One late tick an hour is not a perceptible
- * drag, and the amortized load is under 0.001% of a core.
- *
- * <p>
- * Taking it in one tick is also better evidence. A chunked census was a snapshot of a two-second window, so
- * an item moving mid-walk could be counted twice or missed once; an unchunked one is a snapshot of an
- * instant, and that whole class of discrepancy disappears.
- *
- * <p>
- * Because the census now runs entirely inside one server tick, nothing else mutates the grid while it reads,
- * so the live storage list can be iterated directly. Chunking is what forced the old code to copy every entry
- * into an array first, to avoid a ConcurrentModificationException across the tick boundary.
+ * The walk runs in one tick. At the default hourly interval a census is one tick in 72,000. On the {@code Ae2Bench}
+ * harness a full walk of a network with 100k types took about 12 ms of the 50 ms tick, and the amortized load is
+ * under 0.001% of a core. The alternative, a census spread across ticks, would count an item twice or miss the item
+ * when the item moves mid-walk. That census would also have to copy every entry to avoid a
+ * {@code ConcurrentModificationException}. No other code runs on the server thread during the walk, so the walk
+ * iterates the live storage list.
  */
 public final class Ae2Snapshotter {
+
+    /**
+     * The first census is one interval into the session. With {@code Long.MIN_VALUE} here,
+     * {@code tickCounter - lastCensusTick} would overflow to a negative number, and no automatic census would run.
+     */
+    public static final long INITIAL_LAST_CENSUS_TICK = 0;
 
     private final AuditLogger logger;
     private final KeyItemIndex keyItems;
@@ -61,25 +62,21 @@ public final class Ae2Snapshotter {
 
     private final KeyCache keyCache = new KeyCache();
     private long tickCounter;
-    /**
-     * Zero, not Long.MIN_VALUE: {@code tickCounter - Long.MIN_VALUE} overflows negative, so a MIN_VALUE start
-     * made the interval check permanently false and no automatic census ever ran (v0.5.0 and earlier). The
-     * first census is one interval into the session.
-     */
-    static final long INITIAL_LAST_CENSUS_TICK = 0;
-
     private long lastCensusTick = INITIAL_LAST_CENSUS_TICK;
     private int censusIndex;
     private Method getMyStorage;
     private boolean reflectionFailed;
 
-    public Ae2Snapshotter(AuditLogger logger, KeyItemIndex keyItems, MinecraftServer server, int activeMinutes,
-        int idleMinutes) {
+    /**
+     * Read the census interval in minutes while a player is online from {@link AuditConfig#ae2SnapshotActiveMinutes},
+     * and while the server is empty from {@link AuditConfig#ae2SnapshotIdleMinutes}.
+     */
+    public Ae2Snapshotter(AuditLogger logger, KeyItemIndex keyItems, MinecraftServer server) {
         this.logger = logger;
         this.keyItems = keyItems;
         this.server = server;
-        this.activeIntervalTicks = activeMinutes * 60L * 20L;
-        this.idleIntervalTicks = idleMinutes * 60L * 20L;
+        this.activeIntervalTicks = AuditConfig.ae2SnapshotActiveMinutes * 60L * 20L;
+        this.idleIntervalTicks = AuditConfig.ae2SnapshotIdleMinutes * 60L * 20L;
     }
 
     @SubscribeEvent
@@ -90,43 +87,46 @@ public final class Ae2Snapshotter {
         tickCounter++;
         final boolean anyoneOn = !server.getConfigurationManager().playerEntityList.isEmpty();
         final long interval = anyoneOn ? activeIntervalTicks : idleIntervalTicks;
-        if (censusDue(tickCounter, lastCensusTick, interval)) {
+        if (isCensusDue(tickCounter, lastCensusTick, interval)) {
             requestCensus();
         }
     }
 
-    static boolean censusDue(long tickCounter, long lastCensusTick, long interval) {
+    public static boolean isCensusDue(long tickCounter, long lastCensusTick, long interval) {
         return tickCounter - lastCensusTick >= interval;
     }
 
-    /** Also wired to /audit snapshot. */
+    /**
+     * Take a census of every loaded grid now, and restart the interval. A silent failure would leave the run with no
+     * AE2 evidence, unnoticed until a verifier opens the export. The failures are therefore collected and announced
+     * to every player.
+     */
     public void requestCensus() {
         lastCensusTick = tickCounter;
         censusIndex++;
-        // A failure here is announced to every player, not swallowed: a census that silently never happens
-        // leaves a run with no AE2 evidence and nobody finds out until a verifier opens the export.
         final List<String> failures = new ArrayList<>();
-        // Copied out first. Not strictly required — nothing here adds or removes a network — but it is a
-        // handful of entries, and it keeps the walk off AE2's own live collection.
         final List<Grid> grids = new ArrayList<>();
         try {
             for (Grid grid : TickHandler.INSTANCE.getGridList()) {
                 grids.add(grid);
             }
-        } catch (RuntimeException | LinkageError e) {
-            // AE2 not ticking yet, or API drift: no grid can be read, so the whole census is lost.
-            failures.add(AuditSinks.ae2CensusFailed(censusIndex, "grid list", null, e));
+        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over AE2 grid code
+            // the AE2 tick handler has no grid list yet, or the AE2 API changed. No grid can be read, so the whole
+            // census fails
+            failures.add(
+                AuditSinks.logAe2CensusFailure(new AuditSinks.Ae2CensusFailure(censusIndex, "grid list", null, e)));
             AuditSinks.announceAe2CensusFailure(failures);
             return;
         }
         for (Grid grid : grids) {
             String id = null;
             try {
-                id = gridId(grid);
-                censusGrid(grid, id);
-            } catch (RuntimeException | LinkageError e) {
-                // One broken grid must not void the rest of the census.
-                failures.add(AuditSinks.ae2CensusFailed(censusIndex, "grid", id, e));
+                id = readGridId(grid);
+                takeGridCensus(grid, id);
+            } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over AE2 grid code
+                // one broken grid must not stop the census of the other grids
+                failures
+                    .add(AuditSinks.logAe2CensusFailure(new AuditSinks.Ae2CensusFailure(censusIndex, "grid", id, e)));
             }
         }
         if (!failures.isEmpty()) {
@@ -135,10 +135,40 @@ public final class Ae2Snapshotter {
     }
 
     /**
-     * One grid's whole census, start to finish, inside the calling tick. Nothing else runs between the reads,
-     * so the item and fluid lists are consistent with each other and with the node count.
+     * Return the grid's persistent {@code GridStorage} id. When the reflection fails, return an ephemeral id from the
+     * grid's identity hash.
      */
-    private void censusGrid(Grid grid, String gridId) {
+    private String readGridId(Grid grid) {
+        if (!reflectionFailed && getMyStorage == null) {
+            try {
+                getMyStorage = Grid.class.getDeclaredMethod("getMyStorage");
+                getMyStorage.setAccessible(true);
+            } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, degrade and report over
+                                                                          // reflection into AE2 code
+                reflectionFailed = true;
+            }
+        }
+        if (!reflectionFailed) {
+            try {
+                final Object storage = getMyStorage.invoke(grid);
+                if (storage instanceof GridStorage gridStorage) {
+                    return String.valueOf(gridStorage.getID());
+                }
+            } catch (ReflectiveOperationException | RuntimeException ignored) { // noqa: NAR142, degrade and report over
+                                                                                // reflection into AE2 code
+                // fall through to the ephemeral id
+            }
+        }
+        // The ephemeral id lasts as long as the Grid object, and never past the session. While the Grid object lives,
+        // two censuses can match the grid by this id.
+        return "ephemeral-" + System.identityHashCode(grid);
+    }
+
+    /**
+     * Take one grid's census within the calling tick. No other code runs between the reads, so the item list, the
+     * fluid list and the node count are from one instant.
+     */
+    private void takeGridCensus(Grid grid, String gridId) {
         if (grid.isEmpty()) {
             return;
         }
@@ -146,7 +176,6 @@ public final class Ae2Snapshotter {
         if (storage == null) {
             return;
         }
-        // Iterated live: safe because the walk cannot span a tick boundary (see class javadoc).
         final ItemCensus items = walkItems(
             storage.getItemInventory()
                 .getStorageList(),
@@ -156,36 +185,65 @@ public final class Ae2Snapshotter {
             storage.getFluidInventory()
                 .getStorageList());
         emit(
-            gridId,
-            grid.getNodes()
-                .size(),
-            censusIndex,
-            items,
-            fluids);
+            new GridCensus(
+                gridId,
+                grid.getNodes()
+                    .size(),
+                censusIndex,
+                items,
+                fluids));
     }
 
-    private void emit(String gridId, int nodeCount, int census, ItemCensus items, FluidCensus fluids) {
+    /**
+     * Walk a whole item list in one pass. {@code Ae2Bench} times this method, so the live census must call this method
+     * and no copy of it.
+     *
+     * @param keyItems null for no watchlist check
+     */
+    public static ItemCensus walkItems(Iterable<IAEItemStack> list, KeyCache cache, KeyItemIndex keyItems) {
+        final ItemCensus out = new ItemCensus(cache, keyItems);
+        for (IAEItemStack ae : list) {
+            out.add(ae);
+        }
+        return out;
+    }
+
+    private static FluidCensus walkFluids(Iterable<IAEFluidStack> list) {
+        final FluidCensus out = new FluidCensus();
+        for (IAEFluidStack ae : list) {
+            out.add(ae);
+        }
+        return out;
+    }
+
+    /**
+     * Queue one {@code ae2_snapshot} line with the grid's totals for the writer thread, with a snapshot file of every
+     * item and fluid entry.
+     */
+    private void emit(GridCensus census) {
+        final ItemCensus items = census.items();
+        final FluidCensus fluids = census.fluids();
         final JsonObject ref = new JsonObject();
-        ref.addProperty("gridId", gridId);
-        ref.addProperty("census", census);
-        ref.addProperty("nodes", nodeCount);
+        ref.addProperty("gridId", census.gridId());
+        ref.addProperty("census", census.censusIndex());
+        ref.addProperty("nodes", census.nodeCount());
         ref.addProperty("distinctItems", items.size);
         ref.addProperty("totalItems", items.totalItems);
         ref.addProperty("distinctFluids", fluids.size);
-        ref.addProperty("craftableItems", items.craftableCount());
-        if (items.nbtVariantsCollapsed() > 0) {
-            // Without per-item NBT hashing, NBT variants of one item+meta sum into a single key. Recorded so a
-            // verifier can tell a collapsed census from one that genuinely had no variants.
-            ref.addProperty("nbtVariantsCollapsed", items.nbtVariantsCollapsed());
+        ref.addProperty("craftableItems", items.countCraftable());
+        if (items.countCollapsedNbtVariants() > 0) {
+            // NBT variants of one item and meta sum into one key. A verifier reads this count to tell a census that
+            // merged variants from one that had none.
+            ref.addProperty("nbtVariantsCollapsed", items.countCollapsedNbtVariants());
         }
 
         final String fileName = "ae2-" + logger.clock()
-            .get() + "-g" + gridId + ".json.gz";
-        logger.logSnapshot("ae2_snapshot", fileName, () -> {
+            .get() + "-g" + census.gridId() + ".json.gz";
+        logger.logSnapshot(new AuditLogger.Snapshot("ae2_snapshot", fileName, () -> {
             final JsonObject snapshot = new JsonObject();
-            snapshot.addProperty("gridId", gridId);
-            snapshot.addProperty("census", census);
-            snapshot.addProperty("nodes", nodeCount);
+            snapshot.addProperty("gridId", census.gridId());
+            snapshot.addProperty("census", census.censusIndex());
+            snapshot.addProperty("nodes", census.nodeCount());
             final JsonArray itemArr = new JsonArray();
             for (int i = 0; i < items.size; i++) {
                 final JsonObject o = new JsonObject();
@@ -206,25 +264,24 @@ public final class Ae2Snapshotter {
             }
             snapshot.add("fluids", fluidArr);
             return snapshot;
-        }, ref);
+        }, ref));
     }
 
     /**
-     * One census's item side. Holds only Strings and primitives — no live game state — which is what lets the
-     * writer thread serialize it after the tick that built it has ended.
+     * One census's item side. The arrays that the snapshot supplier reads contain strings and primitives only, with
+     * no reference to live game state. The writer thread can therefore serialize the census after its tick ends.
      *
      * <p>
-     * Keys are {@code modid:name@meta}. NBT is deliberately not part of the key: the census is an accounting
-     * of how much of what a network holds, and a tool's remaining durability or a suit's charge is not a
-     * quantity anyone audits. Variants of one item+meta therefore sum into a single entry — totals are exact
-     * either way, since merging only ever adds counts together. NBT-level evidence, where it is actually
-     * wanted, lives in the inventory snapshots and {@code nbt_edit} lines.
+     * A key is {@code modid:name@meta}, with no NBT. The census counts how much of each item a network stores, and
+     * no audit reads a tool's durability or a suit's charge. NBT variants of one item and meta therefore sum into
+     * one entry, and the totals stay exact. NBT evidence is in the inventory snapshots and the {@code nbt_edit}
+     * lines.
      *
      * <p>
-     * {@code craftable} is AE2's own flag: the network has a pattern (or a level emitter set to craft) for the
-     * item. AE2's crafting grid is a cell provider on the storage grid, so every craftable item is already in the
-     * list this walks — craftable-only items as a count-0 entry, stocked ones with the flag set on their entry.
-     * Recording it costs one boolean per entry the census visits anyway; no pattern or interface is read.
+     * {@code craftable} is the AE2 flag for an item that the network has a pattern for, or a level emitter set to
+     * craft. The AE2 crafting grid is a cell provider on the storage grid, so the storage list has every craftable
+     * item. A craftable-only item is an entry with count 0, and a stocked item has the flag on its entry. The census
+     * reads no pattern and no interface.
      */
     public static final class ItemCensus {
 
@@ -236,43 +293,49 @@ public final class Ae2Snapshotter {
 
         private final KeyCache cache;
         private final KeyItemIndex keyItems;
-        /** (item, meta) → output index, so NBT variants of one item find their existing entry. */
-        private final IndexMap index = new IndexMap();
+        private final IndexMap entryIndexById = new IndexMap();
         private int seen;
 
-        /** @param keyItems may be null (the bench has no watchlist to feed) */
+        /** @param keyItems null for no watchlist check */
         public ItemCensus(KeyCache cache, KeyItemIndex keyItems) {
             this.cache = cache;
             this.keyItems = keyItems;
         }
 
         /** Source entries that merged into an existing key because they differed only by NBT. */
-        public int nbtVariantsCollapsed() {
+        public int countCollapsedNbtVariants() {
             return seen - size;
         }
 
         /** Keys the network could autocraft at census time, stocked or not. */
-        public int craftableCount() {
-            int n = 0;
+        public int countCraftable() {
+            int craftableCount = 0;
             for (int i = 0; i < size; i++) {
                 if (craftable[i]) {
-                    n++;
+                    craftableCount++;
                 }
             }
-            return n;
+            return craftableCount;
         }
 
+        // every new key passes this one Sighting, so the walk allocates no Sighting per key
+        private static final KeyItemIndex.Sighting AE2_SIGHTING = new KeyItemIndex.Sighting("ae2", null);
+
+        /**
+         * Add one storage entry. An entry with the item and meta of an earlier entry is merged into the earlier entry:
+         * the counts add, and the craftable flags are ORed.
+         */
         public void add(IAEItemStack ae) {
             final Item item = ae.getItem();
             if (item == null) {
                 return;
             }
             seen++;
-            final long id = idKey(item, ae.getItemDamage());
+            final long id = packItemId(item, ae.getItemDamage());
             final long count = ae.getStackSize();
             totalItems += count;
 
-            final int existing = index.get(id);
+            final int existing = entryIndexById.get(id);
             if (existing >= 0) {
                 counts[existing] += count;
                 craftable[existing] |= ae.isCraftable();
@@ -287,211 +350,171 @@ public final class Ae2Snapshotter {
 
             if (size == keys.length) {
                 final int grown = size + (size >> 1) + 16;
-                final String[] k = new String[grown];
-                System.arraycopy(keys, 0, k, 0, size);
-                keys = k;
-                final long[] c = new long[grown];
-                System.arraycopy(counts, 0, c, 0, size);
-                counts = c;
-                final boolean[] f = new boolean[grown];
-                System.arraycopy(craftable, 0, f, 0, size);
-                craftable = f;
+                keys = Arrays.copyOf(keys, grown);
+                counts = Arrays.copyOf(counts, grown);
+                craftable = Arrays.copyOf(craftable, grown);
             }
-            index.put(id, size);
+            entryIndexById.put(id, size);
             keys[size] = key;
             counts[size] = count;
             craftable[size] = ae.isCraftable();
             size++;
 
             if (keyItems != null) {
-                keyItems.checkBase(key, key, "ae2", null);
+                keyItems.checkBase(key, key, AE2_SIGHTING);
             }
+        }
+
+        private static long packItemId(Item item, int meta) {
+            return ((long) Item.getIdFromItem(item) << 32) | (meta & 0xFFFFFFFFL);
         }
     }
 
+    /** One census's fluid side, in storage list order. */
     public static final class FluidCensus {
 
-        public String[] names;
-        public long[] amounts;
-        public int size;
-    }
+        private String[] names = new String[16];
+        private long[] amounts = new long[16];
+        private int size;
 
-    /**
-     * Walk a whole list in one go. Both the live census and {@code Ae2Bench} go through here, so the bench
-     * prices exactly the code the server runs.
-     *
-     * @param keyItems may be null (the bench has no watchlist to feed)
-     */
-    public static ItemCensus walkItems(Iterable<IAEItemStack> list, KeyCache cache, KeyItemIndex keyItems) {
-        final ItemCensus out = new ItemCensus(cache, keyItems);
-        for (IAEItemStack ae : list) {
-            out.add(ae);
-        }
-        return out;
-    }
-
-    private static FluidCensus walkFluids(Iterable<IAEFluidStack> list) {
-        final FluidCensus out = new FluidCensus();
-        out.names = new String[16];
-        out.amounts = new long[16];
-        for (IAEFluidStack ae : list) {
+        private void add(IAEFluidStack ae) {
             if (ae.getFluid() == null) {
-                continue;
+                return;
             }
-            if (out.size == out.names.length) {
-                final int grown = out.size * 2;
-                final String[] n = new String[grown];
-                System.arraycopy(out.names, 0, n, 0, out.size);
-                out.names = n;
-                final long[] a = new long[grown];
-                System.arraycopy(out.amounts, 0, a, 0, out.size);
-                out.amounts = a;
+            if (size == names.length) {
+                final int grown = size * 2;
+                names = Arrays.copyOf(names, grown);
+                amounts = Arrays.copyOf(amounts, grown);
             }
-            out.names[out.size] = ae.getFluid()
+            names[size] = ae.getFluid()
                 .getName();
-            out.amounts[out.size] = ae.getStackSize();
-            out.size++;
+            amounts[size] = ae.getStackSize();
+            size++;
         }
-        return out;
-    }
-
-    private static long idKey(Item item, int meta) {
-        return ((long) Item.getIdFromItem(item) << 32) | (meta & 0xFFFFFFFFL);
     }
 
     /**
-     * Persistent (item id, meta) → key string cache. The same few tens of thousands of keys recur on every
-     * census for the life of the server, so building them once turns the per-entry cost into one probe.
-     * Open-addressed to keep the walk allocation-free; null slot means empty, so no key value is reserved.
+     * Persistent (item id, meta) to key string cache. The same few tens of thousands of keys recur on every census
+     * for the life of the server, so a key string is built once and later lookups build no string. The table is
+     * open-addressed, so a lookup allocates nothing. An empty slot has a null value, so every id, 0 included, is a
+     * valid key.
      */
     public static final class KeyCache {
 
         private long[] ids = new long[1024];
-        private String[] vals = new String[1024];
+        private String[] values = new String[1024];
         private int size;
 
         public String get(long id) {
-            int i = slot(id, ids.length);
-            while (vals[i] != null) {
+            int i = computeSlot(id, ids.length);
+            while (values[i] != null) {
                 if (ids[i] == id) {
-                    return vals[i];
+                    return values[i];
                 }
                 i = (i + 1) & (ids.length - 1);
             }
             return null;
         }
 
-        public void put(long id, String val) {
+        public void put(long id, String value) {
             if ((size + 1) * 2 > ids.length) {
                 grow();
             }
-            int i = slot(id, ids.length);
-            while (vals[i] != null) {
+            insert(id, value);
+        }
+
+        private void grow() {
+            final long[] oldIds = ids;
+            final String[] oldValues = values;
+            ids = new long[oldIds.length * 2];
+            values = new String[oldValues.length * 2];
+            size = 0;
+            for (int j = 0; j < oldValues.length; j++) {
+                if (oldValues[j] != null) {
+                    insert(oldIds[j], oldValues[j]);
+                }
+            }
+        }
+
+        private void insert(long id, String value) {
+            int i = computeSlot(id, ids.length);
+            while (values[i] != null) {
                 if (ids[i] == id) {
-                    vals[i] = val;
+                    values[i] = value;
                     return;
                 }
                 i = (i + 1) & (ids.length - 1);
             }
             ids[i] = id;
-            vals[i] = val;
+            values[i] = value;
             size++;
         }
 
-        private void grow() {
-            final long[] oldIds = ids;
-            final String[] oldVals = vals;
-            ids = new long[oldIds.length * 2];
-            vals = new String[oldVals.length * 2];
-            size = 0;
-            for (int j = 0; j < oldVals.length; j++) {
-                if (oldVals[j] != null) {
-                    put(oldIds[j], oldVals[j]);
-                }
-            }
+        // the low bits of a packed id are the meta, and many items share a meta. Fibonacci hashing spreads the whole
+        // id over the slot index
+        private static int computeSlot(long id, int capacity) {
+            return (int) ((id * 0x9E3779B97F4A7C15L) >>> 40) & (capacity - 1);
         }
     }
 
-    /** Per-census (item id, meta) → output index, for merging NBT variants when hashing is off. */
+    /** Per-census (item id, meta) to output index, for merging NBT variants. */
     private static final class IndexMap {
 
         private long[] ids = new long[1024];
-        private int[] vals = newFilled(1024);
+        private int[] values = newFilled(1024);
         private int size;
 
-        private static int[] newFilled(int n) {
-            final int[] a = new int[n];
-            java.util.Arrays.fill(a, -1);
-            return a;
+        private static int[] newFilled(int length) {
+            final int[] filled = new int[length];
+            Arrays.fill(filled, -1);
+            return filled;
         }
 
-        int get(long id) {
-            int i = slot(id, ids.length);
-            while (vals[i] >= 0) {
+        private int get(long id) {
+            int i = KeyCache.computeSlot(id, ids.length);
+            while (values[i] >= 0) {
                 if (ids[i] == id) {
-                    return vals[i];
+                    return values[i];
                 }
                 i = (i + 1) & (ids.length - 1);
             }
             return -1;
         }
 
-        void put(long id, int val) {
+        private void put(long id, int value) {
             if ((size + 1) * 2 > ids.length) {
                 grow();
             }
-            int i = slot(id, ids.length);
-            while (vals[i] >= 0) {
+            insert(id, value);
+        }
+
+        private void grow() {
+            final long[] oldIds = ids;
+            final int[] oldValues = values;
+            ids = new long[oldIds.length * 2];
+            values = newFilled(oldValues.length * 2);
+            size = 0;
+            for (int j = 0; j < oldValues.length; j++) {
+                if (oldValues[j] >= 0) {
+                    insert(oldIds[j], oldValues[j]);
+                }
+            }
+        }
+
+        private void insert(long id, int value) {
+            int i = KeyCache.computeSlot(id, ids.length);
+            while (values[i] >= 0) {
                 if (ids[i] == id) {
-                    vals[i] = val;
+                    values[i] = value;
                     return;
                 }
                 i = (i + 1) & (ids.length - 1);
             }
             ids[i] = id;
-            vals[i] = val;
+            values[i] = value;
             size++;
         }
-
-        private void grow() {
-            final long[] oldIds = ids;
-            final int[] oldVals = vals;
-            ids = new long[oldIds.length * 2];
-            vals = newFilled(oldVals.length * 2);
-            size = 0;
-            for (int j = 0; j < oldVals.length; j++) {
-                if (oldVals[j] >= 0) {
-                    put(oldIds[j], oldVals[j]);
-                }
-            }
-        }
     }
 
-    /** Fibonacci-mixed slot: item ids are dense and low, which linear probing handles badly unmixed. */
-    private static int slot(long id, int capacity) {
-        return (int) ((id * 0x9E3779B97F4A7C15L) >>> 40) & (capacity - 1);
-    }
-
-    private String gridId(Grid grid) {
-        if (!reflectionFailed && getMyStorage == null) {
-            try {
-                getMyStorage = Grid.class.getDeclaredMethod("getMyStorage");
-                getMyStorage.setAccessible(true);
-            } catch (ReflectiveOperationException | RuntimeException e) {
-                reflectionFailed = true;
-            }
-        }
-        if (!reflectionFailed) {
-            try {
-                final Object storage = getMyStorage.invoke(grid);
-                if (storage instanceof appeng.me.GridStorage gs) {
-                    return String.valueOf(gs.getID());
-                }
-            } catch (ReflectiveOperationException | RuntimeException ignored) {
-                // Fall through to the ephemeral id.
-            }
-        }
-        // Ephemeral fallback: stable within this session only; the census index still allows within-session diffs.
-        return "ephemeral-" + System.identityHashCode(grid);
-    }
+    private record GridCensus(String gridId, int nodeCount, int censusIndex, ItemCensus items, FluidCensus fluids) {}
 }

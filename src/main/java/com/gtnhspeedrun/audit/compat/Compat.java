@@ -3,8 +3,9 @@ package com.gtnhspeedrun.audit.compat;
 import cpw.mods.fml.common.Loader;
 
 /**
- * Presence cache for every optionally-integrated mod. Resolved lazily because Loader state isn't final until
- * mod loading ends, then cached — isModLoaded walks a list every call.
+ * Cache whether each optional mod that the audit integrates with is loaded. The lookup is lazy, because the
+ * {@code Loader} state is final only after mod loading ends. The result is cached, because
+ * {@code Loader.isModLoaded()} does a map lookup and a mod-state lookup on every call.
  */
 public enum Compat {
 

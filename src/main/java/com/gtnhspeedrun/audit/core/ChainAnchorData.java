@@ -9,12 +9,13 @@ import net.minecraft.nbt.NBTTagList;
 import net.minecraft.nbt.NBTTagString;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldSavedData;
+import net.minecraftforge.common.util.Constants;
 
 /**
- * The in-world half of the tamper evidence. Saved with the overworld's map storage, so a backup restore rewinds
- * it together with the blocks: after a restore the external log's tail is ahead of this anchor, which is exactly
- * the signal the verifier reports as WORLD_ROLLBACK. The run clock and the milestone dedupe sets live here for
- * the same reason — they should rewind when the world does.
+ * Store the in-world half of the tamper evidence in the map storage of the overworld. A backup restore rewinds the
+ * anchor together with the blocks, and the tail of the external log is then ahead of the anchor. That difference is
+ * the WORLD_ROLLBACK verdict. The run clocks and the milestone dedupe sets are in the anchor too, so a restore
+ * rewinds them with the world.
  */
 public final class ChainAnchorData extends WorldSavedData {
 
@@ -26,15 +27,16 @@ public final class ChainAnchorData extends WorldSavedData {
     public long cumulativeTicks;
     public long lastWallMs;
     public boolean cleanShutdown = true;
-    /** The session that last saved the world. A crash leaves it equal to the crashed session's sid. */
+    /**
+     * The id of the session that last saved the world. After a crash, the field has the id of the crashed session.
+     */
     public String sessionId = "";
-    /** IGT convention: the run clocks are frozen until the first player movement (worldgen lag doesn't count). */
     public boolean timingStarted = false;
-    /** Wall-clock moment timing started — the RTA epoch. */
+    /** RTA counts from this wall-clock time. */
     public long timingStartWallMs;
-    /** Ticks with at least one player connected, timing-started gated like the IGT clock. */
+    /** Ticks after timing start with at least one player connected. */
     public long cumulativeOnlineTicks;
-    /** Hash of the last item ID table written to the log dir; an unchanged table is not written again. */
+    /** SHA-256 of the item ID table that was logged last. */
     public String idTableSha256 = "";
 
     public final Set<String> visitedDims = new HashSet<>();
@@ -46,7 +48,7 @@ public final class ChainAnchorData extends WorldSavedData {
         super(key);
     }
 
-    public static ChainAnchorData get(World overworld) {
+    public static ChainAnchorData loadOrCreate(World overworld) {
         ChainAnchorData data = (ChainAnchorData) overworld.mapStorage.loadData(ChainAnchorData.class, KEY);
         if (data == null) {
             data = new ChainAnchorData(KEY);
@@ -67,7 +69,7 @@ public final class ChainAnchorData extends WorldSavedData {
         lastWallMs = nbt.getLong("lastWallMs");
         cleanShutdown = nbt.getBoolean("cleanShutdown");
         sessionId = nbt.getString("sessionId");
-        // Migration: worlds audited before this field existed already have ticks on the clock.
+        // worlds audited before the timingStarted tag existed have ticks on the clock but no tag
         timingStarted = nbt.getBoolean("timingStarted") || cumulativeTicks > 0;
         timingStartWallMs = nbt.getLong("timingStartWallMs");
         cumulativeOnlineTicks = nbt.getLong("cumulativeOnlineTicks");
@@ -97,18 +99,18 @@ public final class ChainAnchorData extends WorldSavedData {
         writeSet(nbt, "formedMultiblocks", formedMultiblocks);
     }
 
-    private static void readSet(NBTTagCompound nbt, String key, Set<String> into) {
-        into.clear();
-        final NBTTagList list = nbt.getTagList(key, 8); // 8 = string
+    private static void readSet(NBTTagCompound nbt, String key, Set<String> values) {
+        values.clear();
+        final NBTTagList list = nbt.getTagList(key, Constants.NBT.TAG_STRING);
         for (int i = 0; i < list.tagCount(); i++) {
-            into.add(list.getStringTagAt(i));
+            values.add(list.getStringTagAt(i));
         }
     }
 
-    private static void writeSet(NBTTagCompound nbt, String key, Set<String> set) {
+    private static void writeSet(NBTTagCompound nbt, String key, Set<String> values) {
         final NBTTagList list = new NBTTagList();
-        for (String s : set) {
-            list.appendTag(new NBTTagString(s));
+        for (String value : values) {
+            list.appendTag(new NBTTagString(value));
         }
         nbt.setTag(key, list);
     }

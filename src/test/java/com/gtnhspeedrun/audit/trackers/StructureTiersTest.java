@@ -7,38 +7,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
-/** Which controller fields StructureTiers reads, on stand-in classes shaped like GT controllers. */
+/** Test which controller fields StructureTiers reads, on stand-in classes shaped like GT controllers. */
 class StructureTiersTest {
-
-    enum HeatingCoilLevel {
-        LV,
-        HV
-    }
-
-    static class Base {
-
-        int baseTier = 9; // stands in for shared plumbing; read because Base is not a GT base class
-    }
-
-    @SuppressWarnings("unused")
-    static class Controller extends Base {
-
-        private HeatingCoilLevel mCoilLevel = HeatingCoilLevel.HV;
-        private int mHeatingCapacity = 4500;
-        private int glassTier = 6;
-        private int casingTier = 3;
-        private int renderSawbladeTier = 2;
-        private int maxTier = 14;
-        private int currentRecipeTier = 1;
-        private long tempTier = 5;
-        private static int staticTier = 7;
-        private int notATierCount = 1;
-    }
 
     @Test
     void readsCoilHeatAndTierFields() {
@@ -68,12 +45,13 @@ class StructureTiersTest {
     }
 
     @Test
-    void tierNames() {
+    void tierNamesMatchStructureTiersButNotLookupsSettingsOrCounts() {
         assertTrue(StructureTiers.isTierName("motorTier"));
         assertTrue(StructureTiers.isTierName("mTier"));
         assertFalse(StructureTiers.isTierName("requiredPCBTier"));
         assertFalse(StructureTiers.isTierName("tiers"));
-        // the DEFC's casings and the steam multis' parts put "tier" first or in the middle
+        // the field names for the DEFC (Draconic Evolution Fusion Crafter) casings and the steam multiblock parts
+        // have "tier" first or in the middle
         assertTrue(StructureTiers.isTierName("mTierCasing"));
         assertTrue(StructureTiers.isTierName("mFusionTierCasing"));
         assertTrue(StructureTiers.isTierName("tierGearBoxCasing"));
@@ -86,20 +64,86 @@ class StructureTiersTest {
         assertFalse(StructureTiers.isTierName("frontier"));
     }
 
-    @SuppressWarnings("unused")
-    static class MTEEyeOfHarmony {
-
-        private int spacetimeCompressionFieldMetadata = 8;
-        private int timeAccelerationFieldMetadata = 7;
-        private long parallelAmount = 1;
-    }
-
     @Test
     void readsMetadataFieldTiers() {
         final Map<String, String> tiers = StructureTiers.read(new MTEEyeOfHarmony());
         assertEquals("8", tiers.get("spacetimeCompressionFieldMetadata"));
         assertEquals("7", tiers.get("timeAccelerationFieldMetadata"));
         assertFalse(tiers.containsKey("parallelAmount"));
+    }
+
+    @Test
+    void readsListedPaths() {
+        final Map<String, String> foundry = StructureTiers.read(new MTEExoFoundry());
+        assertEquals("3", foundry.get("foundryData.tier"));
+        assertEquals("[HELIOCAST,UNSET]", foundry.get("foundryData.modules"));
+        assertEquals(
+            "true",
+            StructureTiers.read(new MTEPlasmaForge())
+                .get("convergence"));
+    }
+
+    @Test
+    void readsByNameAClassWhoseFieldTypeCannotLoadOnThisSide() throws ReflectiveOperationException {
+        final Class<?> controller = Class
+            .forName(ClientFieldController.class.getName(), false, new ServerSideLoader(false));
+        assertEquals(Arrays.asList("casingTier", "glassTier"), StructureTiers.planKeys(controller));
+        final Constructor<?> make = controller.getDeclaredConstructor();
+        make.setAccessible(true);
+        final Map<String, String> tiers = StructureTiers.read(make.newInstance());
+        assertEquals("2", tiers.get("casingTier"));
+        assertEquals("4", tiers.get("glassTier"));
+        assertTrue(
+            StructureTiers.unreadable(controller)
+                .isEmpty());
+        assertTrue(
+            StructureTiers.unreadable(Controller.class)
+                .isEmpty());
+    }
+
+    @Test
+    void skipsAClassWhoseFieldsCanBeNeitherListedNorFound() throws ClassNotFoundException {
+        final Class<?> controller = Class
+            .forName(ClientFieldController.class.getName(), false, new ServerSideLoader(true));
+        assertEquals(
+            Collections.singletonList("glassTier"),
+            StructureTiers.planKeys(controller),
+            "the controller's own fields are skipped, its superclass is read");
+        assertEquals(Collections.singletonList("ClientFieldController"), StructureTiers.unreadable(controller));
+    }
+
+    enum HeatingCoilLevel {
+        LV,
+        HV
+    }
+
+    static class Base {
+
+        // StructureTiers reads baseTier, because Base is not one of the shared GT base classes
+        int baseTier = 9;
+    }
+
+    @SuppressWarnings("unused")
+    static class Controller extends Base {
+
+        private HeatingCoilLevel mCoilLevel = HeatingCoilLevel.HV;
+        private int mHeatingCapacity = 4500;
+        private int glassTier = 6;
+        private int casingTier = 3;
+        private int renderSawbladeTier = 2;
+        private int maxTier = 14;
+        private int currentRecipeTier = 1;
+        private long tempTier = 5;
+        private static int staticTier = 7;
+        private int notATierCount = 1;
+    }
+
+    @SuppressWarnings("unused")
+    static class MTEEyeOfHarmony {
+
+        private int spacetimeCompressionFieldMetadata = 8;
+        private int timeAccelerationFieldMetadata = 7;
+        private long parallelAmount = 1;
     }
 
     enum FoundryModule {
@@ -125,20 +169,10 @@ class StructureTiersTest {
         private boolean convergence = true;
     }
 
-    @Test
-    void readsListedPaths() {
-        final Map<String, String> foundry = StructureTiers.read(new MTEExoFoundry());
-        assertEquals("3", foundry.get("foundryData.tier"));
-        assertEquals("[HELIOCAST,UNSET]", foundry.get("foundryData.modules"));
-        assertEquals(
-            "true",
-            StructureTiers.read(new MTEPlasmaForge())
-                .get("convergence"));
-    }
-
     /**
-     * Defines ClientFieldController and its base itself and refuses ClientOnly; the rest comes from the test's loader.
-     * With hideClassFile, ClientFieldController's class file is not on offer as a resource either.
+     * Define ClientFieldController and its base in this loader, and refuse ClientOnly. Every other class comes from the
+     * loader of the test. With {@code hideClassFile}, the class file of ClientFieldController is not available as a
+     * resource either.
      */
     private static final class ServerSideLoader extends ClassLoader {
 
@@ -164,7 +198,7 @@ class StructureTiersTest {
             if (name.equals(ClientOnly.class.getName())) {
                 throw new ClassNotFoundException(name + " for invalid side SERVER");
             }
-            if (!name.equals(ClientFieldController.class.getName()) && !name.equals(ClientFieldBase.class.getName())) {
+            if (!(name.equals(ClientFieldController.class.getName()) || name.equals(ClientFieldBase.class.getName()))) {
                 return super.loadClass(name, resolve);
             }
             synchronized (getClassLoadingLock(name)) {
@@ -174,9 +208,9 @@ class StructureTiersTest {
                 }
                 try (InputStream in = getParent().getResourceAsStream(name.replace('.', '/') + ".class")) {
                     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-                    final byte[] buf = new byte[4096];
-                    for (int n; (n = in.read(buf)) > 0;) {
-                        out.write(buf, 0, n);
+                    final byte[] buffer = new byte[4096];
+                    for (int count; (count = in.read(buffer)) > 0;) {
+                        out.write(buffer, 0, count);
                     }
                     final byte[] bytes = out.toByteArray();
                     return defineClass(name, bytes, 0, bytes.length);
@@ -185,34 +219,5 @@ class StructureTiersTest {
                 }
             }
         }
-    }
-
-    @Test
-    void readsByNameAClassWhoseFieldTypeCannotLoadOnThisSide() throws ReflectiveOperationException {
-        final Class<?> controller = Class
-            .forName(ClientFieldController.class.getName(), false, new ServerSideLoader(false));
-        assertEquals(java.util.Arrays.asList("casingTier", "glassTier"), StructureTiers.planKeys(controller));
-        final java.lang.reflect.Constructor<?> make = controller.getDeclaredConstructor();
-        make.setAccessible(true);
-        final Map<String, String> tiers = StructureTiers.read(make.newInstance());
-        assertEquals("2", tiers.get("casingTier"));
-        assertEquals("4", tiers.get("glassTier"));
-        assertTrue(
-            StructureTiers.unreadable(controller)
-                .isEmpty());
-        assertTrue(
-            StructureTiers.unreadable(Controller.class)
-                .isEmpty());
-    }
-
-    @Test
-    void skipsAClassWhoseFieldsCanBeNeitherListedNorFound() throws ClassNotFoundException {
-        final Class<?> controller = Class
-            .forName(ClientFieldController.class.getName(), false, new ServerSideLoader(true));
-        assertEquals(
-            Collections.singletonList("glassTier"),
-            StructureTiers.planKeys(controller),
-            "the controller's own fields are skipped, its superclass is read");
-        assertEquals(Collections.singletonList("ClientFieldController"), StructureTiers.unreadable(controller));
     }
 }

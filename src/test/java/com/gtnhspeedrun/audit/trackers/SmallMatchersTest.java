@@ -13,26 +13,26 @@ import java.util.TreeMap;
 
 import org.junit.jupiter.api.Test;
 
-/** Allowlist, watch-list and ID-table hash matching. */
+/** Test allowlist matching, watch-list matching and the hash of the item ID table. */
 class SmallMatchersTest {
 
     @Test
-    void commandOutputAllowlist() {
+    void commandOutputAllowlistMatchesCommandOrCommandAndFirstArg() {
         final Set<String> allow = new HashSet<>(Arrays.asList("gamerule", "gt global_energy_display"));
-        assertTrue(CommandOutputCapture.allowed(allow, "gamerule", "dofiretick"));
-        assertTrue(CommandOutputCapture.allowed(allow, "gt", "global_energy_display"));
-        assertFalse(CommandOutputCapture.allowed(allow, "gt", "global_energy_add"));
-        assertFalse(CommandOutputCapture.allowed(allow, "msg", "bob"));
-        assertFalse(CommandOutputCapture.allowed(allow, "gt", null));
+        assertTrue(CommandOutputCapture.isAllowed(allow, "gamerule", "dofiretick"));
+        assertTrue(CommandOutputCapture.isAllowed(allow, "gt", "global_energy_display"));
+        assertFalse(CommandOutputCapture.isAllowed(allow, "gt", "global_energy_add"));
+        assertFalse(CommandOutputCapture.isAllowed(allow, "msg", "bob"));
+        assertFalse(CommandOutputCapture.isAllowed(allow, "gt", null));
     }
 
     @Test
-    void watchedBlocksByNameOrMeta() {
+    void watchedBlockMatchesByNameOrByNameAndMeta() {
         final Set<String> watched = new HashSet<>(Arrays.asList("Thaumcraft:blockJar@2", "AWWayofTime:Altar"));
-        assertTrue(MachinePlacementTracker.watches(watched, "Thaumcraft:blockJar", 2));
-        assertFalse(MachinePlacementTracker.watches(watched, "Thaumcraft:blockJar", 0));
-        assertTrue(MachinePlacementTracker.watches(watched, "AWWayofTime:Altar", 0));
-        assertFalse(MachinePlacementTracker.watches(new HashSet<>(), "AWWayofTime:Altar", 0));
+        assertTrue(MachinePlacementTracker.isWatched(watched, "Thaumcraft:blockJar", 2));
+        assertFalse(MachinePlacementTracker.isWatched(watched, "Thaumcraft:blockJar", 0));
+        assertTrue(MachinePlacementTracker.isWatched(watched, "AWWayofTime:Altar", 0));
+        assertFalse(MachinePlacementTracker.isWatched(new HashSet<>(), "AWWayofTime:Altar", 0));
     }
 
     @Test

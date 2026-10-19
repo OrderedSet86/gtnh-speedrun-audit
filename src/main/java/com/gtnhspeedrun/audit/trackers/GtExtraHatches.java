@@ -5,12 +5,16 @@ import java.util.List;
 import gregtech.api.metatileentity.implementations.MTEHatch;
 
 /**
- * Added to TecTech's TTMultiblockBase by the audit mixin: the multi-amp and laser hatches it keeps in its own
- * lists (eEnergyMulti, eDynamoMulti), which never reach the GT base lists the formation scan reads.
+ * Expose the multi-amp and laser hatches of TecTech's {@code TTMultiblockBase}. A mixin implements this interface on
+ * {@code TTMultiblockBase}.
+ *
+ * <p>
+ * These hatches are in {@code eEnergyMulti} and {@code eDynamoMulti}, and not in the hatch lists of
+ * {@code MTEMultiBlockBase} that the formation scan reads.
  */
 public interface GtExtraHatches {
 
-    List<? extends MTEHatch> audit$extraEnergyHatches();
+    List<? extends MTEHatch> audit$extraEnergyHatches(); // noqa: NAR130
 
-    List<? extends MTEHatch> audit$extraDynamoHatches();
+    List<? extends MTEHatch> audit$extraDynamoHatches(); // noqa: NAR130
 }

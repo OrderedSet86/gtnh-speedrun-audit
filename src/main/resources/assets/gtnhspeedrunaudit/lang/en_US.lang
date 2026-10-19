@@ -1,0 +1,29 @@
+gtnhspeedrunaudit.command.reply=[audit] %s
+gtnhspeedrunaudit.command.usage=/audit status|verify|snapshot|export
+gtnhspeedrunaudit.command.not_running=Audit is NOT running — this run is not being audited (see server log).
+gtnhspeedrunaudit.command.status.session=session #%s  startup verdict: %s
+gtnhspeedrunaudit.command.status.clocks=chain head seq %s  |  igt %s  |  online %s  |  rta %s
+gtnhspeedrunaudit.command.status.writer_dead=WRITER DEAD — logging has stopped, check the server log!
+gtnhspeedrunaudit.command.status.writer_alive=writer alive, queue depth %s
+gtnhspeedrunaudit.command.status.dir=audit dir: %s
+gtnhspeedrunaudit.command.ticks=%s ticks (%sh%sm in-game)
+gtnhspeedrunaudit.command.rta=%sh%sm
+gtnhspeedrunaudit.command.rta.not_started=not started
+gtnhspeedrunaudit.command.verify.started=verifying chain up to seq %s…
+gtnhspeedrunaudit.command.verify.problem=  %s
+gtnhspeedrunaudit.command.verify.result=chain %s (%s lines, seq %s..%s)
+gtnhspeedrunaudit.command.verify.failed=verify failed: %s
+gtnhspeedrunaudit.command.snapshot.none=no snapshotters active
+gtnhspeedrunaudit.command.snapshot.queued=%s snapshot(s) queued (written in background)
+gtnhspeedrunaudit.command.export.building=building export (%s MB of logs)…
+gtnhspeedrunaudit.command.export.ready=export ready (%s MB). Send only this file:
+gtnhspeedrunaudit.command.export.path=%s/speedrun-audit/%s/export/%s
+gtnhspeedrunaudit.command.export.folder.server=<server folder>
+gtnhspeedrunaudit.command.export.folder.instance=<instance folder>
+gtnhspeedrunaudit.command.export.landmark.server=%s = the folder with server.properties
+gtnhspeedrunaudit.command.export.landmark.instance=%s = the folder with mods/ and saves/
+gtnhspeedrunaudit.command.export.failed=export FAILED: %s
+gtnhspeedrunaudit.multiblock.formingNotRecorded=[GTNH Speedrun Audit] The audit mod could not record a multiblock forming (%s at dim %s, %s %s %s: %s). The machine is not affected. This run is missing that evidence: please report this to @.order on Discord.
+gtnhspeedrunaudit.multiblock.footprintNotRecorded=[GTNH Speedrun Audit] The audit mod could not record a multiblock footprint change (%s at dim %s, %s %s %s: %s). The machine is not affected. This run is missing that evidence: please report this to @.order on Discord.
+gtnhspeedrunaudit.ae2.censusNotRecorded=[GTNH Speedrun Audit] The audit mod could not record its AE2 network snapshot (%s). Your AE2 network is not affected. This run is missing AE2 evidence: please report this to @.order on Discord.
+gtnhspeedrunaudit.ae2.censusFailures=%s failures, first: %s

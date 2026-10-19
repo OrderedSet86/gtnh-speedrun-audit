@@ -10,9 +10,9 @@ import net.minecraft.nbt.NBTTagString;
 import org.junit.jupiter.api.Test;
 
 /**
- * The canonical NBT hash is load-bearing for chain verifiability: NBTTagCompound is HashMap-backed, so two
- * identical tags built in different key orders serialize differently through vanilla paths. If these
- * invariants break, months-old snapshot hashes stop matching their re-computed values.
+ * Test the canonical NBT hash. NBTTagCompound is backed by a HashMap, so two equal tags built in different key orders
+ * can serialize differently through vanilla code. If these rules break, a snapshot hash from months ago no longer
+ * matches the hash computed again.
  */
 class JsonUtilTest {
 
@@ -83,7 +83,7 @@ class JsonUtilTest {
     }
 
     @Test
-    void chainLineHashingIsExactBytes() {
-        assertEquals(JsonUtil.sha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    void sha256HexOfAbcIsTheFipsTestVector() {
+        assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", JsonUtil.sha256Hex("abc"));
     }
 }

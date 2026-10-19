@@ -6,8 +6,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 /**
- * Producer-side facade over the writer. Safe from any thread — commands arrive on the RCON thread, NEI cheats
- * on the netty thread — because it only captures timestamps and enqueues.
+ * Timestamp events on the producer thread and queue them for {@link LogWriter}. Any thread can log through this
+ * class, because a call only reads the atomic clocks and queues the event. Commands arrive on the RCON thread, and
+ * NEI cheat packets arrive on the netty thread.
  */
 public final class AuditLogger {
 
@@ -24,26 +25,19 @@ public final class AuditLogger {
             new PendingEvent(
                 type,
                 data,
-                System.currentTimeMillis(),
-                clock.get(),
-                clock.getOnline(),
+                clock.read(),
                 Thread.currentThread()
                     .getName()));
     }
 
-    /**
-     * The supplier runs on the writer thread — it must close over an immutable struct captured beforehand,
-     * never over live game state.
-     */
-    public void logSnapshot(String type, String fileName, Supplier<JsonElement> content, JsonObject refData) {
+    public void logSnapshot(Snapshot snapshot) {
         writer.submitSnapshot(
-            type,
-            fileName,
-            content,
-            refData,
-            System.currentTimeMillis(),
-            clock.get(),
-            clock.getOnline());
+            new LogWriter.SnapshotJob(
+                snapshot.type(),
+                snapshot.fileName(),
+                snapshot.content(),
+                snapshot.refData(),
+                clock.read()));
     }
 
     public TickClock clock() {
@@ -53,4 +47,12 @@ public final class AuditLogger {
     public LogWriter writer() {
         return writer;
     }
+
+    /**
+     * A snapshot file and its reference line.
+     *
+     * @param content runs on the writer thread. The supplier must close over a copy captured beforehand, NEVER over
+     *                live game state.
+     */
+    public record Snapshot(String type, String fileName, Supplier<JsonElement> content, JsonObject refData) {}
 }

@@ -9,6 +9,7 @@ import java.util.Set;
 import net.minecraft.command.ICommand;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.IChatComponent;
 
 import com.google.gson.JsonArray;
@@ -19,57 +20,49 @@ import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
 
 /**
- * The text a command sent back to whoever ran it, for an allowlist of query-style commands
- * (`commandOutputCapture`): `/gt global_energy_display` prints a team's wireless balance, `/gamerule` with one
- * argument prints the value. The command line alone never says what they printed (R5 was settled by a chat
- * screenshot).
+ * Log the text that a query-style command sends back to its sender, for the commands in the
+ * {@code commandOutputCapture} allowlist.
  *
  * <p>
- * The vanilla mixins bracket CommandHandler.executeCommand and feed every chat line the sender receives in
- * between. Commands execute synchronously on the calling thread (server or RCON), so a thread-local scopes the
- * capture to exactly one command, and only lines addressed to its own sender are kept — notifications to other
- * ops are not this command's reply. Anything off the allowlist is never buffered, so player conversation through
- * /msg and friends cannot end up in the log.
+ * The command line alone doesn't contain what the command printed. For example, {@code /gt global_energy_display}
+ * prints a team's wireless balance, and {@code /gamerule} with one argument prints the rule's value.
+ *
+ * <p>
+ * Mixins call {@link #begin} and {@link #end} around {@code CommandHandler.executeCommand}, and {@link #captureLine}
+ * for every chat line a hooked sender receives. A command runs synchronously on the calling thread, the server thread
+ * or the RCON thread. Each thread therefore has a separate capture, in a thread-local. Only lines sent to the
+ * command's sender are kept, because a notification to other ops is not the command's reply. A command off the
+ * allowlist is buffered only when an allowlisted command runs it, so player conversation through {@code /msg} and
+ * similar commands doesn't reach the log.
  */
 public final class CommandOutputCapture {
 
     private static final int MAX_CHARS = 4096;
     private static final int MAX_LINES = 64;
 
-    private static final class Capture {
-
-        final ICommandSender sender;
-        final String command;
-        final String firstArg;
-        final List<String> lines = new ArrayList<>();
-        int chars;
-        boolean truncated;
-        int depth = 1;
-        final int tick = tick();
-
-        Capture(ICommandSender sender, String command, String firstArg) {
-            this.sender = sender;
-            this.command = command;
-            this.firstArg = firstArg;
-        }
-    }
-
     private static final ThreadLocal<Capture> CURRENT = new ThreadLocal<>();
+    // static: built from the static AuditConfig list on first use, so a config change takes effect after a restart
     private static volatile Set<String> allowlist;
 
     private CommandOutputCapture() {}
 
-    /** HEAD of executeCommand. {@code resolved} is the command the name maps to, or null if unknown. */
+    /**
+     * Call at the head of {@code executeCommand}.
+     *
+     * @param resolved the command that the typed name maps to, or null for an unknown name
+     */
     public static void begin(ICommandSender sender, String rawLine, ICommand resolved) {
         final Capture open = CURRENT.get();
-        if (open != null && open.tick == tick()) {
-            open.depth++; // a command running another command: the outer capture keeps collecting
+        if (open != null && open.tick == readTick()) {
+            // a command that runs another command. The inner command's lines go to the outer capture
+            open.depth++;
             return;
         }
-        // A capture from an earlier tick never saw its RETURN (an Error escaped executeCommand); drop it.
+        // a capture from an earlier tick got no end() call, because an exception escaped executeCommand(). Drop the
+        // capture
         CURRENT.remove();
         if (sender == null || GtnhSpeedrunAudit.session() == null
-            || sender.getEntityWorld() != null && sender.getEntityWorld().isRemote) {
+            || (sender.getEntityWorld() != null && sender.getEntityWorld().isRemote)) {
             return;
         }
         String line = rawLine == null ? "" : rawLine.trim();
@@ -82,35 +75,35 @@ public final class CommandOutputCapture {
             : resolved.getCommandName()
                 .toLowerCase(Locale.ROOT);
         final String firstArg = parts.length > 1 ? parts[1].toLowerCase(Locale.ROOT) : null;
-        if (!allowed(allowlist(), name, firstArg) && !allowed(allowlist(), typed, firstArg)) {
+        if (!isAllowed(readAllowlist(), name, firstArg) && !isAllowed(readAllowlist(), typed, firstArg)) {
             return;
         }
         CURRENT.set(new Capture(sender, name, firstArg));
     }
 
-    /** Every chat line any of the hooked senders receives; kept only inside a capture and only for its sender. */
-    public static void line(ICommandSender receiver, IChatComponent message) {
-        final Capture c = CURRENT.get();
-        if (c == null || message == null || !sameSender(c.sender, receiver)) {
+    /** Keep the chat line when a capture is open and the receiver is the capture's sender. */
+    public static void captureLine(ICommandSender receiver, IChatComponent message) {
+        final Capture capture = CURRENT.get();
+        if (capture == null || message == null || !isSameSender(capture.sender, receiver)) {
             return;
         }
-        if (c.lines.size() >= MAX_LINES || c.chars >= MAX_CHARS) {
-            c.truncated = true;
+        if (capture.lines.size() >= MAX_LINES || capture.chars >= MAX_CHARS) {
+            capture.truncated = true;
             return;
         }
         String text = JsonUtil.stripFormatting(message.getUnformattedText());
-        if (c.chars + text.length() > MAX_CHARS) {
-            text = text.substring(0, MAX_CHARS - c.chars);
-            c.truncated = true;
+        if (capture.chars + text.length() > MAX_CHARS) {
+            text = text.substring(0, MAX_CHARS - capture.chars);
+            capture.truncated = true;
         }
-        c.lines.add(text);
-        c.chars += text.length();
+        capture.lines.add(text);
+        capture.chars += text.length();
     }
 
-    /** RETURN of executeCommand (and the exceptional path through it). */
+    /** Call at the return of {@code executeCommand}. */
     public static void end() {
-        final Capture c = CURRENT.get();
-        if (c == null || --c.depth > 0) {
+        final Capture capture = CURRENT.get();
+        if (capture == null || --capture.depth > 0) {
             return;
         }
         CURRENT.remove();
@@ -119,58 +112,79 @@ public final class CommandOutputCapture {
             return;
         }
         final JsonObject data = new JsonObject();
-        data.addProperty("cmd", c.command);
-        if (c.firstArg != null) {
-            data.addProperty("firstArg", c.firstArg);
+        data.addProperty("cmd", capture.command);
+        if (capture.firstArg != null) {
+            data.addProperty("firstArg", capture.firstArg);
         }
-        data.addProperty("sender", c.sender.getCommandSenderName());
+        data.addProperty("sender", capture.sender.getCommandSenderName());
         final JsonArray lines = new JsonArray();
-        for (String l : c.lines) {
-            lines.add(JsonUtil.GSON.toJsonTree(l));
+        for (String line : capture.lines) {
+            lines.add(JsonUtil.GSON.toJsonTree(line));
         }
         data.add("lines", lines);
-        if (c.truncated) {
+        if (capture.truncated) {
             data.addProperty("truncated", true);
         }
         session.logger()
             .log("command_output", data);
     }
 
-    private static int tick() {
-        final net.minecraft.server.MinecraftServer server = net.minecraft.server.MinecraftServer.getServer();
+    private static int readTick() {
+        final MinecraftServer server = MinecraftServer.getServer();
         return server == null ? -1 : server.getTickCounter();
     }
 
-    static boolean allowed(Set<String> allow, String name, String firstArg) {
-        return allow.contains(name) || firstArg != null && allow.contains(name + " " + firstArg);
+    public static boolean isAllowed(Set<String> allow, String name, String firstArg) {
+        return allow.contains(name) || (firstArg != null && allow.contains(name + " " + firstArg));
     }
 
-    private static Set<String> allowlist() {
-        Set<String> a = allowlist;
-        if (a == null) {
-            a = new HashSet<>();
-            for (String e : AuditConfig.commandOutputCapture) {
-                final String t = e.trim()
+    private static Set<String> readAllowlist() {
+        Set<String> built = allowlist;
+        if (built == null) {
+            built = new HashSet<>();
+            for (String rawEntry : AuditConfig.commandOutputCapture) {
+                final String entry = rawEntry.trim()
                     .toLowerCase(Locale.ROOT);
-                if (!t.isEmpty()) {
-                    a.add(t);
+                if (!entry.isEmpty()) {
+                    built.add(entry);
                 }
             }
-            allowlist = a;
+            allowlist = built;
         }
-        return a;
+        return built;
     }
 
-    /** Players are matched by profile id: a respawn replaces the entity while the command still holds the old one. */
-    private static boolean sameSender(ICommandSender a, ICommandSender b) {
-        if (a == b) {
+    /**
+     * Match players by profile id. A respawn replaces the player entity, and the capture still has the entity from
+     * before the respawn.
+     */
+    private static boolean isSameSender(ICommandSender sender, ICommandSender receiver) {
+        if (sender == receiver) {
             return true;
         }
-        return a instanceof EntityPlayer pa && b instanceof EntityPlayer pb
-            && pa.getGameProfile()
+        return sender instanceof EntityPlayer senderPlayer && receiver instanceof EntityPlayer receiverPlayer
+            && senderPlayer.getGameProfile()
                 .getId()
                 .equals(
-                    pb.getGameProfile()
+                    receiverPlayer.getGameProfile()
                         .getId());
+    }
+
+    private static final class Capture {
+
+        private final ICommandSender sender;
+        private final String command;
+        private final String firstArg;
+        private final List<String> lines = new ArrayList<>();
+        private int chars;
+        private boolean truncated;
+        private int depth = 1;
+        private final int tick = readTick();
+
+        private Capture(ICommandSender sender, String command, String firstArg) {
+            this.sender = sender;
+            this.command = command;
+            this.firstArg = firstArg;
+        }
     }
 }

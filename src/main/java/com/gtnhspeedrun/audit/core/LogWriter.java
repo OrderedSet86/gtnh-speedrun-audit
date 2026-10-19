@@ -1,11 +1,15 @@
 package com.gtnhspeedrun.audit.core;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -17,32 +21,29 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 /**
- * The single writer thread. Everything that reaches disk goes through here, in queue order: seq assignment,
- * envelope construction, hash chaining and the append are all serialized on one thread, so the chain never
- * needs a lock. Producers only pay for building a small JSON tree.
+ * Write every line of the audit log on one thread, in queue order. Seq assignment, the envelope, the hash chain and
+ * the append run on this thread only, so the chain state has no lock. On a producer thread, the cost of an event is
+ * the build of a small JSON tree.
  *
  * <p>
- * Snapshot jobs carry a supplier over an immutable struct captured on the server thread; the expensive part —
- * building and gzipping a possibly 20k-entry JSON tree — runs here. The snapshot file is written and hashed
- * BEFORE its reference line is appended, so a line in the chain always vouches for bytes already on disk.
+ * A snapshot job has a supplier over data captured on the server thread. This thread runs the supplier and gzips the
+ * result. A supplier can build a JSON tree of 20k entries. The snapshot file is written and hashed before its
+ * reference line is appended, so every line in the chain refers to bytes already written.
  */
 public final class LogWriter implements Runnable {
 
-    /** Durability floor for the interesting lines; everything else rides the periodic force. */
+    // the longest time between two channel.force() calls while lines arrive. An isUrgent() line is forced at once
     private static final long FORCE_INTERVAL_MS = 5000;
+    // the writer starts a new part of the log file at this size. The chain continues across the parts
+    private static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
+    private static final Object POISON = new Object();
 
     private final Logger log;
-    private final File logFile;
-    private final File snapshotDir;
-    private final String sessionId;
-    private final int sessionIndex;
-    private final LinkedBlockingQueue<Object> queue = new LinkedBlockingQueue<>();
+    private final LogTarget target;
+    private final BlockingQueue<Object> queue = new LinkedBlockingQueue<>();
     private final Thread thread;
 
-    /** Intra-session split so one marathon 24/7 session can't grow a single unwieldy file. Chain-neutral. */
-    private static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
-
-    private FileOutputStream out;
+    private FileChannel channel;
     private Writer writer;
     private long lastForceMs;
     private long bytesWritten;
@@ -54,70 +55,32 @@ public final class LogWriter implements Runnable {
     private volatile String publishedHead;
     private volatile boolean dead;
 
-    private static final Object POISON = new Object();
-
-    private static final class SnapshotJob {
-
-        final String type;
-        final String fileName;
-        final Supplier<JsonElement> content;
-        final JsonObject refData;
-        final long wallMs;
-        final long ticks;
-        final long onlineTicks;
-
-        SnapshotJob(String type, String fileName, Supplier<JsonElement> content, JsonObject refData, long wallMs,
-            long ticks, long onlineTicks) {
-            this.type = type;
-            this.fileName = fileName;
-            this.content = content;
-            this.refData = refData;
-            this.wallMs = wallMs;
-            this.ticks = ticks;
-            this.onlineTicks = onlineTicks;
-        }
-    }
-
-    public LogWriter(Logger log, File logFile, File snapshotDir, String sessionId, int sessionIndex, long startSeq,
-        String startHead) {
+    public LogWriter(Logger log, LogTarget target, ChainStart start) {
         this.log = log;
-        this.logFile = logFile;
-        this.snapshotDir = snapshotDir;
-        this.sessionId = sessionId;
-        this.sessionIndex = sessionIndex;
-        this.seq = startSeq;
-        this.head = startHead;
-        this.publishedSeq = startSeq;
-        this.publishedHead = startHead;
+        this.target = target;
+        this.seq = start.seq();
+        this.head = start.prevHash();
+        this.publishedSeq = start.seq();
+        this.publishedHead = start.prevHash();
         this.thread = new Thread(this, "SpeedrunAudit-Writer");
         this.thread.setDaemon(true);
+        // A snapshot supplier builds JSON from the data of other mods, so any unchecked exception or Error, such as
+        // OutOfMemoryError on a large tree, can end the thread. Mark the writer dead, so the reply to /audit status
+        // has the stop.
+        this.thread.setUncaughtExceptionHandler((deadThread, failure) -> markDead(failure));
     }
 
     public void start() throws IOException {
-        open(logFile);
+        open(target.logFile());
         thread.start();
     }
 
-    private void open(File file) throws IOException {
-        // Append mode: a session file survives writer restarts within one JVM; new sessions get new files.
-        bytesWritten = file.length();
-        out = new FileOutputStream(file, true);
-        writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
-    }
-
-    /** Writer thread only. The chain is file-agnostic, so a split is invisible to verification. */
-    private void rollIfNeeded() throws IOException {
-        if (bytesWritten < MAX_FILE_BYTES) {
-            return;
-        }
-        finish();
-        partIndex++;
-        final String base = logFile.getName()
-            .substring(
-                0,
-                logFile.getName()
-                    .length() - ".jsonl".length());
-        open(new File(logFile.getParentFile(), base + "-p" + partIndex + ".jsonl"));
+    private void open(Path logFile) throws IOException {
+        // APPEND: opening an existing log file never truncates the chain evidence of the file
+        channel = FileChannel
+            .open(logFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+        bytesWritten = channel.size();
+        writer = new OutputStreamWriter(Channels.newOutputStream(channel), StandardCharsets.UTF_8);
     }
 
     public void submit(PendingEvent event) {
@@ -126,14 +89,13 @@ public final class LogWriter implements Runnable {
         }
     }
 
-    public void submitSnapshot(String type, String fileName, Supplier<JsonElement> content, JsonObject refData,
-        long wallMs, long ticks, long onlineTicks) {
+    public void submitSnapshot(SnapshotJob job) {
         if (!dead) {
-            queue.add(new SnapshotJob(type, fileName, content, refData, wallMs, ticks, onlineTicks));
+            queue.add(job);
         }
     }
 
-    /** Last seq/hash actually on disk; read by the anchor updater on the server thread. */
+    /** The seq of the last line written to the file. {@link #publishedHead()} returns the hash of that line. */
     public long publishedSeq() {
         return publishedSeq;
     }
@@ -150,12 +112,20 @@ public final class LogWriter implements Runnable {
         return queue.size();
     }
 
-    /** Blocks until everything queued so far is on disk (or the timeout passes). */
+    /**
+     * Wait until the writer has taken every queued job, the writer is dead, or {@code timeoutMs} passes. Return whether
+     * the queue is empty.
+     *
+     * <p>
+     * FIXME: an empty queue does not mean that the last job is on disk. The writer can still be appending the last job
+     * taken from the queue, so a caller that reads {@link #publishedSeq()} next can read the seq before that job.
+     */
     public boolean drain(long timeoutMs) {
+        final long POLL_MS = 20;
         final long deadline = System.currentTimeMillis() + timeoutMs;
         while (!queue.isEmpty() && !dead && System.currentTimeMillis() < deadline) {
             try {
-                Thread.sleep(20);
+                Thread.sleep(POLL_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread()
                     .interrupt();
@@ -175,6 +145,7 @@ public final class LogWriter implements Runnable {
         }
     }
 
+    /** Take jobs until the poison job arrives, then close the file. */
     @Override
     public void run() {
         try {
@@ -184,48 +155,50 @@ public final class LogWriter implements Runnable {
                     break;
                 }
                 if (job instanceof PendingEvent event) {
-                    appendLine(event.type, event.data, event.wallMs, event.ticks, event.onlineTicks, event.thread);
-                } else if (job instanceof SnapshotJob snap) {
-                    writeSnapshot(snap);
+                    appendLine(event);
+                } else if (job instanceof SnapshotJob snapshot) {
+                    writeSnapshot(snapshot);
                 } else if (job == null) {
                     maybeForce(false);
                 }
             }
             finish();
-        } catch (Throwable t) {
-            // Disk full, closed stream, etc. Producers keep the game alive; /audit status surfaces the death.
-            dead = true;
-            log.error("Audit writer died — logging has STOPPED", t);
+        } catch (IOException | InterruptedException failure) {
+            // a full disk or a closed stream stops the writer. The game keeps running
+            markDead(failure);
         }
     }
 
-    private void writeSnapshot(SnapshotJob snap) throws IOException {
-        final File file = new File(snapshotDir, snap.fileName);
-        final byte[] json = JsonUtil.GSON.toJson(snap.content.get())
-            .getBytes(StandardCharsets.UTF_8);
-        try (GZIPOutputStream gz = new GZIPOutputStream(new FileOutputStream(file))) {
-            gz.write(json);
-        }
-        final byte[] gzBytes = java.nio.file.Files.readAllBytes(file.toPath());
-        snap.refData.addProperty("file", snap.fileName);
-        snap.refData.addProperty("fileSha256", JsonUtil.sha256Hex(gzBytes));
-        snap.refData.addProperty("rawBytes", json.length);
-        appendLine(snap.type, snap.refData, snap.wallMs, snap.ticks, snap.onlineTicks, "writer");
+    private void markDead(Throwable failure) {
+        dead = true;
+        log.error("Audit writer died — logging has STOPPED", failure);
     }
 
-    private void appendLine(String type, JsonObject data, long wallMs, long ticks, long onlineTicks,
-        String producerThread) throws IOException {
+    /**
+     * Append {@code event} as the next line of the chain. The bytes of the line feed the hash chain, so NEVER reorder
+     * or rename a field.
+     */
+    private void appendLine(PendingEvent event) throws IOException {
         final JsonObject line = new JsonObject();
         line.addProperty("v", 1);
         line.addProperty("seq", seq);
-        line.addProperty("sid", sessionId);
-        line.addProperty("sidx", sessionIndex);
-        line.addProperty("t", type);
-        line.addProperty("wall", wallMs);
-        line.addProperty("ticks", ticks);
-        line.addProperty("pticks", onlineTicks);
-        line.addProperty("thread", producerThread);
-        line.add("data", data);
+        line.addProperty("sid", target.sessionId());
+        line.addProperty("sidx", target.sessionIndex());
+        line.addProperty("t", event.type());
+        line.addProperty(
+            "wall",
+            event.clocks()
+                .wallMs());
+        line.addProperty(
+            "ticks",
+            event.clocks()
+                .ticks());
+        line.addProperty(
+            "pticks",
+            event.clocks()
+                .onlineTicks());
+        line.addProperty("thread", event.threadName());
+        line.add("data", event.data());
         line.addProperty("prev", head);
 
         final String json = JsonUtil.GSON.toJson(line);
@@ -240,7 +213,7 @@ public final class LogWriter implements Runnable {
         publishedSeq = seq;
         seq++;
 
-        maybeForce(isUrgent(type));
+        maybeForce(isUrgent(event.type()));
         rollIfNeeded();
     }
 
@@ -256,16 +229,58 @@ public final class LogWriter implements Runnable {
         final long now = System.currentTimeMillis();
         if (urgent || now - lastForceMs > FORCE_INTERVAL_MS) {
             writer.flush();
-            out.getChannel()
-                .force(false);
+            channel.force(false);
             lastForceMs = now;
         }
     }
 
+    // writer thread only
+    private void rollIfNeeded() throws IOException {
+        if (bytesWritten < MAX_FILE_BYTES) {
+            return;
+        }
+        finish();
+        partIndex++;
+        final String fileName = target.logFile()
+            .getFileName()
+            .toString();
+        final String base = fileName.substring(0, fileName.length() - ".jsonl".length());
+        open(
+            target.logFile()
+                .resolveSibling(base + "-p" + partIndex + ".jsonl"));
+    }
+
     private void finish() throws IOException {
         writer.flush();
-        out.getChannel()
-            .force(false);
+        channel.force(false);
         writer.close();
     }
+
+    private void writeSnapshot(SnapshotJob snapshot) throws IOException {
+        final Path file = target.snapshotDir()
+            .resolve(snapshot.fileName());
+        final byte[] json = JsonUtil.GSON.toJson(
+            snapshot.content()
+                .get())
+            .getBytes(StandardCharsets.UTF_8);
+        try (GZIPOutputStream gz = new GZIPOutputStream(Files.newOutputStream(file))) {
+            gz.write(json);
+        }
+        final byte[] gzBytes = Files.readAllBytes(file);
+        final JsonObject refData = snapshot.refData();
+        refData.addProperty("file", snapshot.fileName());
+        refData.addProperty("fileSha256", JsonUtil.sha256Hex(gzBytes));
+        refData.addProperty("rawBytes", json.length);
+        appendLine(new PendingEvent(snapshot.type(), refData, snapshot.clocks(), "writer"));
+    }
+
+    /** The session a writer writes for, and its files. */
+    public record LogTarget(String sessionId, int sessionIndex, Path logFile, Path snapshotDir) {}
+
+    /** The seq of the first line to write, and the hash for the prev field of that line. */
+    public record ChainStart(long seq, String prevHash) {}
+
+    /** {@code content} runs on the writer thread. */
+    public record SnapshotJob(String type, String fileName, Supplier<JsonElement> content, JsonObject refData,
+        TickClock.Reading clocks) {}
 }
