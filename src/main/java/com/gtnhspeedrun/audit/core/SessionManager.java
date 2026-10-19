@@ -1,39 +1,25 @@
 package com.gtnhspeedrun.audit.core;
 
 import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Matcher;
 
-import net.minecraft.command.ICommandSender;
-import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.util.StatCollector;
 import net.minecraft.world.WorldServer;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.world.WorldEvent;
 
 import org.apache.logging.log4j.Logger;
 
-import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.gtnhspeedrun.audit.command.CommandAudit;
-import com.gtnhspeedrun.audit.compat.BackupAccess;
-import com.gtnhspeedrun.audit.export.AuditExport;
 
 import cpw.mods.fml.common.FMLCommonHandler;
-import cpw.mods.fml.common.Loader;
-import cpw.mods.fml.common.ModContainer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
@@ -54,24 +40,21 @@ public final class SessionManager {
 
     private final Logger log;
     private final MinecraftServer server;
-    private final Map<UUID, double[]> preTimingPositions = new HashMap<>();
     private final Set<String> onceKeys = new HashSet<>();
     private final List<Runnable> snapshotHooks = new ArrayList<>();
+    private final List<Runnable> tickHooks = new ArrayList<>();
 
     private AuditDirs dirs;
     private ChainAnchorData anchor;
     private TickClock clock;
     private LogWriter writer;
     private AuditLogger logger;
+    private TimingStart timingStart;
     private String sessionId;
     private int sessionIndex;
     private long sessionStartTicks;
     private long sessionStartOnlineTicks;
     private String verifyVerdict = "UNKNOWN";
-    private boolean savingWasOff;
-    private Boolean backupWasRunning;
-    // null until the first overworld save of this session
-    private AnchorValues lastSavedAnchor;
 
     public SessionManager(Logger log, MinecraftServer server) {
         this.log = log;
@@ -99,10 +82,10 @@ public final class SessionManager {
             // the session logs events until the first snapshot write fails and stops the writer
         }
 
-        final Tail tail = findTail();
+        final ChainTail tail = ChainTail.read(dirs.log(), log);
         // the log of a clean stop ends with session_end
         final boolean previousCrashed = tail.seq() >= 0 && !"session_end".equals(tail.type());
-        verifyVerdict = classify(tail, previousCrashed);
+        verifyVerdict = StartupVerdict.classify(tail, previousCrashed, StartupVerdict.SavedAnchor.readFrom(anchor));
 
         sessionId = UUID.randomUUID()
             .toString();
@@ -119,17 +102,19 @@ public final class SessionManager {
             new LogWriter.ChainStart(tail.seq() + 1, head));
         writer.start();
         logger = new AuditLogger(writer, clock);
+        timingStart = new TimingStart(server, anchor, logger);
 
         anchor.cleanShutdown = false;
         anchor.sessionId = sessionId;
         anchor.markDirty();
         // Autosave runs every 900 ticks. Save the anchor now, so that after a crash at any point the saved anchor has
-        // this session's id. classify() needs that id to tell a crash from a restore.
+        // this session's id. StartupVerdict.classify() needs that id to tell a crash from a restore.
         if (!overworld.levelSaving) {
             overworld.mapStorage.saveAllData();
         }
 
-        logger.log("session_start", buildSessionStartData(overworld, tail, previousCrashed));
+        logger
+            .log("session_start", new SessionStartData(server, anchor, tail, verifyVerdict, previousCrashed).toJson());
         FMLCommonHandler.instance()
             .bus()
             .register(this);
@@ -141,7 +126,8 @@ public final class SessionManager {
             logFile);
     }
 
-    public void stopping() {
+    /** Log session_end with {@code savingFields} after the reason key, in their order, and publish a clean anchor. */
+    public void stopping(JsonObject savingFields) {
         final long DRAIN_TIMEOUT_MS = 15_000;
         if (logger == null) {
             return;
@@ -150,9 +136,9 @@ public final class SessionManager {
         data.addProperty("uptimeTicks", clock.get() - sessionStartTicks);
         data.addProperty("onlineUptimeTicks", clock.getOnline() - sessionStartOnlineTicks);
         data.addProperty("reason", "stop");
-        // The shutdown save runs after this event and skips every world in savingOffDims. With dim 0 in
-        // savingOffDims the anchor is not saved, and the next start is classified as WORLD_ROLLBACK.
-        WorldSaving.addSavingFields(server, data);
+        for (Map.Entry<String, JsonElement> field : savingFields.entrySet()) {
+            data.add(field.getKey(), field.getValue());
+        }
         logger.log("session_end", data);
         writer.drain(DRAIN_TIMEOUT_MS);
         // The world save after FMLServerStoppingEvent writes this anchor. After a clean stop the anchor has the seq
@@ -172,109 +158,7 @@ public final class SessionManager {
         writer = null;
         logger = null;
         anchor = null;
-    }
-
-    // ------------------------------------------------------------------ chain resume
-
-    /**
-     * Return the line with the highest seq over every session file, rollback-suffixed files included. The log
-     * directory is the source of truth of the chain, and the chain resumes from the exact bytes of that line.
-     */
-    private Tail findTail() throws IOException {
-        int maxIndex = 0;
-        long seq = -1;
-        String hash = "";
-        String sid = "";
-        String type = "";
-        for (Path file : AuditDirs.listEntriesOrEmpty(dirs.log())) {
-            final String fileName = file.getFileName()
-                .toString();
-            final Matcher name = Verifier.CHAIN_FILE_NAME.matcher(fileName);
-            if (!name.matches()) {
-                continue;
-            }
-            maxIndex = Math.max(maxIndex, Integer.parseInt(name.group(1)));
-            final byte[] lastLine = readLastLine(file);
-            if (lastLine == null) {
-                continue;
-            }
-            try {
-                final JsonObject obj = new JsonParser().parse(new String(lastLine, StandardCharsets.UTF_8))
-                    .getAsJsonObject();
-                final long lineSeq = obj.get("seq")
-                    .getAsLong();
-                if (lineSeq > seq) {
-                    seq = lineSeq;
-                    hash = JsonUtil.sha256Hex(lastLine);
-                    sid = obj.get("sid")
-                        .getAsString();
-                    type = obj.get("t")
-                        .getAsString();
-                }
-            } catch (RuntimeException e) {
-                log.warn("Unparseable tail line in {} — verifier will flag it", fileName);
-            }
-        }
-        return new Tail(maxIndex, seq, hash, sid, type);
-    }
-
-    /**
-     * Return the bytes of the last non-empty line of {@code file}, with trailing CR and LF bytes skipped, or null for a
-     * file with no such line.
-     */
-    private static byte[] readLastLine(Path file) throws IOException {
-        try (RandomAccessFile access = new RandomAccessFile(file.toFile(), "r")) {
-            long end = access.length();
-            while (end > 0) {
-                access.seek(end - 1);
-                final int lastByte = access.read();
-                if (lastByte == '\n' || lastByte == '\r') {
-                    end--;
-                } else {
-                    break;
-                }
-            }
-            if (end == 0) {
-                return null;
-            }
-            long start = end;
-            while (start > 0) {
-                access.seek(start - 1);
-                if (access.read() == '\n') {
-                    break;
-                }
-                start--;
-            }
-            final byte[] bytes = new byte[(int) (end - start)];
-            access.seek(start);
-            access.readFully(bytes);
-            return bytes;
-        }
-    }
-
-    /**
-     * Return the startup verdict for session_start from the log tail and the anchor alone. {@link Verifier} walks
-     * every line.
-     */
-    private String classify(Tail tail, boolean previousCrashed) {
-        if (tail.seq() < 0) {
-            return anchor.lastSeq < 0 ? "NEW_WORLD" : "LOG_MISSING";
-        }
-        if (anchor.lastSeq < tail.seq()) {
-            // The world is behind the log. The gap is a crash only if the log has no clean stop, and the world was
-            // last saved mid-session by the session that crashed. start() saves the anchor at once. A restore of a
-            // save from any earlier session, or of a save made at a clean stop, fails this check.
-            final boolean crashedSessionSavedLast = !anchor.cleanShutdown && !anchor.sessionId.isEmpty()
-                && anchor.sessionId.equals(tail.sid());
-            if (previousCrashed && crashedSessionSavedLast) {
-                return "CRASH_RECOVERY";
-            }
-            return anchor.lastSeq < 0 ? "ANCHOR_MISSING" : "WORLD_ROLLBACK";
-        }
-        if (anchor.lastSeq > tail.seq()) {
-            return "LOG_TRUNCATED";
-        }
-        return anchor.lastHash.equals(tail.hash()) ? "OK" : "TAMPERED_TAIL";
+        timingStart = null;
     }
 
     private Path newLogFile() {
@@ -289,76 +173,6 @@ public final class SessionManager {
         return logFile;
     }
 
-    // ------------------------------------------------------------------ session_start payload
-
-    /** Build the data of the session_start line. The run analyzer reads these keys, so NEVER rename one. */
-    private JsonObject buildSessionStartData(WorldServer overworld, Tail tail, boolean previousCrashed) {
-        final JsonObject data = new JsonObject();
-        data.addProperty("worldAuditUuid", anchor.worldAuditUuid);
-        data.addProperty("verifyVerdict", verifyVerdict);
-        data.addProperty("timingStarted", anchor.timingStarted);
-        data.addProperty("timingStartWallMs", anchor.timingStartWallMs);
-        data.addProperty("onlineTicks", anchor.cumulativeOnlineTicks);
-        data.addProperty("previousCrashed", previousCrashed);
-        data.addProperty("dedicated", server.isDedicatedServer());
-        data.addProperty("worldFolder", server.getFolderName());
-        data.addProperty("seed", overworld.getSeed());
-        data.addProperty("difficulty", String.valueOf(overworld.difficultySetting));
-        // Vanilla counts every world tick in worldTotalTime, and /time set does not change the count. For a world
-        // adopted mid-run, worldTotalTime is the pre-audit IGT baseline. After the mod adopts the world,
-        // worldTotalTime advances with the audit clock, so a difference between the two clocks is a cross-check.
-        data.addProperty("worldTotalTime", overworld.getTotalWorldTime());
-        data.addProperty("mcVersion", server.getMinecraftVersion());
-        data.addProperty("javaVersion", System.getProperty("java.version"));
-        data.addProperty(
-            "modCount",
-            Loader.instance()
-                .getActiveModList()
-                .size());
-
-        data.add(
-            "anchor",
-            AnchorValues.readFrom(anchor)
-                .toJson());
-
-        final JsonObject tailObj = new JsonObject();
-        tailObj.addProperty("seq", tail.seq());
-        tailObj.addProperty("hash", tail.hash());
-        data.add("logTail", tailObj);
-
-        if ("WORLD_ROLLBACK".equals(verifyVerdict) || "CRASH_RECOVERY".equals(verifyVerdict)) {
-            final JsonObject rollback = new JsonObject();
-            rollback.addProperty("eventsRewound", tail.seq() - anchor.lastSeq);
-            rollback.addProperty("wallGapMs", System.currentTimeMillis() - anchor.lastWallMs);
-            data.add("rollback", rollback);
-        }
-
-        final JsonArray ops = new JsonArray();
-        for (String op : server.getConfigurationManager()
-            .func_152606_n()) {
-            ops.add(JsonUtil.GSON.toJsonTree(op));
-        }
-        data.add("ops", ops);
-
-        final JsonObject gamerules = new JsonObject();
-        for (String rule : overworld.getGameRules()
-            .getRules()) {
-            gamerules.addProperty(
-                rule,
-                overworld.getGameRules()
-                    .getGameRuleStringValue(rule));
-        }
-        data.add("gamerules", gamerules);
-
-        final JsonArray mods = new JsonArray();
-        for (ModContainer mod : Loader.instance()
-            .getActiveModList()) {
-            mods.add(JsonUtil.GSON.toJsonTree(mod.getModId() + "@" + mod.getVersion()));
-        }
-        data.add("mods", mods);
-        return data;
-    }
-
     // ------------------------------------------------------------------ ticking
 
     @SubscribeEvent
@@ -366,85 +180,21 @@ public final class SessionManager {
         if (!(event.phase == TickEvent.Phase.END && anchor != null)) {
             return;
         }
-        checkWorldSaving();
+        for (Runnable hook : tickHooks) {
+            hook.run();
+        }
         if (!anchor.timingStarted) {
             // IGT convention: the run clocks don't advance until the first player movement, so worldgen lag, spawn
             // staring and menu time don't count. Every line still gets a wall timestamp, and RTA counts from the
             // same first movement.
-            checkFirstMovement();
+            if (timingStart.checkFirstMovement()) {
+                publishAnchor(false);
+            }
             return;
         }
         final long ticks = clock.increment(!server.getConfigurationManager().playerEntityList.isEmpty());
         if (ticks % ANCHOR_EVERY_TICKS == 0) {
             publishAnchor(false);
-        }
-    }
-
-    /**
-     * Log world_saving when overworld saving turns off, as at the start of a backup, and when overworld saving turns
-     * back on. Log backup_done when a ServerUtilities backup thread finishes.
-     *
-     * <p>
-     * After the first overworld save of the session, the off line has {@code lastSave}: the anchor values that the
-     * latest overworld save wrote. A backup saves every world and then turns saving off, so these values are the
-     * anchor inside the zip of that backup. A restore of that backup starts with session_start.anchor equal to
-     * lastSave, so a reader can tell which backup came back.
-     */
-    private void checkWorldSaving() {
-        final boolean off = WorldSaving.isOverworldSavingOff();
-        if (off != savingWasOff) {
-            savingWasOff = off;
-            final JsonObject data = new JsonObject();
-            data.addProperty("enabled", !off);
-            WorldSaving.addSavingFields(server, data);
-            if (off && lastSavedAnchor != null) {
-                data.add("lastSave", lastSavedAnchor.toJson());
-            }
-            logger.log("world_saving", data);
-        }
-        final Boolean running = BackupAccess.isBackupRunning();
-        if (Boolean.TRUE.equals(backupWasRunning) && Boolean.FALSE.equals(running)) {
-            final JsonObject data = new JsonObject();
-            BackupAccess.describeNewest(data);
-            logger.log("backup_done", data);
-        }
-        backupWasRunning = running;
-    }
-
-    /**
-     * Start timing at the first horizontal movement of any player. The server receives no key presses, so horizontal
-     * movement stands in for the first WASD press. One tick of walking moves about 0.21 blocks. A threshold of 0.03
-     * blocks is above server jitter and below a single step. Vertical movement does not count, so a drop from a spawn
-     * platform does not start the timer.
-     */
-    private void checkFirstMovement() {
-        // 0.03 blocks, squared
-        final double MIN_STEP_SQUARED = 0.0009;
-        for (Object entry : server.getConfigurationManager().playerEntityList) {
-            final EntityPlayerMP player = (EntityPlayerMP) entry;
-            final UUID id = player.getGameProfile()
-                .getId();
-            final double[] prev = preTimingPositions.get(id);
-            if (prev == null) {
-                preTimingPositions.put(id, new double[] { player.posX, player.posZ });
-                continue;
-            }
-            final double dx = player.posX - prev[0];
-            final double dz = player.posZ - prev[1];
-            prev[0] = player.posX;
-            prev[1] = player.posZ;
-            if (dx * dx + dz * dz > MIN_STEP_SQUARED) {
-                anchor.timingStarted = true;
-                anchor.timingStartWallMs = System.currentTimeMillis();
-                preTimingPositions.clear();
-                final JsonObject data = new JsonObject();
-                data.addProperty("uuid", id.toString());
-                data.addProperty("name", player.getCommandSenderName());
-                data.addProperty("dim", player.dimension);
-                logger.log("timing_started", data);
-                publishAnchor(false);
-                return;
-            }
         }
     }
 
@@ -459,17 +209,11 @@ public final class SessionManager {
     }
 
     /**
-     * Record the anchor values that the latest overworld save wrote, for lastSave on the world_saving line. Forge
-     * posts WorldEvent.Save after saveLevel() wrote the map storage of the overworld, the anchor included.
-     * saveLevel() and the post are in one save call on the server thread, so publishAnchor() can't run between them.
-     * The anchor fields read here are the values that the save wrote.
+     * Run {@code hook} first in every end-of-tick of this session, before timing_started can be logged and before the
+     * run clocks advance. A hook registered as a separate tick listener would run after this class's handler.
      */
-    @SubscribeEvent
-    public void onWorldSave(WorldEvent.Save event) {
-        if (!(anchor != null && !event.world.isRemote && event.world.provider.dimensionId == 0)) {
-            return;
-        }
-        lastSavedAnchor = AnchorValues.readFrom(anchor);
+    public void addTickHook(Runnable hook) {
+        tickHooks.add(hook);
     }
 
     // ------------------------------------------------------------------ session-scoped dedupe
@@ -490,79 +234,12 @@ public final class SessionManager {
         snapshotHooks.add(hook);
     }
 
-    public void snapshotNow(ICommandSender sender) {
-        if (snapshotHooks.isEmpty()) {
-            CommandAudit.reply(sender, "gtnhspeedrunaudit.command.snapshot.none");
-            return;
-        }
+    /** Run every snapshot hook, and return how many ran. */
+    public int runSnapshotHooks() {
         for (Runnable hook : snapshotHooks) {
             hook.run();
         }
-        CommandAudit.reply(sender, "gtnhspeedrunaudit.command.snapshot.queued", snapshotHooks.size());
-    }
-
-    /**
-     * Zip every log and snapshot, and verify the whole chain again, on a background thread. The background thread
-     * sends {@code sender} the path of the zip, or the failure.
-     */
-    public void export(ICommandSender sender) {
-        final long DRAIN_TIMEOUT_MS = 5_000;
-        writer.drain(DRAIN_TIMEOUT_MS);
-        final AuditExport bundle = new AuditExport(
-            dirs,
-            new AuditExport.AnchorView(
-                anchor.worldAuditUuid,
-                writer.publishedSeq(),
-                clock.get(),
-                clock.getOnline(),
-                anchor.timingStartWallMs));
-        CommandAudit
-            .reply(sender, "gtnhspeedrunaudit.command.export.building", formatMegabytes(directorySize(dirs.log())));
-        // a host's web panel lists files by their path under the server folder, not by the absolute path in the
-        // container
-        final boolean dedicated = server.isDedicatedServer();
-        final String rootName = StatCollector.translateToLocal(
-            dedicated ? "gtnhspeedrunaudit.command.export.folder.server"
-                : "gtnhspeedrunaudit.command.export.folder.instance");
-        final String landmarkKey = dedicated ? "gtnhspeedrunaudit.command.export.landmark.server"
-            : "gtnhspeedrunaudit.command.export.landmark.instance";
-        // stopped() sets the anchor field to null, and the server can stop while the zip is written
-        final String worldAuditUuid = anchor.worldAuditUuid;
-        final Thread exportThread = new Thread(() -> {
-            try {
-                final Path zip = bundle.writeZip();
-                CommandAudit.reply(sender, "gtnhspeedrunaudit.command.export.ready", formatMegabytes(Files.size(zip)));
-                CommandAudit.reply(
-                    sender,
-                    "gtnhspeedrunaudit.command.export.path",
-                    rootName,
-                    worldAuditUuid,
-                    zip.getFileName());
-                CommandAudit.reply(sender, landmarkKey, rootName);
-            } catch (IOException | RuntimeException e) {
-                CommandAudit.reply(sender, "gtnhspeedrunaudit.command.export.failed", e);
-            }
-        }, "SpeedrunAudit-Export");
-        exportThread.setDaemon(true);
-        exportThread.start();
-    }
-
-    private static long directorySize(Path dir) {
-        long bytes = 0;
-        for (Path entry : AuditDirs.listEntriesOrEmpty(dir)) {
-            try {
-                bytes += Files.size(entry);
-            } catch (IOException e) {
-                // the size is an estimate for a chat line, so an unreadable entry counts as 0 bytes
-            }
-        }
-        return bytes;
-    }
-
-    private static String formatMegabytes(long bytes) {
-        final long HALF_MEGABYTE = 500_000;
-        final double MEGABYTE = 1_000_000.0;
-        return bytes < HALF_MEGABYTE ? "<1" : String.valueOf(Math.round(bytes / MEGABYTE));
+        return snapshotHooks.size();
     }
 
     // ------------------------------------------------------------------ accessors
@@ -573,6 +250,10 @@ public final class SessionManager {
 
     public ChainAnchorData anchor() {
         return anchor;
+    }
+
+    public AuditDirs dirs() {
+        return dirs;
     }
 
     public Path auditDir() {
@@ -597,23 +278,5 @@ public final class SessionManager {
 
     public MinecraftServer server() {
         return server;
-    }
-
-    /** The line with the highest seq in the log, and the highest session index of any log file name. */
-    private record Tail(int maxIndex, long seq, String hash, String sid, String type) {}
-
-    private record AnchorValues(long seq, long ticks, long wallMs) {
-
-        private static AnchorValues readFrom(ChainAnchorData anchor) {
-            return new AnchorValues(anchor.lastSeq, anchor.cumulativeTicks, anchor.lastWallMs);
-        }
-
-        private JsonObject toJson() {
-            final JsonObject values = new JsonObject();
-            values.addProperty("seq", seq);
-            values.addProperty("ticks", ticks);
-            values.addProperty("wall", wallMs);
-            return values;
-        }
     }
 }

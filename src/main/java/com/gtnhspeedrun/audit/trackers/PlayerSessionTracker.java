@@ -103,7 +103,7 @@ public final class PlayerSessionTracker {
             data.addProperty("clientMods", "none_reported");
             return;
         }
-        final Map<String, String> mods = AuditSinks.readClientMods(dispatcher);
+        final Map<String, String> mods = ClientModLists.readClientMods(dispatcher);
         if (mods == null) {
             // an integrated-server local channel or a vanilla client has no FML mod handshake
             data.addProperty("clientMods", "none_reported");

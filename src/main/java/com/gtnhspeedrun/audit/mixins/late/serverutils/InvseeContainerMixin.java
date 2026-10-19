@@ -21,7 +21,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.snapshot.StackJson;
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.InventoryChanges;
 import com.gtnhspeedrun.audit.trackers.InvseeViewHolder;
 import com.gtnhspeedrun.audit.trackers.InvseeViews;
 
@@ -166,7 +166,7 @@ public class InvseeContainerMixin implements InvseeViewHolder {
                         .getAsString());
             }
             InvseeViews.countClick(audit$viewId, touchedTarget);
-            AuditSinks.InvseeClick.of(audit$viewId, player)
+            InventoryChanges.InvseeClick.of(audit$viewId, player)
                 .target(
                     otherPlayer == null ? null : otherPlayer.getName(),
                     otherPlayer == null ? null : String.valueOf(otherPlayer.getId()),

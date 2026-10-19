@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.gtnhspeedrun.audit.core.JsonUtil;
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.NbtEdit;
 
 import serverutils.lib.data.ForgePlayer;
 import serverutils.lib.data.Universe;
@@ -61,7 +61,7 @@ public class MessageEditNBTResponseMixin {
             // the edit must go through even when the read of the current NBT fails
             before = "error: " + failure;
         }
-        final AuditSinks.NbtEdit edit = AuditSinks.NbtEdit.of(type, description);
+        final NbtEdit edit = NbtEdit.of(type, description);
         if (before instanceof NBTTagCompound beforeNbt) {
             final String encoded = JsonUtil.nbtToB64(beforeNbt);
             edit.before(JsonUtil.canonicalNbtHash(beforeNbt), encoded.length() <= MAX_B64_CHARS ? encoded : null);

@@ -1,4 +1,4 @@
-package com.gtnhspeedrun.audit.core;
+package com.gtnhspeedrun.audit.trackers;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.WorldServer;
@@ -7,7 +7,6 @@ import net.minecraftforge.common.DimensionManager;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.gtnhspeedrun.audit.compat.BackupAccess;
 
 /**
  * Report whether worlds are saving. The MCP name WorldServer.levelSaving is inverted: while the flag is set,
@@ -32,7 +31,7 @@ public final class WorldSaving {
      * Add savingOffDims and backupRunning. savingOffDims is empty when every world saves, and backupRunning is absent
      * when the backup state is unknown.
      */
-    public static void addSavingFields(MinecraftServer server, JsonObject data) {
+    public static void addSavingFields(MinecraftServer server, JsonObject data, BackupProbe backups) {
         final JsonArray offDims = new JsonArray();
         for (WorldServer world : server.worldServers) {
             if (world != null && world.levelSaving) {
@@ -40,7 +39,8 @@ public final class WorldSaving {
             }
         }
         data.add("savingOffDims", offDims);
-        final Boolean backupRunning = BackupAccess.isBackupRunning();
+        final Boolean backupRunning = backups.isRunning()
+            .get();
         if (backupRunning != null) {
             data.addProperty("backupRunning", backupRunning);
         }

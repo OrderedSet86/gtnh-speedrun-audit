@@ -68,8 +68,8 @@ public final class CommandAudit extends CommandBase {
         switch (args[0]) {
             case "status" -> reportStatus(sender, session);
             case "verify" -> verify(sender, session);
-            case "snapshot" -> session.snapshotNow(sender);
-            case "export" -> session.export(sender);
+            case "snapshot" -> snapshotNow(sender, session);
+            case "export" -> ExportCommand.export(sender, session);
             default -> throw new WrongUsageException(getCommandUsage(sender));
         }
     }
@@ -164,5 +164,14 @@ public final class CommandAudit extends CommandBase {
         }, "SpeedrunAudit-Verify");
         verifyThread.setDaemon(true);
         verifyThread.start();
+    }
+
+    private static void snapshotNow(ICommandSender sender, SessionManager session) {
+        final int hookCount = session.runSnapshotHooks();
+        if (hookCount == 0) {
+            reply(sender, "gtnhspeedrunaudit.command.snapshot.none");
+            return;
+        }
+        reply(sender, "gtnhspeedrunaudit.command.snapshot.queued", hookCount);
     }
 }

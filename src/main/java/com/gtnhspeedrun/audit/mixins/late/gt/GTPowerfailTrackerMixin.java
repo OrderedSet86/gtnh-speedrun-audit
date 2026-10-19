@@ -5,8 +5,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
 import com.gtnhspeedrun.audit.trackers.GtMachineSites;
+import com.gtnhspeedrun.audit.trackers.MachineEvents;
 
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.common.data.GTPowerfailTracker;
@@ -27,6 +27,6 @@ public class GTPowerfailTrackerMixin {
             && !baseMetaTileEntity.getWorld().isRemote)) {
             return;
         }
-        AuditSinks.logGtPowerfail(GtMachineSites.readSite(baseMetaTileEntity));
+        MachineEvents.logGtPowerfail(GtMachineSites.readSite(baseMetaTileEntity));
     }
 }

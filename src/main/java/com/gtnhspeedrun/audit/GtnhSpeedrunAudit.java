@@ -11,9 +11,11 @@ import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.command.CommandAudit;
 import com.gtnhspeedrun.audit.compat.Ae2Bench;
 import com.gtnhspeedrun.audit.compat.Ae2Snapshotter;
+import com.gtnhspeedrun.audit.compat.BackupAccess;
 import com.gtnhspeedrun.audit.compat.BqQuestDb;
 import com.gtnhspeedrun.audit.compat.BqQuestTracker;
 import com.gtnhspeedrun.audit.compat.Compat;
@@ -28,6 +30,7 @@ import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
 import com.gtnhspeedrun.audit.snapshot.NodeCensus;
 import com.gtnhspeedrun.audit.snapshot.SnapshotScheduler;
 import com.gtnhspeedrun.audit.snapshot.StorageCensus;
+import com.gtnhspeedrun.audit.trackers.BackupProbe;
 import com.gtnhspeedrun.audit.trackers.CommandTracker;
 import com.gtnhspeedrun.audit.trackers.DifficultyTracker;
 import com.gtnhspeedrun.audit.trackers.FingerprintTracker;
@@ -40,6 +43,8 @@ import com.gtnhspeedrun.audit.trackers.MilestoneTracker;
 import com.gtnhspeedrun.audit.trackers.PlayerSessionTracker;
 import com.gtnhspeedrun.audit.trackers.StructureBounds;
 import com.gtnhspeedrun.audit.trackers.TrashCanCommandTracker;
+import com.gtnhspeedrun.audit.trackers.WorldSaving;
+import com.gtnhspeedrun.audit.trackers.WorldSavingTracker;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.Loader;
@@ -65,6 +70,10 @@ public class GtnhSpeedrunAudit {
 
     public static final String MODID = "gtnhspeedrunaudit";
     public static final Logger LOG = LogManager.getLogger(MODID);
+    // BackupAccess loads on a pack without ServerUtilities and reports the backup state as unknown there
+    private static final BackupProbe BACKUPS = new BackupProbe(
+        BackupAccess::isBackupRunning,
+        BackupAccess::describeNewest);
 
     /** The live session, or null between worlds. The field is static, so mixin sinks can read it through session(). */
     private static volatile SessionManager session;
@@ -109,6 +118,10 @@ public class GtnhSpeedrunAudit {
             sm.start();
             started = sm;
             session = sm;
+
+            final WorldSavingTracker worldSaving = new WorldSavingTracker(sm, BACKUPS);
+            onForgeBus(worldSaving); // WorldEvent.Save
+            sm.addTickHook(worldSaving::checkWorldSaving); // end of tick, before timing_started and the clocks
 
             final KeyItemIndex keyItems = new KeyItemIndex(AuditConfig.keyItems, sm.logger(), sm.anchor());
             final InventorySnapshotter inventory = new InventorySnapshotter(sm.logger(), keyItems);
@@ -265,7 +278,11 @@ public class GtnhSpeedrunAudit {
     public void serverStopping(FMLServerStoppingEvent event) {
         final SessionManager sm = session;
         if (sm != null) {
-            sm.stopping();
+            // The shutdown save runs after this event and skips every world in savingOffDims. With dim 0 in
+            // savingOffDims the anchor is not saved, and the next start is classified as WORLD_ROLLBACK.
+            final JsonObject savingFields = new JsonObject();
+            WorldSaving.addSavingFields(sm.server(), savingFields, BACKUPS);
+            sm.stopping(savingFields);
         }
     }
 

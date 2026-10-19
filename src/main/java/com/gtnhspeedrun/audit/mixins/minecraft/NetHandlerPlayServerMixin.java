@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.InventoryChanges;
 
 /**
  * Logs creative-inventory item spawns. No Forge event covers the creative tabs. The client sends one
@@ -34,9 +34,9 @@ public class NetHandlerPlayServerMixin {
             previous = playerEntity.inventoryContainer.getSlot(slot)
                 .getStack();
         }
-        AuditSinks.logCreativeSlot(
+        InventoryChanges.logCreativeSlot(
             playerEntity,
-            new AuditSinks.SlotChange(slot, packet.func_149625_d(), previous),
+            new InventoryChanges.SlotChange(slot, packet.func_149625_d(), previous),
             playerEntity.theItemInWorldManager.isCreative());
     }
 }

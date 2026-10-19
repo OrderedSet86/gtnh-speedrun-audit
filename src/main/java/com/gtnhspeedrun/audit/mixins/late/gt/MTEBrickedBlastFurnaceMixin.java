@@ -7,8 +7,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
 import com.gtnhspeedrun.audit.trackers.GtMachineSites;
+import com.gtnhspeedrun.audit.trackers.MultiblockSinks;
 
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.metatileentity.MetaTileEntity;
@@ -40,6 +40,6 @@ public class MTEBrickedBlastFurnaceMixin {
             return;
         }
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
-        AuditSinks.logMultiblockFormed("gt", GtMachineSites.readSite(self, aBaseMetaTileEntity));
+        MultiblockSinks.logMultiblockFormed("gt", GtMachineSites.readSite(self, aBaseMetaTileEntity));
     }
 }

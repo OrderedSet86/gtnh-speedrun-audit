@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.MachineEvents;
 import com.gtnhspeedrun.audit.trackers.MachineSite;
 
 import WayofTime.alchemicalWizardry.common.tileEntity.TEAltar;
@@ -43,6 +43,6 @@ public class TEAltarMixin {
         if (!(self.getWorldObj() != null && !self.getWorldObj().isRemote)) {
             return;
         }
-        AuditSinks.logBloodAltarTier(MachineSite.ofTile(self), audit$tierBefore, upgradeLevel);
+        MachineEvents.logBloodAltarTier(MachineSite.ofTile(self), audit$tierBefore, upgradeLevel);
     }
 }

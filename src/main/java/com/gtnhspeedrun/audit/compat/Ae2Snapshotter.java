@@ -13,7 +13,7 @@ import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.AuditConfig;
 import com.gtnhspeedrun.audit.core.AuditLogger;
 import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.Ae2CensusFailures;
 
 import appeng.api.networking.storage.IStorageGrid;
 import appeng.api.storage.data.IAEFluidStack;
@@ -114,8 +114,9 @@ public final class Ae2Snapshotter {
             // the AE2 tick handler has no grid list yet, or the AE2 API changed. No grid can be read, so the whole
             // census fails
             failures.add(
-                AuditSinks.logAe2CensusFailure(new AuditSinks.Ae2CensusFailure(censusIndex, "grid list", null, e)));
-            AuditSinks.announceAe2CensusFailure(failures);
+                Ae2CensusFailures
+                    .logAe2CensusFailure(new Ae2CensusFailures.Ae2CensusFailure(censusIndex, "grid list", null, e)));
+            Ae2CensusFailures.announceAe2CensusFailure(failures);
             return;
         }
         for (Grid grid : grids) {
@@ -125,12 +126,13 @@ public final class Ae2Snapshotter {
                 takeGridCensus(grid, id);
             } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over AE2 grid code
                 // one broken grid must not stop the census of the other grids
-                failures
-                    .add(AuditSinks.logAe2CensusFailure(new AuditSinks.Ae2CensusFailure(censusIndex, "grid", id, e)));
+                failures.add(
+                    Ae2CensusFailures
+                        .logAe2CensusFailure(new Ae2CensusFailures.Ae2CensusFailure(censusIndex, "grid", id, e)));
             }
         }
         if (!failures.isEmpty()) {
-            AuditSinks.announceAe2CensusFailure(failures);
+            Ae2CensusFailures.announceAe2CensusFailure(failures);
         }
     }
 

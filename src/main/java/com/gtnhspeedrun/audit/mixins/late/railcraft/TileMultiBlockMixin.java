@@ -9,8 +9,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
 import com.gtnhspeedrun.audit.trackers.MachineSite;
+import com.gtnhspeedrun.audit.trackers.MultiblockSinks;
 
 import mods.railcraft.common.blocks.machine.TileMultiBlock;
 
@@ -38,6 +38,6 @@ public class TileMultiBlockMixin {
         if (!(!audit$wasMaster && isMaster)) {
             return;
         }
-        AuditSinks.logMultiblockFormed("railcraft", MachineSite.ofTile((TileEntity) (Object) this));
+        MultiblockSinks.logMultiblockFormed("railcraft", MachineSite.ofTile((TileEntity) (Object) this));
     }
 }

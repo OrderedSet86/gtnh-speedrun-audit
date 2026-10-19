@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.InventoryChanges;
 
 /**
  * Logs items that a player puts into an Extra Utilities trash can by hand. A player reaches the can only through the
@@ -50,6 +50,6 @@ public class SlotTrashMixin {
         if (can != null && can.getWorldObj() != null && can.getWorldObj().isRemote) {
             return;
         }
-        AuditSinks.logTrashInsert(player, can, stack);
+        InventoryChanges.logTrashInsert(player, can, stack);
     }
 }

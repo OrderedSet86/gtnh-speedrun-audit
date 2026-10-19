@@ -5,8 +5,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
 import com.gtnhspeedrun.audit.trackers.GtMachineSites;
+import com.gtnhspeedrun.audit.trackers.MachineEvents;
 
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.metatileentity.MetaTileEntity;
@@ -25,6 +25,6 @@ public class MetaTileEntityMixin {
         if (!(base != null && base.getWorld() != null && !base.getWorld().isRemote)) {
             return;
         }
-        AuditSinks.logGtExplosion(GtMachineSites.readSite(self, base), aExplosionPower);
+        MachineEvents.logGtExplosion(GtMachineSites.readSite(self, base), aExplosionPower);
     }
 }

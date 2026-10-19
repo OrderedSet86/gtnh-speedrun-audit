@@ -15,7 +15,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.snapshot.StackJson;
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.NeiSinks;
 
 import codechicken.nei.NEIServerUtils;
 
@@ -66,7 +66,7 @@ public class NEIServerUtilsMixin {
         if (requested != null && requested.hasTagCompound()) {
             extra.add("stack", StackJson.toJson(requested));
         }
-        AuditSinks.NeiCheat.of("give")
+        NeiSinks.NeiCheat.of("give")
             .player(player)
             .item(requested)
             .detail(infinite ? "infinite" : null)
@@ -86,7 +86,7 @@ public class NEIServerUtilsMixin {
         if (item != null && item.hasTagCompound()) {
             extra.add("stack", StackJson.toJson(item));
         }
-        AuditSinks.NeiCheat.of("set_slot")
+        NeiSinks.NeiCheat.of("set_slot")
             .player(player)
             .item(item)
             .detail("slot=" + slot + (containerInv ? ",container" : ""))
@@ -116,7 +116,7 @@ public class NEIServerUtilsMixin {
             player.openContainer.getClass()
                 .getName());
         extra.add("items", items);
-        AuditSinks.NeiCheat.of("delete_all_items")
+        NeiSinks.NeiCheat.of("delete_all_items")
             .player(player)
             .extra(extra)
             .log();
@@ -124,7 +124,7 @@ public class NEIServerUtilsMixin {
 
     @Inject(method = "setGamemode", at = @At("HEAD"), require = 1)
     private static void audit$gamemode(EntityPlayerMP player, int mode, CallbackInfo ci) { // noqa: NAR130
-        AuditSinks.NeiCheat.of("set_gamemode")
+        NeiSinks.NeiCheat.of("set_gamemode")
             .player(player)
             .detail("mode=" + mode)
             .log();
@@ -133,14 +133,14 @@ public class NEIServerUtilsMixin {
     /** Logs a set_time cheat. NEI passes no player to setHourForward(), so the line has no uuid and no name. */
     @Inject(method = "setHourForward", at = @At("HEAD"), require = 1)
     private static void audit$setHour(World world, int hour, boolean notify, CallbackInfo ci) { // noqa: NAR130, NAR131
-        AuditSinks.NeiCheat.of("set_time")
+        NeiSinks.NeiCheat.of("set_time")
             .detail("hour=" + hour)
             .log();
     }
 
     @Inject(method = "healPlayer", at = @At("HEAD"), require = 1)
     private static void audit$heal(EntityPlayer player, CallbackInfo ci) { // noqa: NAR130
-        AuditSinks.NeiCheat.of("heal")
+        NeiSinks.NeiCheat.of("heal")
             .player(player)
             .log();
     }

@@ -3,6 +3,9 @@ package com.gtnhspeedrun.audit.snapshot;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.EntityList;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.inventory.IInventory;
 import net.minecraft.item.ItemStack;
@@ -12,7 +15,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.compat.BaublesAccess;
 import com.gtnhspeedrun.audit.core.AuditLogger;
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
@@ -63,11 +65,11 @@ public final class InventorySnapshotter {
                     .toString());
             data.addProperty("name", player.getCommandSenderName());
             data.addProperty("damageSource", event.source.damageType);
-            final String killer = AuditSinks.describeEntity(event.source.getEntity());
+            final String killer = describeEntity(event.source.getEntity());
             if (killer != null) {
                 data.addProperty("killer", killer);
             }
-            final String directKiller = AuditSinks.describeEntity(event.source.getSourceOfDamage());
+            final String directKiller = describeEntity(event.source.getSourceOfDamage());
             if (directKiller != null && !directKiller.equals(killer)) {
                 data.addProperty("directKiller", directKiller);
             }
@@ -133,5 +135,22 @@ public final class InventorySnapshotter {
             list.add(stack);
         }
         return StackJson.list(list);
+    }
+
+    /**
+     * Return {@code player:<name>} for a player, the registered entity name such as {@code Zombie} for another
+     * entity, or null for no entity.
+     */
+    private static String describeEntity(Entity entity) {
+        if (entity == null) {
+            return null;
+        }
+        if (entity instanceof EntityPlayer player) {
+            return "player:" + player.getCommandSenderName();
+        }
+        final String registered = EntityList.getEntityString(entity);
+        return registered != null ? registered
+            : entity.getClass()
+                .getSimpleName();
     }
 }

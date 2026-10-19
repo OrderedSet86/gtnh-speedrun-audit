@@ -8,7 +8,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
+import com.gtnhspeedrun.audit.trackers.NeiSinks;
 
 import codechicken.lib.packet.PacketCustom;
 import codechicken.nei.NEISPH;
@@ -27,7 +27,7 @@ public class NEISPHMixin {
     @Inject(method = "handlePacket", at = @At("HEAD"), require = 1)
     private void audit$logPacket(PacketCustom packet, EntityPlayerMP sender, // noqa: NAR130, NAR131
         INetHandlerPlayServer netHandler, CallbackInfo ci) {
-        AuditSinks.logNeiPacket(
+        NeiSinks.logNeiPacket(
             sender.getGameProfile()
                 .getId()
                 .toString(),

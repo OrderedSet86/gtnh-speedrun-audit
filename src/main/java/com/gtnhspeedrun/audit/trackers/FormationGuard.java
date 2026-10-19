@@ -11,8 +11,8 @@ import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
  *
  * <p>
  * Reflection over hundreds of addon controller classes can fail in ways that never happened in a test pack. A failure
- * is logged and announced through {@link AuditSinks#logMultiblockLogFailed}. The stack trace goes to the server log
- * once per controller class.
+ * is logged and announced through {@link MultiblockSinks#logMultiblockLogFailed}. The stack trace goes to the server
+ * log once per controller class.
  */
 public final class FormationGuard {
 
@@ -40,7 +40,7 @@ public final class FormationGuard {
             if (REPORTED.add(type)) {
                 GtnhSpeedrunAudit.LOG.error("Multiblock formation NOT audited for {}", type, e);
             }
-            AuditSinks.logMultiblockLogFailed(wasFormed ? "footprint" : "formation", site, e);
+            MultiblockSinks.logMultiblockLogFailed(wasFormed ? "footprint" : "formation", site, e);
         }
     }
 }

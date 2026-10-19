@@ -16,7 +16,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.gtnewhorizon.structurelib.alignment.IAlignment;
 import com.gtnewhorizon.structurelib.alignment.enumerable.ExtendedFacing;
-import com.gtnhspeedrun.audit.trackers.AuditSinks;
 import com.gtnhspeedrun.audit.trackers.FormationGuard;
 import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
@@ -25,6 +24,7 @@ import com.gtnhspeedrun.audit.trackers.HatchScan;
 import com.gtnhspeedrun.audit.trackers.MachineSite;
 import com.gtnhspeedrun.audit.trackers.MultiblockFootprint;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
+import com.gtnhspeedrun.audit.trackers.MultiblockSinks;
 import com.gtnhspeedrun.audit.trackers.StructureBounds;
 import com.gtnhspeedrun.audit.trackers.StructureTiers;
 
@@ -150,8 +150,9 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
         final IGregTechTileEntity base = self.getBaseMetaTileEntity();
         final MachineSite site = GtMachineSites.readSite(self);
         final MultiblockFootprint footprint = audit$footprint(base, site);
-        final String logged = AuditSinks
-            .logGtMultiblockFormed(audit$loggedFormation, new AuditSinks.GtFormation(site, audit$power(), footprint));
+        final String logged = MultiblockSinks.logGtMultiblockFormed(
+            audit$loggedFormation,
+            new MultiblockSinks.GtFormation(site, audit$power(), footprint));
         if (logged == null || logged.equals(audit$loggedFormation)) {
             // an unchanged formation, such as the first check after a restart, can still have a new footprint
             audit$logFootprintChange(site, base, footprint);
@@ -189,7 +190,7 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
         if (key.equals(audit$loggedFootprint)) {
             return;
         }
-        final boolean logged = AuditSinks.logGtMultiblockFootprint(site, footprint);
+        final boolean logged = MultiblockSinks.logGtMultiblockFootprint(site, footprint);
         if (logged) {
             audit$loggedFootprint = key;
             base.markDirty();
