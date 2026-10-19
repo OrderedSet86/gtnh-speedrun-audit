@@ -1,7 +1,6 @@
 package com.gtnhspeedrun.audit.trackers;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Collections;
 import java.util.HashMap;
@@ -45,8 +44,6 @@ public final class AuditSinks {
     // static: the mixins call these sinks with no instance. The cached reflection results stay valid for the
     // JVM's lifetime.
     private static volatile Map<Integer, String> neiPacketNames;
-    private static volatile Method gtNameMethod; // static: GT has one name getter for the JVM's lifetime
-    private static volatile boolean gtNameUnavailable; // static: set once when GT has neither name getter
 
     /**
      * The client handshake mod lists by connection. 1.7.10 FML logs the client's handshake mod list and then
@@ -59,41 +56,6 @@ public final class AuditSinks {
         .synchronizedMap(new WeakHashMap<>());
 
     private AuditSinks() {}
-
-    /**
-     * Return the MTE's local name key, or null when GT has no such method.
-     *
-     * <p>
-     * GT renamed {@code MetaTileEntity.getLocalName()} (5.09.51.x and earlier, pack 2.8.4) to
-     * {@code getLocalNameKey()} (5.09.54.x, dailies). The mixins run on both GT versions. A call compiled against
-     * either name would throw NoSuchMethodError on the other version, so the method is looked up by reflection.
-     */
-    public static String gtLocalName(Object mte) {
-        if (gtNameUnavailable) {
-            return null;
-        }
-        Method method = gtNameMethod;
-        if (method == null) {
-            try {
-                method = mte.getClass()
-                    .getMethod("getLocalNameKey");
-            } catch (NoSuchMethodException e) {
-                try {
-                    method = mte.getClass()
-                        .getMethod("getLocalName");
-                } catch (NoSuchMethodException oldNameMissing) {
-                    gtNameUnavailable = true;
-                    return null;
-                }
-            }
-            gtNameMethod = method;
-        }
-        try {
-            return String.valueOf(method.invoke(mte));
-        } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, reflection into GT code
-            return null;
-        }
-    }
 
     // ------------------------------------------------------------------ NEI
 

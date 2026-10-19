@@ -70,6 +70,7 @@ import com.gtnhspeedrun.audit.snapshot.StorageCensus;
 import com.gtnhspeedrun.audit.trackers.AuditSinks;
 import com.gtnhspeedrun.audit.trackers.FormationGuard;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
+import com.gtnhspeedrun.audit.trackers.GtMachineSites;
 import com.gtnhspeedrun.audit.trackers.InvseeViews;
 import com.gtnhspeedrun.audit.trackers.MachineSite;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
@@ -345,6 +346,9 @@ public final class SelfTest {
                 bus.post(new LivingDeathEvent(bob, DamageSource.outOfWorld));
                 // a mob kill: the death line has the killer
                 bus.post(new LivingDeathEvent(bob, new EntityDamageSource("mob", new EntityZombie(overworld))));
+                // openInventory has no parent, so openInventory is logged. The parent of mineWood is openInventory, and
+                // a posted event unlocks nothing, so mineWood stays locked and is not logged
+                bus.post(new AchievementEvent(alice, AchievementList.openInventory));
                 bus.post(new AchievementEvent(alice, AchievementList.mineWood));
                 bus.post(new PlayerEvent.PlayerChangedDimensionEvent(alice, 0, -1));
                 bus.post(new PlayerEvent.ItemCraftedEvent(alice, new ItemStack(Items.diamond, 9), alice.inventory));
@@ -802,6 +806,15 @@ public final class SelfTest {
             "block_placed only for tracked block ×2",
             counts.getOrDefault("block_placed", 0) == 2,
             "count=" + counts.getOrDefault("block_placed", 0));
+        final List<String> achievements = selectEventData(lines, "achievement").stream()
+            .map(
+                data -> data.get("achId")
+                    .getAsString())
+            .collect(Collectors.toList());
+        check(
+            "achievement logged only when its parent is unlocked",
+            achievements.equals(List.of("achievement.openInventory")),
+            achievements.toString());
         // only the step-2 stained glass: every later placement and break is in survival
         final List<String> creative = selectEventData(lines, "creative_block").stream()
             .map(
@@ -1022,8 +1035,7 @@ public final class SelfTest {
         }
         checkMixinsApplied();
         // The checks below are for events of optional mods, so their event types are not in EXPECTED_TYPES. The jar
-        // runs on
-        // servers without those mods, and there the events never appear.
+        // runs on servers without those mods, and there the events never appear.
         if (Compat.GT5.isLoaded()) {
             checkStructureTierPlans();
             checkStructureTiersOnThisSide(lines);
@@ -1247,7 +1259,13 @@ public final class SelfTest {
             // on a dedicated server, the fields of this class can't all be listed, so StructureTiers looks up
             // glassTier by name
             { "kubatech.tileentity.gregtech.multiblock.MTEExtremeEntityCrusher", "glassTier" } };
+        // GT 5.09.51.482 of pack 2.8.4 has none of these classes. On pack 2.8.4, the FML version string of GT is
+        // "MC1710", and a version compare can't order that string against a GT release
+        final Set<String> newerThanPack284 = Set
+            .of("gregtech.common.tileentities.machines.multi.foundry.MTEExoFoundry");
+        final boolean pack284Gt = !GtMachineSites.hasLocalNameKeyGetter();
         for (String[] row : expected) {
+            final String checkName = "structure tiers planned: " + row[0].substring(row[0].lastIndexOf('.') + 1);
             try {
                 final List<String> keys = StructureTiers
                     .planKeys(Class.forName(row[0], false, SelfTest.class.getClassLoader()));
@@ -1255,12 +1273,12 @@ public final class SelfTest {
                 for (int i = 1; i < row.length; i++) {
                     all &= keys.contains(row[i]);
                 }
-                check(
-                    "structure tiers planned: " + row[0].substring(row[0].lastIndexOf('.') + 1),
-                    all,
-                    keys.toString());
-            } catch (ClassNotFoundException | LinkageError e) {
-                check("structure tiers planned: " + row[0], false, String.valueOf(e));
+                check(checkName, all, keys.toString());
+            } catch (ClassNotFoundException e) {
+                final boolean expectedAbsent = pack284Gt && newerThanPack284.contains(row[0]);
+                check(checkName, expectedAbsent, expectedAbsent ? "absent in GT 5.09.51" : String.valueOf(e));
+            } catch (LinkageError e) {
+                check(checkName, false, String.valueOf(e));
             }
         }
     }

@@ -1,5 +1,9 @@
 package com.gtnhspeedrun.audit.trackers;
 
+import java.lang.reflect.Method;
+
+import org.jetbrains.annotations.Nullable;
+
 import gregtech.api.interfaces.metatileentity.IMetaTileEntity;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 
@@ -35,8 +39,45 @@ public final class GtMachineSites {
         return atBase(
             mte.getClass()
                 .getSimpleName(),
-            AuditSinks.gtLocalName(mte),
+            readLocalName(mte),
             base);
+    }
+
+    // GT 5.09.54.x (dailies) has getLocalNameKey(), and GT 5.09.51.x (pack 2.8.4) has only getLocalName(). A call
+    // compiled against getLocalNameKey() throws NoSuchMethodError on 5.09.51.x, so the getter is found by reflection.
+    // In both versions, IMetaTileEntity declares the getter. Look the getter up there, not on the class of one machine:
+    // a
+    // Method of a machine class that overrides the getter throws IllegalArgumentException on every other class.
+    private static final @Nullable Method LOCAL_NAME_GETTER = findLocalNameGetter();
+
+    /** Return whether this GT has getLocalNameKey(), which is new in GT 5.09.54.x. */
+    public static boolean hasLocalNameKeyGetter() {
+        return LOCAL_NAME_GETTER != null && LOCAL_NAME_GETTER.getName()
+            .equals("getLocalNameKey");
+    }
+
+    /** Return the local name key of {@code mte}, or null when GT has neither getter. */
+    private static @Nullable String readLocalName(IMetaTileEntity mte) {
+        if (LOCAL_NAME_GETTER == null) {
+            return null;
+        }
+        try {
+            return String.valueOf(LOCAL_NAME_GETTER.invoke(mte));
+        } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, reflection into GT code
+            return null;
+        }
+    }
+
+    private static @Nullable Method findLocalNameGetter() {
+        try {
+            return IMetaTileEntity.class.getMethod("getLocalNameKey");
+        } catch (NoSuchMethodException e) {
+            try {
+                return IMetaTileEntity.class.getMethod("getLocalName");
+            } catch (NoSuchMethodException oldNameMissing) {
+                return null;
+            }
+        }
     }
 
     private static MachineSite atBase(String className, String localName, IGregTechTileEntity base) {

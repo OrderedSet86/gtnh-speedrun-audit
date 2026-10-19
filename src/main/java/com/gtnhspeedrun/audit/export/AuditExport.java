@@ -68,7 +68,8 @@ public final class AuditExport {
     // ------------------------------------------------------------------ pieces
 
     /**
-     * Parse every line of every JSONL file in the log directory, sorted by seq. A line that does not parse is skipped.
+     * Parse every line of every JSONL file in the log directory, sorted by seq. A line that does not parse, or has no
+     * numeric seq, wall or ticks, no string t, or no data object, is skipped.
      */
     private List<JsonObject> readAllLines() throws IOException {
         final List<JsonObject> lines = new ArrayList<>();
@@ -83,9 +84,11 @@ public final class AuditExport {
                     continue;
                 }
                 try {
-                    lines.add(
-                        new JsonParser().parse(line)
-                            .getAsJsonObject());
+                    final JsonObject parsed = new JsonParser().parse(line)
+                        .getAsJsonObject();
+                    if (isChainLine(parsed)) {
+                        lines.add(parsed);
+                    }
                 } catch (JsonParseException | IllegalStateException ignored) {
                     // the corrupt lines are in the problems of verify-report.json
                 }
@@ -96,6 +99,13 @@ public final class AuditExport {
                 o -> o.get("seq")
                     .getAsLong()));
         return lines;
+    }
+
+    private static boolean isChainLine(JsonObject line) {
+        return JsonUtil.hasNumber(line, "seq") && JsonUtil.hasNumber(line, "wall")
+            && JsonUtil.hasNumber(line, "ticks")
+            && JsonUtil.hasString(line, "t")
+            && JsonUtil.hasObject(line, "data");
     }
 
     // ------------------------------------------------------------------ summary

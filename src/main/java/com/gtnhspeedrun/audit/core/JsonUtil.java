@@ -18,6 +18,8 @@ import org.apache.commons.codec.binary.Base64;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 /** Serialize and hash audit data the same way in every writer, JVM and session. */
 public final class JsonUtil {
@@ -113,5 +115,24 @@ public final class JsonUtil {
     /** Remove the Minecraft § formatting codes. Formatting codes don't belong in an audit record. */
     public static String stripFormatting(String text) {
         return text == null ? null : text.replaceAll("§.", "");
+    }
+
+    public static boolean hasNumber(JsonObject object, String key) {
+        final JsonElement value = object.get(key);
+        return value != null && value.isJsonPrimitive()
+            && value.getAsJsonPrimitive()
+                .isNumber();
+    }
+
+    public static boolean hasString(JsonObject object, String key) {
+        final JsonElement value = object.get(key);
+        return value != null && value.isJsonPrimitive()
+            && value.getAsJsonPrimitive()
+                .isString();
+    }
+
+    public static boolean hasObject(JsonObject object, String key) {
+        final JsonElement value = object.get(key);
+        return value != null && value.isJsonObject();
     }
 }

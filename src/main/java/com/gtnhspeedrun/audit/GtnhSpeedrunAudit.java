@@ -88,10 +88,13 @@ public class GtnhSpeedrunAudit {
 
     /**
      * Start the session and register every tracker for this server. After an IOException or RuntimeException, the
-     * error is logged and the server runs on with no session.
+     * error is logged, the trackers registered so far are unregistered, the writer of a started session is closed, and
+     * the server runs on with no session. A started session then has no session_end line, so the next start reads that
+     * session as a crash.
      */
     @Mod.EventHandler
     public void serverStarting(FMLServerStartingEvent event) {
+        SessionManager started = null;
         try {
             final String selftestDir = System.getProperty(SelfTest.PROPERTY);
             final boolean selftest = selftestDir != null;
@@ -104,6 +107,7 @@ public class GtnhSpeedrunAudit {
             }
             final SessionManager sm = new SessionManager(LOG, event.getServer());
             sm.start();
+            started = sm;
             session = sm;
 
             final KeyItemIndex keyItems = new KeyItemIndex(AuditConfig.keyItems, sm.logger(), sm.anchor());
@@ -211,6 +215,10 @@ public class GtnhSpeedrunAudit {
             // a broken audit trail must be loud, but the server of the run must keep running
             LOG.error("Speedrun audit failed to start — THIS RUN IS NOT BEING AUDITED", e);
             session = null;
+            unregisterAuditListeners();
+            if (started != null) {
+                started.stopped();
+            }
         }
     }
 
@@ -268,6 +276,10 @@ public class GtnhSpeedrunAudit {
         if (sm != null) {
             sm.stopped();
         }
+        unregisterAuditListeners();
+    }
+
+    private void unregisterAuditListeners() {
         for (Object listener : forgeBusListeners) {
             MinecraftForge.EVENT_BUS.unregister(listener);
         }

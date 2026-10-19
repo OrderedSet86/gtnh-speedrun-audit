@@ -77,6 +77,14 @@ public final class Verifier {
                     }
                     continue;
                 }
+                if (!(JsonUtil.hasNumber(obj, "seq") && JsonUtil.hasString(obj, "prev"))) {
+                    result.problem(
+                        "CORRUPT_LINE",
+                        fileName + " line "
+                            + (i + 1)
+                            + ": no numeric seq or no string prev (expected a LogWriter line)");
+                    continue;
+                }
                 final long seq = obj.get("seq")
                     .getAsLong();
                 if (upToSeq >= 0 && seq > upToSeq) {

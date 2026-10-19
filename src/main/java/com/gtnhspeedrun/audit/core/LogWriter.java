@@ -12,6 +12,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.zip.GZIPOutputStream;
 
@@ -51,6 +52,9 @@ public final class LogWriter implements Runnable {
 
     private long seq;
     private String head;
+    private final AtomicLong submittedJobs = new AtomicLong();
+    // ++ on a volatile isn't atomic. Only the writer thread increments this field, so no update is lost
+    private volatile long finishedJobs;
     private volatile long publishedSeq;
     private volatile String publishedHead;
     private volatile boolean dead;
@@ -85,12 +89,14 @@ public final class LogWriter implements Runnable {
 
     public void submit(PendingEvent event) {
         if (!dead) {
+            submittedJobs.incrementAndGet();
             queue.add(event);
         }
     }
 
     public void submitSnapshot(SnapshotJob job) {
         if (!dead) {
+            submittedJobs.incrementAndGet();
             queue.add(job);
         }
     }
@@ -113,17 +119,15 @@ public final class LogWriter implements Runnable {
     }
 
     /**
-     * Wait until the writer has taken every queued job, the writer is dead, or {@code timeoutMs} passes. Return whether
-     * the queue is empty.
-     *
-     * <p>
-     * FIXME: an empty queue does not mean that the last job is on disk. The writer can still be appending the last job
-     * taken from the queue, so a caller that reads {@link #publishedSeq()} next can read the seq before that job.
+     * Wait until the writer has finished every job submitted before the call, the writer is dead, or {@code timeoutMs}
+     * passes. Return whether every such job is finished. After a true return, {@link #publishedSeq()} includes the last
+     * of those jobs.
      */
     public boolean drain(long timeoutMs) {
         final long POLL_MS = 20;
+        final long target = submittedJobs.get();
         final long deadline = System.currentTimeMillis() + timeoutMs;
-        while (!queue.isEmpty() && !dead && System.currentTimeMillis() < deadline) {
+        while (finishedJobs < target && !dead && System.currentTimeMillis() < deadline) {
             try {
                 Thread.sleep(POLL_MS);
             } catch (InterruptedException e) {
@@ -132,7 +136,7 @@ public final class LogWriter implements Runnable {
                 return false;
             }
         }
-        return queue.isEmpty();
+        return finishedJobs >= target;
     }
 
     public void close(long timeoutMs) {
@@ -156,8 +160,10 @@ public final class LogWriter implements Runnable {
                 }
                 if (job instanceof PendingEvent event) {
                     appendLine(event);
+                    finishedJobs++;
                 } else if (job instanceof SnapshotJob snapshot) {
                     writeSnapshot(snapshot);
+                    finishedJobs++;
                 } else if (job == null) {
                     maybeForce(false);
                 }

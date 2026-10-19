@@ -132,10 +132,9 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
             if (!(mMachine && aBaseMetaTileEntity.isServerSide())) {
                 return;
             }
-            FormationGuard.log(
-                this,
-                audit$wasFormed,
-                GtMachineSites.readSite((MetaTileEntity) (Object) this, aBaseMetaTileEntity));
+            // the formation lines read the site from the base tile of this controller, so this line does too. A
+            // Purification Plant passes the plant's tile as the checkStructure() argument of the plant's units
+            FormationGuard.log(this, audit$wasFormed, GtMachineSites.readSite((MetaTileEntity) (Object) this));
         } finally {
             StructureBounds.pop(this);
         }

@@ -7,6 +7,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.Container;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
+import net.minecraft.server.MinecraftServer;
 
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -58,6 +59,9 @@ public class InvseeContainerMixin implements InvseeViewHolder {
     private int audit$depth; // noqa: NAR130
 
     @Unique
+    private int audit$clickTick; // noqa: NAR130
+
+    @Unique
     private List<ItemStack> audit$before; // noqa: NAR130
 
     @Unique
@@ -97,10 +101,19 @@ public class InvseeContainerMixin implements InvseeViewHolder {
     @Inject(method = { "slotClick", "func_75144_a" }, at = @At("HEAD"), require = 1)
     private void audit$clickHead(int slotId, int button, int mode, EntityPlayer player, // noqa: NAR130, NAR131
         CallbackInfoReturnable<ItemStack> cir) {
+        // a client in a remote world has no MinecraftServer
+        final MinecraftServer server = MinecraftServer.getServer();
+        final int tick = server == null ? -1 : server.getTickCounter();
+        // An exception out of slotClick() skips the RETURN injection, and audit$depth stays above 0. A re-entry runs
+        // in the same tick as the outer call, so a depth from an earlier tick is from such a click. Reset the depth
+        if (audit$depth > 0 && tick != audit$clickTick) {
+            audit$depth = 0;
+        }
         // vanilla's shift-click can re-enter slotClick() through retrySlotClick(). Only the outermost call is one click
         if (audit$depth++ > 0 || player.worldObj.isRemote) {
             return;
         }
+        audit$clickTick = tick;
         final List<?> slots = ((Container) (Object) this).inventorySlots;
         final List<ItemStack> before = new ArrayList<>(slots.size());
         for (Object slot : slots) {

@@ -10,6 +10,7 @@ import com.gtnhspeedrun.audit.core.ChainAnchorData;
 import com.gtnhspeedrun.audit.snapshot.ItemKey;
 import com.gtnhspeedrun.audit.snapshot.KeyItemIndex;
 
+import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 
@@ -90,15 +91,16 @@ public final class MilestoneTracker {
     }
 
     /**
-     * Log a player's first trigger of each achievement. Forge posts {@code AchievementEvent} on every
-     * {@code triggerAchievement} call, before vanilla checks that the parent achievement is unlocked. The event
-     * therefore also fires for an achievement that the player has already or cannot unlock yet. The anchor's
-     * {@code earnedAchievements} set dedupes the lines, and a trigger whose parent is locked is still logged. Vanilla
-     * saves the unlocked state in the per-player stats file, and that file is not part of the audited world state.
+     * Log a player's first unlock of each achievement. Forge posts {@code AchievementEvent} on every
+     * {@code triggerAchievement} call, before vanilla checks that the parent achievement is unlocked, so this handler
+     * checks the parent itself. The anchor's {@code earnedAchievements} set dedupes the lines. Vanilla saves the
+     * unlocked state in the per-player stats file, and that file is not part of the audited world state. The handler
+     * runs at the lowest priority, so a cancel from any other handler is final, and a canceled event is not logged.
      */
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onAchievement(AchievementEvent event) {
-        if (!(event.entityPlayer instanceof EntityPlayerMP player)) {
+        if (!(event.entityPlayer instanceof EntityPlayerMP player && player.func_147099_x()
+            .canUnlockAchievement(event.achievement))) {
             return;
         }
         final String id = event.achievement.statId;

@@ -156,8 +156,7 @@ public final class SessionManager {
         logger.log("session_end", data);
         writer.drain(DRAIN_TIMEOUT_MS);
         // The world save after FMLServerStoppingEvent writes this anchor. After a clean stop the anchor has the seq
-        // and hash of the session_end line, unless drain() returned before the writer appended that line, as the
-        // javadoc of LogWriter.drain() describes.
+        // and hash of the session_end line, unless drain() timed out or the writer is dead.
         publishAnchor(true);
     }
 
@@ -527,6 +526,8 @@ public final class SessionManager {
                 : "gtnhspeedrunaudit.command.export.folder.instance");
         final String landmarkKey = dedicated ? "gtnhspeedrunaudit.command.export.landmark.server"
             : "gtnhspeedrunaudit.command.export.landmark.instance";
+        // stopped() sets the anchor field to null, and the server can stop while the zip is written
+        final String worldAuditUuid = anchor.worldAuditUuid;
         final Thread exportThread = new Thread(() -> {
             try {
                 final Path zip = bundle.writeZip();
@@ -535,7 +536,7 @@ public final class SessionManager {
                     sender,
                     "gtnhspeedrunaudit.command.export.path",
                     rootName,
-                    anchor.worldAuditUuid,
+                    worldAuditUuid,
                     zip.getFileName());
                 CommandAudit.reply(sender, landmarkKey, rootName);
             } catch (IOException | RuntimeException e) {
