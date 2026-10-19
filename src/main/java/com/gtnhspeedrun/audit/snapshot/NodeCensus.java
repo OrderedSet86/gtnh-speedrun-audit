@@ -25,11 +25,11 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * Each entry is the tile's full NBT. Aspects, base aspects, node type and modifier are all in the NBT, so the class
  * calls no Thaumcraft API, and a pack with no Thaumcraft gets an empty census. In two consecutive censuses, a verifier
  * tells a bee's slow refill from the jump of an edit. A node that is gone in the second census was jarred or broken,
- * or its chunk is unloaded.
+ * or the chunk of the node is unloaded.
  *
  * <p>
  * The census reads only the loaded tile list of each world, on the server thread. A node in an unloaded chunk
- * doesn't change, and is in the next census taken while its chunk is loaded.
+ * doesn't change, and is in the next census taken while the chunk is loaded.
  */
 public final class NodeCensus {
 

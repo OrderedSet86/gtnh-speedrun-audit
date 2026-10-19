@@ -39,8 +39,8 @@ import gregtech.common.misc.GlobalVariableStorage;
  * shape in both versions.
  *
  * <p>
- * An LSC in an unloaded chunk doesn't tick, so its charge can't change until the chunk loads. The census walks the
- * loaded tile entity list once per interval, on the server thread.
+ * An LSC in an unloaded chunk doesn't tick, so the LSC's charge can't change until the chunk loads. The census walks
+ * the loaded tile entity list once per interval, on the server thread.
  */
 public final class GtPowerCensus {
 

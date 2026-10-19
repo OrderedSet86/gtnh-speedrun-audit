@@ -49,7 +49,7 @@ public final class AuditLogger {
     }
 
     /**
-     * A snapshot file and its reference line.
+     * A snapshot file and the reference line for the file.
      *
      * @param content runs on the writer thread. The supplier must close over a copy captured beforehand, NEVER over
      *                live game state.

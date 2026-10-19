@@ -34,9 +34,9 @@ public final class JsonUtil {
     private JsonUtil() {}
 
     /**
-     * Hash NBT the same way in every JVM and session. NBTTagCompound is backed by a HashMap, so its write order and
-     * its toString() order can differ for two equal tags. The hash is over a canonical rendering instead: compound
-     * keys sorted, lists in order, and primitives by toString(), whose vanilla formats are fixed.
+     * Hash NBT the same way in every JVM and session. NBTTagCompound is backed by a HashMap, so the write order and the
+     * toString() order of two equal tags can differ. The hash is over a canonical rendering instead: compound keys
+     * sorted, lists in order, and primitives by toString(), whose vanilla formats are fixed.
      */
     public static String canonicalNbtHash(NBTTagCompound tag) {
         final StringBuilder rendering = new StringBuilder(256);

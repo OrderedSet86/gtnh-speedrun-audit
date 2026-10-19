@@ -25,8 +25,8 @@ import tectech.thing.metaTileEntity.hatch.MTEHatchEnergyMulti;
 import tectech.thing.metaTileEntity.multi.base.TTMultiblockBase;
 
 /**
- * Logs the formation of TecTech multiblocks (Large Naquadah Reactor, Eye of Harmony, Space Elevator and its modules,
- * Quantum Computer, BEC, Godforge modules, ...). TTMultiblockBase sets mMachine inside its onPostTick() and never
+ * Logs the formation of TecTech multiblocks (Large Naquadah Reactor, Eye of Harmony, Space Elevator and Space Elevator
+ * modules, Quantum Computer, BEC, Godforge modules, ...). TTMultiblockBase sets mMachine inside onPostTick() and never
  * calls checkStructure(). The checkStructure() hook of MTEMultiBlockBaseMixin therefore runs for a TecTech multiblock
  * only when something else calls checkStructure(), for example a survival build.
  *

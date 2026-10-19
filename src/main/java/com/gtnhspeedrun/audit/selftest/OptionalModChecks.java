@@ -28,7 +28,7 @@ import cpw.mods.fml.common.Loader;
 /** The self-test log checks that depend on which optional mods are loaded. */
 public final class OptionalModChecks {
 
-    // nothing in the scenario stocks this item, so its census entry can come only from the pattern
+    // nothing in the scenario stocks this item, so the census entry of this item can come only from the pattern
     private static final String AE2_CRAFTABLE_KEY = "minecraft:nether_star@0";
 
     private final SessionManager session;
@@ -216,7 +216,7 @@ public final class OptionalModChecks {
 
     /**
      * Check that the tiers of every registered multiblock read without a throw on this side, and that the Extreme
-     * Entity Crusher of step 3 logged one formation line with its glass tier. On a pass, the check detail has the
+     * Entity Crusher of step 3 logged one formation line with a glass tier. On a pass, the check detail has the
      * classes whose fields can't all be listed on this side.
      */
     public void checkStructureTiersOnThisSide(List<JsonObject> lines) {

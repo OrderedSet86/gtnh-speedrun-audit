@@ -7,8 +7,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
 /**
- * Describe where a formed multiblock is: the box of the positions that its structure check visited, from
- * {@link StructureBounds}, and the controller's facing.
+ * Describe where a formed multiblock is: the box of the positions that the structure check of the multiblock visited,
+ * from {@link StructureBounds}, and the controller's facing.
  */
 public final class MultiblockFootprint {
 
@@ -32,7 +32,7 @@ public final class MultiblockFootprint {
     }
 
     /**
-     * Return the dedupe key. The controller saves the key of the last logged footprint in its NBT, so a footprint is
+     * Return the dedupe key. The key of the last logged footprint is saved in the controller's NBT, so a footprint is
      * logged again only when the key changes.
      */
     public String formatKey() {

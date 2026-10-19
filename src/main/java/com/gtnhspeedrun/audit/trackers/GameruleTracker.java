@@ -60,7 +60,9 @@ public final class GameruleTracker {
         return out;
     }
 
-    /** Return each rule whose value differs, mapped to its value in {@code after}, or to null when absent there. */
+    /**
+     * Return each rule whose value differs, mapped to the rule's value in {@code after}, or to null when absent there.
+     */
     public static Map<String, String> diff(Map<String, String> before, Map<String, String> after) {
         final Map<String, String> out = new TreeMap<>();
         for (Map.Entry<String, String> entry : after.entrySet()) {

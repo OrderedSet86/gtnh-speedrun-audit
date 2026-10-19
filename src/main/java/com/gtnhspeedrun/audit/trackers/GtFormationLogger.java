@@ -15,6 +15,8 @@ public interface GtFormationLogger {
      */
     void audit$logFormation(); // noqa: NAR130
 
-    /** Call after a check of a formed multiblock that left the multiblock formed, while its frame is open. */
+    /**
+     * Call after a check of a formed multiblock that left the multiblock formed, while the multiblock's frame is open.
+     */
     void audit$logFootprintChange(); // noqa: NAR130
 }

@@ -15,9 +15,9 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *
  * <p>
  * Each {@code StructureUtility.iterateV2} call opens a scratch level, and only a call that returns true merges the
- * call's positions into the level below. A multiblock of variable length ends its scan with a probe that fails, such as
- * the Assembly Line's next slice, the LSC's next layer or the LINAC's next segment. The positions of that failed probe
- * stay out of the box.
+ * call's positions into the level below. A multiblock of variable length ends the structure check with a probe that
+ * fails, such as the Assembly Line's next slice, the LSC's next layer or the LINAC's next segment. The positions of
+ * that failed probe stay out of the box.
  *
  * <p>
  * Call on the server thread only. The hooks allocate nothing per check or per position. In singleplayer the client
@@ -83,7 +83,7 @@ public final class StructureBounds {
         top = frame;
     }
 
-    /** Close the newest frame of {@code owner} and every frame above it. */
+    /** Close every frame from the newest frame of {@code owner} to the top frame. */
     public static void pop(Object owner) {
         if (Thread.currentThread() != serverThread) {
             return;

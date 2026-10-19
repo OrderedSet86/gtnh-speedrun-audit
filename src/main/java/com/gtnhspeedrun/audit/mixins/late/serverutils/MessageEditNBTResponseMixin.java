@@ -25,7 +25,7 @@ import serverutils.net.MessageEditNBTResponse;
  * HEAD, so forged packets that fail the pending-edit check later in onMessage() are logged as attempts.
  *
  * <p>
- * At HEAD the target still has its current NBT, so the log line has the current NBT next to the new NBT. The payload
+ * At HEAD the target still has the current NBT, so the log line has the current NBT next to the new NBT. The payload
  * of the packet has only the new NBT. For a target that cannot be read, the line has a reason in place of the current
  * NBT.
  */

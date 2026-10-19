@@ -38,9 +38,9 @@ public final class MultiblockSinks {
      * Log a formation once per session for each class, position and {@link MultiblockPower#dedupeSuffix}.
      *
      * <p>
-     * A multiblock forms again each time its chunk reloads, because the MTE is recreated unformed and checks its
-     * structure again. With this key, the formation is logged again after a swap of LV energy hatches for UV energy
-     * hatches, and not after a chunk reload. After a server restart, every formed multiblock is logged again.
+     * A multiblock forms again each time the multiblock's chunk reloads, because the MTE is recreated unformed and
+     * checks the structure again. With this key, the formation is logged again after a swap of LV energy hatches for UV
+     * energy hatches, and not after a chunk reload. After a server restart, every formed multiblock is logged again.
      * {@link #logGtMultiblockFormed} dedupes GT multiblocks across restarts. The {@code firstOfClass} flag comes from
      * the anchor, so the flag spans sessions and rewinds with the world.
      */
@@ -56,8 +56,8 @@ public final class MultiblockSinks {
     }
 
     /**
-     * Log a GT multiblock formation, deduped by a marker that the controller saves in its NBT. The formation is logged
-     * once, and again only when the hatch tiers, the amperages, or the coil or structure tiers change.
+     * Log a GT multiblock formation, deduped by a marker saved in the controller's NBT. The formation is logged once,
+     * and again only when the hatch tiers, the amperages, or the coil or structure tiers change.
      *
      * <p>
      * A server restart or a chunk reload loads the marker back, so no formation is logged at the next check. A
@@ -123,7 +123,7 @@ public final class MultiblockSinks {
     }
 
     // The server resolves the chat text, because a client may have no lang file for this server-only mod. Such a
-    // client shows a translation component as its raw key. The Forge 1614 dedicated server loads
+    // client shows a translation component as the component's raw key. The Forge 1614 dedicated server loads
     // assets/gtnhspeedrunaudit/lang/en_US.lang into StringTranslate.
 
     /**

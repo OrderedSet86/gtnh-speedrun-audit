@@ -109,7 +109,7 @@ public final class WorldEditAudit {
         return null;
     }
 
-    /** One EditSession's tally since its last flush. */
+    /** One EditSession's tally since the last flush. */
     private final class Recorder extends AbstractDelegateExtent {
 
         private final String actorName;

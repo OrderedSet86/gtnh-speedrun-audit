@@ -30,8 +30,8 @@ import cpw.mods.fml.common.ModContainer;
  *
  * <p>
  * The pack has about 300 jars, so hashing reads several GB. A background thread hashes the files, and the fingerprint
- * line comes a few seconds into the session. With a (size, mtime) cache, a file edited to the same size, with its mtime
- * restored, would get the stale hash. Every file is therefore hashed by content on every boot.
+ * line comes a few seconds into the session. With a (size, mtime) cache, a file edited to the same size, with the
+ * file's mtime restored, would get the stale hash. Every file is therefore hashed by content on every boot.
  */
 public final class FingerprintTracker {
 

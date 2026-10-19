@@ -41,7 +41,7 @@ public final class MachineEvents {
     }
 
     /**
-     * Log a Blood Altar tier change after the altar checked its runes. In {@code upgradeLevel}, 0 is unchecked and 1
+     * Log a Blood Altar tier change after the altar checked the runes. In {@code upgradeLevel}, 0 is unchecked and 1
      * to 6 are tiers I to VI. The line has the altar's position and no class name.
      */
     public static void logBloodAltarTier(MachineSite site, int from, int to) {

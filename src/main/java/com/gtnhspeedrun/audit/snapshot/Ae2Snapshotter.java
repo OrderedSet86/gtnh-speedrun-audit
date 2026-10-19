@@ -196,7 +196,7 @@ public final class Ae2Snapshotter {
 
     /**
      * Walk a whole item list in one pass. {@code Ae2Bench} times this method, so the live census must call this method
-     * and no copy of it.
+     * and no copy of walkItems().
      *
      * @param keyItems null for no watchlist check
      */
@@ -268,8 +268,9 @@ public final class Ae2Snapshotter {
     }
 
     /**
-     * One census's item side. The arrays that the snapshot supplier reads contain strings and primitives only, with
-     * no reference to live game state. The writer thread can therefore serialize the census after its tick ends.
+     * One census's item side. The arrays that the snapshot supplier reads contain strings and primitives only, with no
+     * reference to live game state. The writer thread can therefore serialize the census after the tick of the census
+     * ends.
      *
      * <p>
      * A key is {@code modid:name@meta}, with no NBT. The census counts how much of each item a network stores, and
@@ -280,8 +281,8 @@ public final class Ae2Snapshotter {
      * <p>
      * {@code craftable} is the AE2 flag for an item that the network has a pattern for, or a level emitter set to
      * craft. The AE2 crafting grid is a cell provider on the storage grid, so the storage list has every craftable
-     * item. A craftable-only item is an entry with count 0, and a stocked item has the flag on its entry. The census
-     * reads no pattern and no interface.
+     * item. A craftable-only item is an entry with count 0, and a stocked item has the flag on the entry of the item.
+     * The census reads no pattern and no interface.
      */
     public static final class ItemCensus {
 

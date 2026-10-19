@@ -39,7 +39,7 @@ import gregtech.api.util.GTUtility;
 
 /**
  * Logs the formation of every modern GT multiblock (assembly line, EBF, fusion, ...). GT sets mMachine in
- * checkStructure(), except for TecTech multiblocks. TTMultiblockBase sets mMachine in its onPostTick(), and
+ * checkStructure(), except for TecTech multiblocks. TTMultiblockBase sets mMachine in onPostTick(), and
  * TTMultiblockBaseMixin logs TecTech formations through audit$logFormation(). The change of mMachine from false to true
  * is the graded event for categories such as coke%, bbf% and assline%. The structure check fills the hatch lists, so at
  * RETURN the lists contain the hatches of the multiblock that just formed. The voltage tiers of the formation line are
@@ -58,7 +58,7 @@ import gregtech.api.util.GTUtility;
  * a new formation, the mixin logs a multiblock_footprint line, for example after a wrench rotation or when an LSC
  * (Lapotronic Supercapacitor) grows layers. The formation and footprint lines take their coordinates from the tile of
  * this controller, not from the checkStructure() argument. The Purification Plant passes the plant's tile as that
- * argument when the plant runs the checkStructure() of its units.
+ * argument when the plant runs the checkStructure() of the plant's units.
  */
 @Mixin(value = MTEMultiBlockBase.class, remap = false)
 public class MTEMultiBlockBaseMixin implements GtFormationLogger {

@@ -11,9 +11,9 @@ import net.minecraft.world.World;
 import appeng.tile.misc.TileInterface;
 
 /**
- * Build the self-test's ME network: an ME Interface with one processing pattern, powered by a Creative Energy Cell
- * so the network provides the pattern to its crafting grid. The class references AE2 types, so use the class only
- * when AE2 is loaded.
+ * Build the self-test's ME network: an ME Interface with one processing pattern, powered by a Creative Energy Cell so
+ * the interface provides the pattern to the crafting grid of the network. The class references AE2 types, so use the
+ * class only when AE2 is loaded.
  */
 public final class Ae2Fixture {
 

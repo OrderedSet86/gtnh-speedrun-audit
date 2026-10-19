@@ -41,11 +41,11 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * Forestry and Adventure backpacks are in item NBT, so the inventory snapshots already have those contents.
  *
  * <p>
- * EnderStorage is read by reflection on its manager. The private fields are the same from EnderStorage 1.7.7
+ * EnderStorage is read by reflection on EnderStorageManager. The private fields are the same from EnderStorage 1.7.7
  * (pack 2.8.4) through 1.8.7. The census never calls {@code saveToTag}, because {@code saveToTag} resizes
  * inventories. Storages loaded in this session come from the live inventories, and the others come from the
- * manager's saved tag. The writer thread reads the backpack files from disk, so each backpack is as of the
- * Backpack mod's last save of that backpack.
+ * manager's saved tag. The writer thread reads the backpack files from disk, so each backpack is as of the Backpack
+ * mod's last save of that backpack.
  */
 public final class StorageCensus {
 

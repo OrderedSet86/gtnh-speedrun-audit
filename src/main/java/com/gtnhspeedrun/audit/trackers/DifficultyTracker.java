@@ -14,9 +14,9 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *
  * <p>
  * 1.7.10 fires no event for a difficulty change, and the singleplayer options menu changes the difficulty with no
- * command. A change is logged at the end of its tick. An edit of server.properties while the server is offline shows as
- * a {@code session_start} difficulty that differs from the last difficulty of the session before. Peaceful removes
- * hostile mobs at once, so a one-second change matters to a leaderboard that bans Peaceful.
+ * command. A change is logged at the end of the tick of the change. An edit of server.properties while the server is
+ * offline shows as a {@code session_start} difficulty that differs from the last difficulty of the session before.
+ * Peaceful removes hostile mobs at once, so a one-second change matters to a leaderboard that bans Peaceful.
  */
 public final class DifficultyTracker {
 

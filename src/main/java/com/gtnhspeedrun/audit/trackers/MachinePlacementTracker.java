@@ -181,7 +181,9 @@ public final class MachinePlacementTracker {
         }
     }
 
-    /** Log a creative break as {@code creative_block}, and a break of a watched block with its tile's NBT. */
+    /**
+     * Log a creative break as {@code creative_block}, and a break of a watched block with the NBT of the block's tile.
+     */
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onBreak(BlockEvent.BreakEvent event) {
         if (event.isCanceled() || event.world.isRemote || !(event.getPlayer() instanceof EntityPlayerMP player)) {

@@ -16,8 +16,8 @@ import betterquesting.questing.QuestDatabase;
 import betterquesting.questing.QuestLineDatabase;
 
 /**
- * Log a fingerprint of the quest book after BetterQuesting loads it, so a database swapped between sessions shows
- * as a hash change and needs no diff of world downloads.
+ * Log a fingerprint of the quest book after BetterQuesting loads the quest book. A database swapped between sessions
+ * then shows as a hash change, with no diff of world downloads.
  *
  * <p>
  * The line has two hashes. {@code fileSha256} is the SHA-256 of the quest database file on disk at server start,

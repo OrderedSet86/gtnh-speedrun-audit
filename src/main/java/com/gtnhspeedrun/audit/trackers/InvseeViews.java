@@ -260,8 +260,8 @@ public final class InvseeViews {
      * <p>
      * {@code how} is {@code closed} when the viewer closed the view, {@code replaced} when a new /inv view replaced the
      * view without a close, and {@code viewerLogout} when the viewer disconnected with the view open. Only a close runs
-     * ServerUtilities' write-back. With the other two endings, an offline target's copy is dropped with all its
-     * changes.
+     * ServerUtilities' write-back. With the other two endings, an offline target's copy is dropped with all changes to
+     * the copy.
      *
      * @param targetName null when the caller has no target name, and the line then has no {@code targetName}
      */

@@ -608,7 +608,7 @@ public final class Scenario {
         InvseeViews.countClick(abandoned, true);
     }
 
-    /** Force a re-check of the formed Active Transformer and read its facing. The footprint is unchanged. */
+    /** Force a re-check of the formed Active Transformer and read the facing. The footprint is unchanged. */
     private void recheckTecTechMulti(WorldServer world) {
         if (!Compat.GT5.isLoaded()) {
             return;

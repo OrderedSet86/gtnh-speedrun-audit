@@ -20,7 +20,7 @@ import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
 
 /**
- * Log the text that a query-style command sends back to its sender, for the commands in the
+ * Log the text that a query-style command sends back to the sender of the command, for the commands in the
  * {@code commandOutputCapture} allowlist.
  *
  * <p>
@@ -30,10 +30,10 @@ import com.gtnhspeedrun.audit.core.SessionManager;
  * <p>
  * Mixins call {@link #begin} and {@link #end} around {@code CommandHandler.executeCommand}, and {@link #captureLine}
  * for every chat line a hooked sender receives. A command runs synchronously on the calling thread, the server thread
- * or the RCON thread. Each thread therefore has a separate capture, in a thread-local. Only lines sent to the
- * command's sender are kept, because a notification to other ops is not the command's reply. A command off the
- * allowlist is buffered only when an allowlisted command runs it, so player conversation through {@code /msg} and
- * similar commands doesn't reach the log.
+ * or the RCON thread. Each thread therefore has a separate capture, in a thread-local. Only lines sent to the command's
+ * sender are kept, because a notification to other ops is not the command's reply. A command off the allowlist is
+ * buffered only inside the capture of an allowlisted command, so player conversation through {@code /msg} and similar
+ * commands doesn't reach the log.
  */
 public final class CommandOutputCapture {
 

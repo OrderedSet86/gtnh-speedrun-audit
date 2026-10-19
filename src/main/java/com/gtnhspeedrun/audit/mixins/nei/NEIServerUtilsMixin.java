@@ -31,7 +31,7 @@ import codechicken.nei.NEIServerUtils;
 public class NEIServerUtilsMixin {
 
     /**
-     * Hand-off from the HEAD of a give to its RETURN: {requested stack copy, matching count before the give}. NEI
+     * Hand-off from the HEAD to the RETURN of a give: {requested stack copy, matching count before the give}. NEI
      * handles packets on the netty thread, and both injections run on that thread.
      */
     @Unique

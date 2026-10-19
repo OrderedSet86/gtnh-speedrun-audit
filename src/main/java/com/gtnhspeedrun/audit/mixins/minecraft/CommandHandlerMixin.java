@@ -14,8 +14,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import com.gtnhspeedrun.audit.trackers.CommandOutputCapture;
 
 /**
- * Marks the start and the end of each command's execution for CommandOutputCapture, so each reply goes to the log
- * line of its command. The mixin is in the early config because CommandHandler is a vanilla class.
+ * Marks the start and the end of each command's execution for CommandOutputCapture, so each reply goes to the log line
+ * of the reply's command. The mixin is in the early config because CommandHandler is a vanilla class.
  */
 @Mixin(CommandHandler.class)
 public class CommandHandlerMixin {

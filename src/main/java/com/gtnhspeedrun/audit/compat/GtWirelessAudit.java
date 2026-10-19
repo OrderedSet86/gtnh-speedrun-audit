@@ -73,7 +73,7 @@ public final class GtWirelessAudit {
 
     /**
      * Write one {@code gt_global_energy} line for each command queued since the last tick, with each target's team
-     * leader and balance before the command and after it.
+     * leader and balance before the command and after the command.
      */
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {

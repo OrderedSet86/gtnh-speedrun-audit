@@ -46,7 +46,7 @@ import org.objectweb.asm.Opcodes;
  * <p>
  * {@code getDeclaredFields()} loads the type of every field of a class. On a dedicated server, the type of a
  * client-only field cannot load, such as the {@code kubatech.client.effect.EntityRenderer} field of the Extreme
- * Entity Crusher. So for such a class the fields are found by name in its class file, and each field is read
+ * Entity Crusher. So for such a class the fields are found by name in the class file, and each field is read
  * through a method handle. The handle resolves only that field.
  */
 public final class StructureTiers {
@@ -59,7 +59,7 @@ public final class StructureTiers {
         // the Plasma Forge's convergence upgrade
         "MTEPlasmaForge",
         new String[] { "convergence" },
-        // the Exo-Foundry's tier (1 UEV, 2 UIV, 3 UXV) and its module slots (heliocast, hypercooler, …)
+        // the Exo-Foundry's tier (1 UEV, 2 UIV, 3 UXV) and module slots (heliocast, hypercooler, …)
         "MTEExoFoundry",
         new String[] { "foundryData.tier", "foundryData.modules" });
 
@@ -271,7 +271,7 @@ public final class StructureTiers {
 
     /**
      * Return the field chain for a dotted path, or null when a field of the path is absent. Each field after the first
-     * is looked up in the previous field's declared type and its superclasses.
+     * is looked up in the previous field's declared type, then in the superclasses of the declared type.
      */
     private static List<Field> resolve(Class<?> type, String dotted) {
         final String[] names = dotted.split("\\.");
@@ -368,7 +368,7 @@ public final class StructureTiers {
         }
     }
 
-    /** One value of the plan, under its key in the formation line. */
+    /** One value of the plan, under the value's key in the formation line. */
     private interface Getter {
 
         String key();

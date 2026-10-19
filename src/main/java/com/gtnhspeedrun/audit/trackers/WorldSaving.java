@@ -9,10 +9,10 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
 /**
- * Report whether worlds are saving. The MCP name WorldServer.levelSaving is inverted: while the flag is set,
- * autosaves and the shutdown save skip that world (ChunkProviderServer.canSave()). A stop then leaves the world as of
- * its last save, and the next start is classified as WORLD_ROLLBACK. ServerUtilities sets the flag on every world for
- * the length of each backup. The flag is also set by /save-off.
+ * Report whether worlds are saving. The MCP name WorldServer.levelSaving is inverted: while the flag is set, autosaves
+ * and the shutdown save skip that world (ChunkProviderServer.canSave()). A stop then leaves the world as of the last
+ * save of the world, and the next start is classified as WORLD_ROLLBACK. ServerUtilities sets the flag on every world
+ * for the length of each backup. The flag is also set by /save-off.
  *
  * <p>
  * Only the overworld counts, because the chain anchor is saved with the overworld. Some worlds never save, such as

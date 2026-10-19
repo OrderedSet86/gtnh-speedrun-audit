@@ -43,7 +43,7 @@ import serverutils.lib.gui.ContainerBase;
  * lost. Each view therefore gets an id from InvseeViews. InvseeViews logs the target's logins, other views of the same
  * target and how the view ended under that id. The class shape is the same from ServerUtilities 2.2.2 (pack 2.8.4)
  * through 2.4.13. Both the MCP and the SRG name are listed for each Container method, because InvseeContainer is
- * unmapped and its overrides of Container methods have SRG names in production.
+ * unmapped and the overrides of Container methods in InvseeContainer have SRG names in production.
  */
 @Mixin(value = InvseeContainer.class, remap = false)
 public class InvseeContainerMixin implements InvseeViewHolder {

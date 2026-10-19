@@ -28,8 +28,8 @@ import com.google.gson.JsonObject;
  *
  * <p>
  * A snapshot job has a supplier over data captured on the server thread. This thread runs the supplier and gzips the
- * result. A supplier can build a JSON tree of 20k entries. The snapshot file is written and hashed before its
- * reference line is appended, so every line in the chain refers to bytes already written.
+ * result. A supplier can build a JSON tree of 20k entries. The snapshot file is written and hashed before the reference
+ * line of the snapshot file is appended, so every line in the chain refers to bytes already written.
  */
 public final class LogWriter implements Runnable {
 
@@ -280,7 +280,7 @@ public final class LogWriter implements Runnable {
         appendLine(new PendingEvent(snapshot.type(), refData, snapshot.clocks(), "writer"));
     }
 
-    /** The session a writer writes for, and its files. */
+    /** The session a writer writes for, and the log file and snapshot directory of the session. */
     public record LogTarget(String sessionId, int sessionIndex, Path logFile, Path snapshotDir) {}
 
     /** The seq of the first line to write, and the hash for the prev field of that line. */
