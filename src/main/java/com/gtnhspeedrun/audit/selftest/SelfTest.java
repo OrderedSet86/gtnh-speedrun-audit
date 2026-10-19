@@ -346,8 +346,8 @@ public final class SelfTest {
                 bus.post(new LivingDeathEvent(bob, DamageSource.outOfWorld));
                 // a mob kill: the death line has the killer
                 bus.post(new LivingDeathEvent(bob, new EntityDamageSource("mob", new EntityZombie(overworld))));
-                // openInventory has no parent, so openInventory is logged. The parent of mineWood is openInventory, and
-                // a posted event unlocks nothing, so mineWood stays locked and is not logged
+                // openInventory has no parent. The parent of mineWood is openInventory, and a posted event unlocks
+                // nothing, so the parent of mineWood stays locked
                 bus.post(new AchievementEvent(alice, AchievementList.openInventory));
                 bus.post(new AchievementEvent(alice, AchievementList.mineWood));
                 bus.post(new PlayerEvent.PlayerChangedDimensionEvent(alice, 0, -1));
@@ -809,11 +809,14 @@ public final class SelfTest {
         final List<String> achievements = selectEventData(lines, "achievement").stream()
             .map(
                 data -> data.get("achId")
-                    .getAsString())
+                    .getAsString() + " parentUnlocked="
+                    + data.get("parentUnlocked")
+                        .getAsBoolean())
             .collect(Collectors.toList());
         check(
-            "achievement logged only when its parent is unlocked",
-            achievements.equals(List.of("achievement.openInventory")),
+            "achievement logged with its parent state, a locked parent too",
+            achievements.equals(
+                List.of("achievement.openInventory parentUnlocked=true", "achievement.mineWood parentUnlocked=false")),
             achievements.toString());
         // only the step-2 stained glass: every later placement and break is in survival
         final List<String> creative = selectEventData(lines, "creative_block").stream()

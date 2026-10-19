@@ -91,23 +91,29 @@ public final class MilestoneTracker {
     }
 
     /**
-     * Log a player's first unlock of each achievement. Forge posts {@code AchievementEvent} on every
-     * {@code triggerAchievement} call, before vanilla checks that the parent achievement is unlocked, so this handler
-     * checks the parent itself. The anchor's {@code earnedAchievements} set dedupes the lines. Vanilla saves the
-     * unlocked state in the per-player stats file, and that file is not part of the audited world state. The handler
-     * runs at the lowest priority, so a cancel from any other handler is final, and a canceled event is not logged.
+     * Log a player's first trigger of each achievement, with {@code parentUnlocked}. Forge posts
+     * {@code AchievementEvent} on every {@code triggerAchievement} call, before vanilla checks that the parent
+     * achievement is unlocked. A trigger with a locked parent unlocks nothing. The player still met the achievement's
+     * condition, so the trigger is logged with {@code parentUnlocked} false. A later trigger of that achievement with
+     * the parent unlocked logs a second line, with {@code parentUnlocked} true. The anchor's
+     * {@code earnedAchievements} set dedupes each of the two cases. Vanilla saves the unlocked state in the per-player
+     * stats file, and that file is not part of the audited world state. The handler runs at the lowest priority, so a
+     * cancel from any other handler is final, and a canceled event is not logged.
      */
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onAchievement(AchievementEvent event) {
-        if (!(event.entityPlayer instanceof EntityPlayerMP player && player.func_147099_x()
-            .canUnlockAchievement(event.achievement))) {
+        if (!(event.entityPlayer instanceof EntityPlayerMP player)) {
             return;
         }
+        final boolean parentUnlocked = player.func_147099_x()
+            .canUnlockAchievement(event.achievement);
         final String id = event.achievement.statId;
-        if (!anchor.earnedAchievements.add(
-            player.getGameProfile()
-                .getId() + ":"
-                + id)) {
+        // worlds audited before parentUnlocked existed have keys without a suffix, for triggers of either kind
+        final String dedupeKey = player.getGameProfile()
+            .getId() + ":"
+            + id
+            + (parentUnlocked ? "" : ":locked");
+        if (!anchor.earnedAchievements.add(dedupeKey)) {
             return;
         }
         anchor.markDirty();
@@ -123,6 +129,7 @@ public final class MilestoneTracker {
             "achName",
             event.achievement.func_150951_e()
                 .getUnformattedText());
+        data.addProperty("parentUnlocked", parentUnlocked);
         logger.log("achievement", data);
     }
 
