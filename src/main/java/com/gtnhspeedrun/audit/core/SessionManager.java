@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.WorldServer;
@@ -18,6 +19,7 @@ import org.apache.logging.log4j.Logger;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.gtnhspeedrun.audit.api.AuditEvents;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -102,6 +104,9 @@ public final class SessionManager {
             new LogWriter.ChainStart(tail.seq() + 1, head));
         writer.start();
         logger = new AuditLogger(writer, clock);
+        AuditEvents.attachSession(clock::get, log);
+        // No event of the session is logged yet. Each listener with history gets the history first
+        replayHistory(tail);
         timingStart = new TimingStart(server, anchor, logger);
 
         anchor.cleanShutdown = false;
@@ -124,6 +129,37 @@ public final class SessionManager {
             sessionIndex,
             verifyVerdict,
             logFile);
+    }
+
+    /**
+     * Send the events of the earlier sessions to the API listeners with history. The last line of a world saved before
+     * the end of the log is {@link ChainAnchorData#lastSeq}. A log that can't be read is logged, and the session runs
+     * on.
+     */
+    private void replayHistory(ChainTail tail) {
+        final Set<String> historyTypes = AuditEvents.readHistoryTypes();
+        if (historyTypes.isEmpty()) {
+            return;
+        }
+        final long lastWorldSeq = StartupVerdict.isWorldRewound(verifyVerdict) ? anchor.lastSeq : tail.seq();
+        final long startNanos = System.nanoTime();
+        final LedgerHistory.History history;
+        try {
+            history = LedgerHistory.read(dirs.log(), historyTypes, lastWorldSeq);
+        } catch (IOException exception) {
+            log.warn("history.unreadable reason={}", exception.getMessage(), exception);
+            return;
+        }
+        for (LedgerHistory.Event event : history.events()) {
+            AuditEvents.publishHistory(event.type(), event.data(), event.igtTicks());
+        }
+        log.info(
+            "history.replayed events={} files={} skipped={} ms={}",
+            history.events()
+                .size(),
+            history.fileCount(),
+            history.skippedLines(),
+            TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
     }
 
     /** Log session_end with {@code savingFields} after the reason key, in their order, and publish a clean anchor. */
@@ -155,6 +191,7 @@ public final class SessionManager {
         if (writer != null) {
             writer.close(CLOSE_TIMEOUT_MS);
         }
+        AuditEvents.attachSession(null, log);
         writer = null;
         logger = null;
         anchor = null;

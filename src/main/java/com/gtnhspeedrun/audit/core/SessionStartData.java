@@ -49,7 +49,7 @@ public record SessionStartData(MinecraftServer server, ChainAnchorData anchor, C
         tailObj.addProperty("hash", tail.hash());
         data.add("logTail", tailObj);
 
-        if ("WORLD_ROLLBACK".equals(verifyVerdict) || "CRASH_RECOVERY".equals(verifyVerdict)) {
+        if (StartupVerdict.isWorldRewound(verifyVerdict)) {
             final JsonObject rollback = new JsonObject();
             rollback.addProperty("eventsRewound", tail.seq() - anchor.lastSeq);
             rollback.addProperty("wallGapMs", System.currentTimeMillis() - anchor.lastWallMs);

@@ -33,6 +33,11 @@ public final class StartupVerdict {
             .equals(tail.hash()) ? "OK" : "TAMPERED_TAIL";
     }
 
+    /** Return whether {@code verdict} means the world is a save from before the end of the log. */
+    public static boolean isWorldRewound(String verdict) {
+        return "WORLD_ROLLBACK".equals(verdict) || "CRASH_RECOVERY".equals(verdict);
+    }
+
     /** The anchor fields that classify() reads, with the values loaded from the world before this session starts. */
     public record SavedAnchor(long lastSeq, String lastHash, boolean cleanShutdown, String sessionId) {
 

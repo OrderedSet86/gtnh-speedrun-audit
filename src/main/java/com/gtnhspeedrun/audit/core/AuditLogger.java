@@ -4,6 +4,7 @@ import java.util.function.Supplier;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.gtnhspeedrun.audit.api.AuditEvents;
 
 /**
  * Timestamp events on the producer thread and queue them for {@link LogWriter}. Any thread can log through this
@@ -21,13 +22,15 @@ public final class AuditLogger {
     }
 
     public void log(String type, JsonObject data) {
+        final TickClock.Reading reading = clock.read();
         writer.submit(
             new PendingEvent(
                 type,
                 data,
-                clock.read(),
+                reading,
                 Thread.currentThread()
                     .getName()));
+        AuditEvents.publish(type, data, reading.ticks());
     }
 
     public void logSnapshot(Snapshot snapshot) {
