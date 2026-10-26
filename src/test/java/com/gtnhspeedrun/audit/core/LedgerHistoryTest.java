@@ -170,6 +170,49 @@ class LedgerHistoryTest {
         assertEquals(42, event.igtTicks());
     }
 
+    @Test
+    void lineWhoseTypeIsAnObjectIsSkippedAndCountedAndTheRestReplay(@TempDir Path logDir) throws IOException {
+        final JsonObject nested = new JsonObject();
+        nested.addProperty("t", WANTED);
+        final String goodBefore = formatLine(0, WANTED, 0, new JsonObject());
+        // a line whose top-level t is an object, with a nested t that matches the prefilter
+        final String objectType = "{\"seq\":1,\"ticks\":0,\"t\":{\"x\":1},\"data\":" + JsonUtil.GSON.toJson(nested)
+            + "}";
+        final String goodAfter = formatLine(2, WANTED, 0, new JsonObject());
+        Files.write(
+            logDir.resolve("audit-000001.jsonl"),
+            List.of(goodBefore, objectType, goodAfter),
+            StandardCharsets.UTF_8);
+
+        final LedgerHistory.History history = LedgerHistory.read(logDir, WANTED_TYPES, NO_REWIND);
+
+        assertEquals(List.of(0L, 2L), readSeqs(history));
+        assertEquals(1, history.skippedLines());
+    }
+
+    @Test
+    void bytesThatAreNotUtf8CostNoOtherLine(@TempDir Path logDir) throws IOException {
+        final JsonObject data = new JsonObject();
+        data.addProperty("name", "PLACEHOLDER");
+        final byte[] good = (formatLine(0, WANTED, 0, new JsonObject()) + "\n").getBytes(StandardCharsets.UTF_8);
+        final byte[] withBadBytes = (formatLine(1, WANTED, 0, data) + "\n").getBytes(StandardCharsets.UTF_8);
+        final byte[] after = (formatLine(2, WANTED, 0, new JsonObject()) + "\n").getBytes(StandardCharsets.UTF_8);
+        final int at = new String(withBadBytes, StandardCharsets.UTF_8).indexOf("PLACEHOLDER");
+        // 0xC3 0x28 is an invalid two-byte UTF-8 sequence
+        withBadBytes[at] = (byte) 0xC3;
+        withBadBytes[at + 1] = (byte) 0x28;
+        final byte[] file = new byte[good.length + withBadBytes.length + after.length];
+        System.arraycopy(good, 0, file, 0, good.length);
+        System.arraycopy(withBadBytes, 0, file, good.length, withBadBytes.length);
+        System.arraycopy(after, 0, file, good.length + withBadBytes.length, after.length);
+        Files.write(logDir.resolve("audit-000001.jsonl"), file);
+
+        final LedgerHistory.History history = LedgerHistory.read(logDir, WANTED_TYPES, NO_REWIND);
+
+        assertEquals(List.of(0L, 1L, 2L), readSeqs(history));
+        assertEquals(0, history.skippedLines());
+    }
+
     private static List<Long> readSeqs(LedgerHistory.History history) {
         final List<Long> seqs = new ArrayList<>();
         for (LedgerHistory.Event event : history.events()) {

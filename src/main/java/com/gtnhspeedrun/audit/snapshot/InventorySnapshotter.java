@@ -105,16 +105,18 @@ public final class InventorySnapshotter {
         snapshot.addProperty("uuid", uuid);
         snapshot.addProperty("name", player.getCommandSenderName());
         snapshot.addProperty("trigger", trigger);
+        PlayerPlace.addPlace(snapshot, player);
         snapshot.add("sections", sections);
 
         final JsonObject reference = new JsonObject();
         reference.addProperty("uuid", uuid);
         reference.addProperty("name", player.getCommandSenderName());
         reference.addProperty("trigger", trigger);
+        PlayerPlace.addPlace(reference, player);
         final int UUID_PREFIX_LENGTH = 8;
-        final String fileName = "inv-" + logger.clock()
-            .get() + "-" + uuid.substring(0, UUID_PREFIX_LENGTH) + "-" + trigger + ".json.gz";
-        logger.logSnapshot(new AuditLogger.Snapshot("inv_snapshot", fileName, () -> snapshot, reference));
+        final String fileStem = "inv-" + logger.clock()
+            .get() + "-" + uuid.substring(0, UUID_PREFIX_LENGTH) + "-" + trigger;
+        logger.logSnapshot(new AuditLogger.Snapshot("inv_snapshot", fileStem, () -> snapshot, reference));
     }
 
     private void checkKeyItems(EntityPlayerMP player) {

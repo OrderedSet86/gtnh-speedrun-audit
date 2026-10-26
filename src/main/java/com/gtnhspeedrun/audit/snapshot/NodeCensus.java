@@ -114,7 +114,7 @@ public final class NodeCensus {
             new AuditLogger.Snapshot(
                 "node_census",
                 String.format(
-                    "nodes-%d.json.gz",
+                    "nodes-%d",
                     logger.clock()
                         .get()),
                 () -> file,

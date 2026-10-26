@@ -8,6 +8,10 @@ Usage:
   assert_log.py <logDir> unclean                  the last line is not session_end (no clean stop)
   assert_log.py <logDir> continuity               seqs are 0..N with no gaps and the chain links
   assert_log.py <logDir> rollback                 last session_start has rollback.eventsRewound > 0
+  assert_log.py <logDir> field <path> <EXPECTED>  last session_start's data at the dotted path == EXPECTED
+                                                  (a string as is, any other value as JSON: 3, true)
+  assert_log.py <logDir> forkof <parentLogDir>    last session_start is a copy of the parent log's tail
+  assert_log.py <logDir> hascopy <copyLogDir>     last session_start lists the copy log's chain in copies
 """
 
 import glob
@@ -69,6 +73,35 @@ def main():
                 fail(f"chain break at seq {i}")
             prev = hashlib.sha256(raw).hexdigest()
         print(f"ok: {len(ls)} lines continuous and chained")
+    elif cmd == "field":
+        path, want = sys.argv[3], sys.argv[4]
+        got = starts[-1]["data"]
+        for key in path.split("."):
+            if not isinstance(got, dict) or key not in got:
+                fail(f"field {path}: no {key} in {got}")
+            got = got[key]
+        shown = got if isinstance(got, str) else json.dumps(got)
+        if shown != want:
+            fail(f"field {path}: expected {want}, got {shown}")
+        print(f"ok: {path} = {shown}")
+    elif cmd == "forkof":
+        parent = lines(sys.argv[3])
+        fork = starts[-1]["data"].get("fork")
+        if fork is None:
+            fail("last session_start has no fork block")
+        parent_uuid = [o for o, _ in parent if o["t"] == "session_start"][0]["data"]["worldAuditUuid"]
+        tail, tail_raw = parent[-1]
+        want = (parent_uuid, tail["seq"], hashlib.sha256(tail_raw).hexdigest())
+        got = (fork["parentUuid"], fork["parentSeq"], fork["parentHash"])
+        if got != want:
+            fail(f"fork link: expected {want}, got {got}")
+        print(f"ok: copy of {parent_uuid} at seq {tail['seq']}")
+    elif cmd == "hascopy":
+        copy_uuid = [o for o, _ in lines(sys.argv[3]) if o["t"] == "session_start"][0]["data"]["worldAuditUuid"]
+        listed = [c["uuid"] for c in starts[-1]["data"].get("copies", [])]
+        if copy_uuid not in listed:
+            fail(f"copies {listed} lack {copy_uuid}")
+        print(f"ok: copies list {copy_uuid}")
     else:
         fail(f"unknown subcommand {cmd}")
 

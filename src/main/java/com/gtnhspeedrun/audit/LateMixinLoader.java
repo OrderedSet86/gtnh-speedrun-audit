@@ -37,6 +37,9 @@ public class LateMixinLoader implements ILateMixinLoader {
             mixins.add("gt.TTMultiblockBaseMixin");
             mixins.add("gt.MTEBrickedBlastFurnaceMixin");
             mixins.add("gt.MetaTileEntityMixin");
+            mixins.add("gt.MetaPipeEntityMixin");
+            mixins.add("gt.BaseTileEntityMixin");
+            mixins.add("gt.BlockMachinesMixin");
             mixins.add("gt.GTPowerfailTrackerMixin");
         }
         if (loadedMods.contains("betterquesting")) {
@@ -56,6 +59,8 @@ public class LateMixinLoader implements ILateMixinLoader {
         if (loadedMods.contains("serverutilities")) {
             mixins.add("serverutils.MessageEditNBTResponseMixin");
             mixins.add("serverutils.InvseeContainerMixin");
+            mixins.add("serverutils.TeleportTaskMixin");
+            mixins.add("serverutils.CmdTplastMixin");
         }
         // a pack without a target mod gets no audit of that mod's events, so log the selected list
         LOG.info("{} audit mixins selected for this pack: {}", mixins.size(), mixins);

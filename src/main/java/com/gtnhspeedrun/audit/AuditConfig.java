@@ -8,6 +8,8 @@ import net.minecraftforge.common.config.Configuration;
 public final class AuditConfig {
 
     public static int invSnapshotMinutes = 15;
+    public static int positionSampleSeconds = 30;
+    public static int positionSampleSecondsOutsideSurvival = 5;
     public static int ae2SnapshotActiveMinutes = 60;
     public static int ae2SnapshotIdleMinutes = 240;
     public static boolean logPlayerIp = false;
@@ -57,6 +59,20 @@ public final class AuditConfig {
             1,
             1440,
             "Minutes between periodic player inventory snapshots (event-triggered ones are free).");
+        positionSampleSeconds = config.getInt(
+            "positionSampleSeconds",
+            "snapshots",
+            positionSampleSeconds,
+            1,
+            3600,
+            "Seconds between samples of each survival player's dimension, position and facing (pos_sample).");
+        positionSampleSecondsOutsideSurvival = config.getInt(
+            "positionSampleSecondsOutsideSurvival",
+            "snapshots",
+            positionSampleSecondsOutsideSurvival,
+            1,
+            3600,
+            "Seconds between position samples of a player in creative, adventure or spectator mode.");
         ae2SnapshotActiveMinutes = config.getInt(
             "ae2SnapshotActiveMinutes",
             "snapshots",

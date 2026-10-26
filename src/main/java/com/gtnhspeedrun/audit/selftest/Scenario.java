@@ -1,6 +1,8 @@
 package com.gtnhspeedrun.audit.selftest;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -14,6 +16,7 @@ import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
 import net.minecraft.inventory.ContainerChest;
 import net.minecraft.inventory.InventoryBasic;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.NetHandlerPlayServer;
@@ -24,7 +27,9 @@ import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.EntityDamageSource;
 import net.minecraft.util.StatCollector;
+import net.minecraft.world.ChunkPosition;
 import net.minecraft.world.EnumDifficulty;
+import net.minecraft.world.Explosion;
 import net.minecraft.world.MinecraftException;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
@@ -33,7 +38,11 @@ import net.minecraftforge.common.util.BlockSnapshot;
 import net.minecraftforge.common.util.FakePlayerFactory;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.AchievementEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.BlockEvent;
+import net.minecraftforge.event.world.ExplosionEvent;
+
+import org.jetbrains.annotations.Nullable;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -43,7 +52,9 @@ import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.harness.Ae2Fixture;
 import com.gtnhspeedrun.audit.harness.FormationSideCheck;
 import com.gtnhspeedrun.audit.harness.NbtEditDrill;
+import com.gtnhspeedrun.audit.harness.QuestEditDrill;
 import com.gtnhspeedrun.audit.harness.TecTechFixture;
+import com.gtnhspeedrun.audit.harness.TeleportDrill;
 import com.gtnhspeedrun.audit.harness.WorldEditFixture;
 import com.gtnhspeedrun.audit.harness.WorldPos;
 import com.gtnhspeedrun.audit.snapshot.Ae2CensusFailures;
@@ -53,6 +64,9 @@ import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
 import com.gtnhspeedrun.audit.trackers.InventoryChanges;
 import com.gtnhspeedrun.audit.trackers.InvseeViews;
 import com.gtnhspeedrun.audit.trackers.MachineEvents;
+import com.gtnhspeedrun.audit.trackers.MachinePlacementTracker;
+import com.gtnhspeedrun.audit.trackers.MachinePlacementTracker.GtMachine;
+import com.gtnhspeedrun.audit.trackers.MachineRemovals;
 import com.gtnhspeedrun.audit.trackers.MachineSite;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
 import com.gtnhspeedrun.audit.trackers.MultiblockSinks;
@@ -69,7 +83,15 @@ public final class Scenario {
 
     /** GT MetaTileEntity id of the Lapotronic Supercapacitor (LSC) controller. */
     private static final int LSC_CONTROLLER_META = 13106;
+    /** GT MetaTileEntity id of the bronze hull. */
+    public static final int BRONZE_HULL_META = 1;
+    public static final String GT_VAJRA = "gregtech:gt.Tool_Vajra";
+    /** The Vajra's full charge, far above the EU of one use. */
+    private static final double VAJRA_CHARGE_EU = 1e8;
     public static final long SEEDED_WIRELESS_EU = 12_345L;
+    public static final float ALICE_RAW_YAW = 560.0F;
+    public static final double ALICE_YAW = -160.0;
+    public static final float ALICE_PITCH = 30.0F;
 
     private final MinecraftServer server;
     private final SessionManager session;
@@ -90,6 +112,11 @@ public final class Scenario {
     private String[] tecTechFacing;
     /** The before and after hashes of the live /nbtedit drill, or null without ServerUtilities. */
     private String[] nbtEditHashes;
+    private long nbtEditFloodMs = -1;
+    private long questEditFloodMs = -1;
+    private boolean questEditFloodByOp;
+    /** The feet positions {x, y, z} of the /home and /tpl drill teleports, or null without ServerUtilities. */
+    private double[][] teleportFeet;
     /**
      * The spot that every fixture block is placed relative to, above the world spawn and in the spawn chunks. The
      * spawn chunks generate at startup and stay loaded with nobody online. Fixed coordinates would make the result
@@ -136,7 +163,9 @@ public final class Scenario {
                     new GameProfile(
                         UUID.nameUUIDFromBytes("selftest-bob".getBytes(StandardCharsets.UTF_8)),
                         "SelfTestBob"));
-                alice.setPositionAndRotation(offsetX(0), offsetY(1), offsetZ(0), 0, 0);
+                alice.setPositionAndRotation(offsetX(0), offsetY(1), offsetZ(0), 0, ALICE_PITCH);
+                // a real player's yaw grows past 360 as the player turns. The logged yaw is wrapped to ALICE_YAW
+                alice.rotationYaw = ALICE_RAW_YAW;
                 bob.setPositionAndRotation(offsetX(0), offsetY(1), offsetZ(0), 0, 0);
                 // Vanilla sends broadcasts such as the time sync to the net handler of every listed player each
                 // tick, so a fake player needs a real handler. The NetworkManager here has no channel. The flush of
@@ -196,6 +225,7 @@ public final class Scenario {
                 seedPowerCensus(overworld, alice);
                 buildTecTechMulti(overworld, alice);
                 logCrusherFormation(overworld, alice);
+                removeGtHulls(overworld, alice);
             }
             case 4 -> session.runSnapshotHooks();
             case 5 -> {
@@ -275,6 +305,7 @@ public final class Scenario {
                         0,
                         alice));
                 driveManipulator(overworld);
+                driveRemovals(overworld);
                 // A machine placed with a tool in the main hand, such as a Vajra or a StructureLib projector on
                 // the pack. The machine_placed line has the tool as itemKey and the machine from the world.
                 alice.inventory
@@ -340,6 +371,22 @@ public final class Scenario {
                 // the mixin itself, through the packet handler of ServerUtilities. The drill runs only on a pack
                 // server
                 nbtEditHashes = NbtEditDrill.editChest(alice, fixturePos(overworld, offset(5, 0, 0)));
+                // forged replies with no edit open: a list of 2,000,000 empty elements, then a burst. A session stop
+                // reports the dropped count. Report it here, so the checks can read it
+                try {
+                    nbtEditFloodMs = NbtEditDrill.sendForgedFlood(alice);
+                } catch (IOException e) {
+                    checks.check("nbt_edit forged flood built", false, String.valueOf(e));
+                }
+                questEditFloodByOp = server.getConfigurationManager()
+                    .func_152596_g(alice.getGameProfile());
+                try {
+                    questEditFloodMs = QuestEditDrill.sendForgedFlood(alice);
+                } catch (IOException | ReflectiveOperationException e) {
+                    checks.check("quest_edit forged flood sent", false, String.valueOf(e));
+                }
+                session.attempts()
+                    .reportAllWindows();
                 // A formation that cannot be logged: a controller whose formation logging throws, run twice
                 // through FormationGuard, the guard of the mixins. The step must log one multiblock_log_failed
                 // line and must not throw.
@@ -369,6 +416,10 @@ public final class Scenario {
                 checks.check("client modlist round-trip", fakeMods.equals(ClientModLists.readClientMods(key)), null);
             }
             case 9 -> {
+                // the teleport mixins, through a real TeleportTask and /tpl of ServerUtilities. The drill runs only on
+                // a pack server. Alice's leave snapshot is then at the /tpl spot
+                teleportFeet = TeleportDrill
+                    .teleport(alice, fixturePos(overworld, offset(0, 1, 3)), fixturePos(overworld, offset(0, 1, 6)));
                 bus.post(new PlayerEvent.PlayerLoggedOutEvent(alice));
                 bus.post(new PlayerEvent.PlayerLoggedOutEvent(bob));
                 server.getConfigurationManager().playerEntityList.remove(alice);
@@ -539,6 +590,109 @@ public final class Scenario {
         world.setBlock(offsetX(20), offsetY(0), offsetZ(0), Blocks.iron_block);
     }
 
+    /**
+     * Drive one removal of each cause below the breakBlock mixin, with iron blocks for GT machines. Spots 30 to 37 get
+     * broken with a pickaxe, wrenched with shears (the stand-in wrench), exploded, removed after a manipulator check,
+     * removed with no cause, removed with no tile, right-clicked with a golden pickaxe (the stand-in Vajra), and broken
+     * with the golden pickaxe. The expected result is seven machine_removed lines and one bulk_removed line with spot
+     * 33.
+     */
+    private void driveRemovals(WorldServer world) {
+        for (int x = 30; x <= 37; x++) {
+            world.setBlock(offsetX(x), offsetY(0), offsetZ(0), Blocks.iron_block);
+        }
+        final GtMachine standIn = MachinePlacementTracker.readGtMachine(Blocks.iron_block, 0, null);
+        alice.inventory.setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Items.diamond_pickaxe));
+        breakAsAlice(world, 30);
+        removeStandIn(world, 30, standIn);
+        alice.inventory.setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Items.shears));
+        breakAsAlice(world, 31);
+        removeStandIn(world, 31, standIn);
+        final Explosion explosion = new Explosion(world, null, offsetX(32), offsetY(0), offsetZ(0), 1);
+        explosion.affectedBlockPositions.add(new ChunkPosition(offsetX(32), offsetY(0), offsetZ(0)));
+        bus.post(new ExplosionEvent.Detonate(world, explosion, new ArrayList<>()));
+        removeStandIn(world, 32, standIn);
+        alice.inventory.setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Items.stick));
+        bus.post(
+            new BlockEvent.PlaceEvent(
+                BlockSnapshot.getBlockSnapshot(world, offsetX(33), offsetY(0), offsetZ(0)),
+                Blocks.stone,
+                alice));
+        removeStandIn(world, 33, standIn);
+        removeStandIn(world, 34, standIn);
+        removeStandIn(world, 35, null);
+        alice.inventory.setInventorySlotContents(alice.inventory.currentItem, new ItemStack(Items.golden_pickaxe));
+        bus.post(
+            new PlayerInteractEvent(
+                alice,
+                PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK,
+                offsetX(36),
+                offsetY(0),
+                offsetZ(0),
+                1,
+                world));
+        removeStandIn(world, 36, standIn);
+        breakAsAlice(world, 37);
+        removeStandIn(world, 37, standIn);
+    }
+
+    private void breakAsAlice(WorldServer world, int dx) {
+        bus.post(new BlockEvent.BreakEvent(offsetX(dx), offsetY(0), offsetZ(0), world, Blocks.iron_block, 0, alice));
+    }
+
+    /** Report the removal the way the breakBlock mixin does, then remove the block. */
+    private void removeStandIn(WorldServer world, int dx, @Nullable GtMachine machine) {
+        MachineRemovals.logMachineRemoval(
+            new MachineSite("SelfTestRemoved", "test.removed", 0, offsetX(dx), offsetY(0), offsetZ(0)),
+            machine);
+        world.setBlockToAir(offsetX(dx), offsetY(0), offsetZ(0));
+    }
+
+    /**
+     * Place two real GT bronze hulls. Remove the hull at x -12 with setBlockToAir(), so the breakBlock mixin logs the
+     * removal with the cause {@code other}. Remove the hull at x -14 with a sneaking right-click of a charged GT Vajra,
+     * the way a player does, so the removal is logged with the cause {@code vajra}.
+     */
+    private void removeGtHulls(WorldServer world, EntityPlayerMP player) {
+        if (!Compat.GT5.isLoaded()) {
+            return;
+        }
+        final Object block = Block.blockRegistry.getObject("gregtech:gt.blockmachines");
+        if (!(block instanceof Block machineBlock)) {
+            checks.check("gt machine block present", false, "gregtech:gt.blockmachines not registered");
+            return;
+        }
+        placeGtHull(world, machineBlock, -12);
+        world.setBlockToAir(offsetX(-12), offsetY(3), offsetZ(0));
+        placeGtHull(world, machineBlock, -14);
+        final Object vajraItem = Item.itemRegistry.getObject(GT_VAJRA);
+        if (!(vajraItem instanceof Item vajra)) {
+            checks.check("gt vajra present", false, GT_VAJRA + " not registered");
+            return;
+        }
+        final ItemStack charged = new ItemStack(vajra);
+        // the EU of an IC2 electric item is the item's "charge" tag
+        final NBTTagCompound charge = new NBTTagCompound();
+        charge.setDouble("charge", VAJRA_CHARGE_EU);
+        charged.setTagCompound(charge);
+        final ItemStack before = player.inventory.getStackInSlot(player.inventory.currentItem);
+        player.inventory.setInventorySlotContents(player.inventory.currentItem, charged);
+        // the Vajra removes a block on a sneaking right-click. A right-click without sneaking opens the machine
+        player.setSneaking(true);
+        player.theItemInWorldManager
+            .activateBlockOrUseItem(player, world, charged, offsetX(-14), offsetY(3), offsetZ(0), 1, 0.5f, 1f, 0.5f);
+        player.setSneaking(false);
+        player.inventory.setInventorySlotContents(player.inventory.currentItem, before);
+    }
+
+    /** Place a bronze hull as alice at x {@code dx} on stone, with the spot cleared first, whatever the terrain. */
+    private void placeGtHull(WorldServer world, Block machineBlock, int dx) {
+        world.setBlock(offsetX(dx), offsetY(2), offsetZ(0), Blocks.stone);
+        world.setBlockToAir(offsetX(dx), offsetY(3), offsetZ(0));
+        new ItemStack(machineBlock, 1, BRONZE_HULL_META)
+            .tryPlaceItemIntoWorld(alice, world, offsetX(dx), offsetY(2), offsetZ(0), 1, 0.5f, 1f, 0.5f);
+    }
+
     private static String toUuidString(EntityPlayerMP player) {
         return player.getGameProfile()
             .getId()
@@ -636,6 +790,25 @@ public final class Scenario {
 
     public String[] getNbtEditHashes() {
         return nbtEditHashes;
+    }
+
+    /** Return the time the nbtedit hook took for the forged reply with the large list, in ms, or -1 if not run. */
+    public long getNbtEditFloodMs() {
+        return nbtEditFloodMs;
+    }
+
+    /** Return the time the quest edit handler took for the forged edit with the large list, in ms, or -1. */
+    public long getQuestEditFloodMs() {
+        return questEditFloodMs;
+    }
+
+    /** Return whether the sender of the forged quest edits is an op, whose edits are never limited. */
+    public boolean isQuestEditFloodByOp() {
+        return questEditFloodByOp;
+    }
+
+    public double[][] getTeleportFeet() {
+        return teleportFeet;
     }
 
     /** A controller whose formation logging throws, for the multiblock_log_failed path. */

@@ -79,7 +79,7 @@ public final class AuditEvents {
         return clock == null ? 0 : clock.getAsLong();
     }
 
-    /** Set the clock of the live session, or pass a null clock between worlds. */
+    /** Set the clock of the live session, or pass a null clock between worlds. Call from the audit mod only. */
     public static void attachSession(@Nullable LongSupplier sessionIgtClock, Logger sessionLog) {
         igtClock = sessionIgtClock;
         log = sessionLog;
@@ -90,20 +90,27 @@ public final class AuditEvents {
         return historyTypes;
     }
 
-    /** Send a copy of one logged event to each listener of {@code type}. */
+    /** Send a copy of one logged event to each listener of {@code type}. Call from the audit mod only. */
     public static void publish(String type, JsonObject data, long igtTicks) {
         if (subscribedTypes.contains(type)) {
             sendToListeners(new LoggedEvent(type, data, igtTicks), false);
         }
     }
 
-    /** Send a copy of one event of an earlier session to each listener of {@code type} with history. */
+    /**
+     * Send a copy of one event of an earlier session to each listener of {@code type} with history. Call from the audit
+     * mod only.
+     */
     public static void publishHistory(String type, JsonObject data, long igtTicks) {
         if (historyTypes.contains(type)) {
             sendToListeners(new LoggedEvent(type, data, igtTicks), true);
         }
     }
 
+    /**
+     * Send a copy of {@code event} to each listener of the event's type, or with {@code historyOnly}, to each such
+     * listener with history. A listener that throws is logged, and the next listener still gets the event.
+     */
     private static void sendToListeners(LoggedEvent event, boolean historyOnly) {
         for (Subscription subscription : SUBSCRIPTIONS) {
             if (!(subscription.types()
@@ -113,10 +120,17 @@ public final class AuditEvents {
             try {
                 subscription.listener()
                     .onEvent(event.type(), copyObject(event.data()), event.igtTicks());
-            } catch (RuntimeException exception) { // noqa: NAR142, degrade and report over a listener of another mod
+            } catch (RuntimeException | LinkageError failure) { // noqa: NAR142, degrade and report over another mod
+                // a listener that uses a class of a mod that isn't installed throws NoClassDefFoundError
                 final Logger sessionLog = log;
                 if (sessionLog != null) {
-                    sessionLog.warn("api.listener_failed type={}", event.type(), exception);
+                    sessionLog.warn(
+                        "api.listener_failed type={} listener={}",
+                        event.type(),
+                        subscription.listener()
+                            .getClass()
+                            .getName(),
+                        failure);
                 }
             }
         }

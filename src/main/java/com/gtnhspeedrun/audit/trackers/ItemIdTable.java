@@ -47,11 +47,7 @@ public final class ItemIdTable {
             table.addProperty(entry.getKey(), entry.getValue());
         }
         logger.logSnapshot(
-            new AuditLogger.Snapshot(
-                "item_id_table",
-                String.format("idtable-%d.json.gz", ticks),
-                () -> table,
-                reference));
+            new AuditLogger.Snapshot("item_id_table", String.format("idtable-%d", ticks), () -> table, reference));
     }
 
     public static String hash(Map<String, Integer> sortedIds) {

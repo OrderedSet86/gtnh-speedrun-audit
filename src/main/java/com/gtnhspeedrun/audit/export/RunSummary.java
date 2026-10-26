@@ -13,6 +13,8 @@ import java.util.TreeMap;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.gtnhspeedrun.audit.core.ChainFamily;
+import com.gtnhspeedrun.audit.core.ForkLink;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.Verifier;
 
@@ -44,10 +46,14 @@ public final class RunSummary {
     private RunSummary() {}
 
     /**
-     * Render SUMMARY.txt: the header, SESSIONS, MILESTONES, MACHINE STATS, TRACKED PLACEMENTS, FLAGS FOR REVIEW and
-     * EVENT COUNTS. § codes are stripped from display names, because logs from older versions still contain § codes.
+     * Render SUMMARY.txt: the header, CHAINS for a bundle with world copies, SESSIONS, MILESTONES, MACHINE STATS,
+     * TRACKED PLACEMENTS, FLAGS FOR REVIEW and EVENT COUNTS. § codes are stripped from display names, because logs
+     * from older versions still contain § codes.
      */
-    public static String formatSummary(List<JsonObject> lines, Verifier.Result verify, AuditExport.AnchorView anchor) {
+    public static String formatSummary(SummaryInput input) {
+        final List<JsonObject> lines = input.lines();
+        final Verifier.Result verify = input.verify();
+        final AuditExport.AnchorView anchor = input.anchor();
         final StringBuilder sb = new StringBuilder(16 * 1024);
 
         sb.append("GTNH SPEEDRUN AUDIT — SUMMARY\n");
@@ -86,6 +92,11 @@ public final class RunSummary {
                         + ")")
             .append('\n');
         sb.append('\n');
+
+        if (input.chains()
+            .size() > 1) {
+            appendChains(sb, input.chains());
+        }
 
         sb.append("== SESSIONS ==\n");
         final SortedMap<String, Integer> counts = new TreeMap<>();
@@ -292,6 +303,41 @@ public final class RunSummary {
         return sb.toString();
     }
 
+    /**
+     * Append CHAINS: one row per chain, the exported chain first. A world copy's row has the parent chain and the seq
+     * and IGT of the copied save.
+     */
+    private static void appendChains(StringBuilder sb, List<AuditExport.ChainReport> chains) {
+        sb.append("== CHAINS ==\n");
+        for (AuditExport.ChainReport report : chains) {
+            final ChainFamily.FamilyChain chain = report.chain();
+            sb.append(
+                String.format(
+                    "%s  folder %s  verdict %s  lines %d",
+                    chain.uuid(),
+                    chain.folder() == null ? "?" : chain.folder(),
+                    report.verify()
+                        .verdict(),
+                    report.verify()
+                        .lines()));
+            final ForkLink link = chain.link();
+            if (link != null) {
+                sb.append(
+                    String.format(
+                        "  copy of %s at seq %d %s, link %s",
+                        link.parentUuid(),
+                        link.parentSave()
+                            .seq(),
+                        formatTicks(
+                            link.parentSave()
+                                .ticks()),
+                        report.parentLinkOk() ? "OK" : "BROKEN"));
+            }
+            sb.append(report == chains.get(0) ? "  (exported)\n" : "\n");
+        }
+        sb.append("SESSIONS has the exported chain's ancestors up to each copied save, then the exported chain.\n\n");
+    }
+
     private static final DateTimeFormatter UTC_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'")
         .withZone(ZoneOffset.UTC);
 
@@ -397,4 +443,19 @@ public final class RunSummary {
     }
 
     private record Flag(String type, String label) {}
+
+    /**
+     * The inputs of SUMMARY.txt.
+     *
+     * @param lines  the lineage lines, oldest chain first
+     * @param chains the chains of the bundle, the exported chain first
+     */
+    public record SummaryInput(List<JsonObject> lines, Verifier.Result verify, AuditExport.AnchorView anchor,
+        List<AuditExport.ChainReport> chains) {
+
+        public SummaryInput {
+            lines = List.copyOf(lines);
+            chains = List.copyOf(chains);
+        }
+    }
 }

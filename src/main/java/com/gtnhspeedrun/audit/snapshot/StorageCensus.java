@@ -94,7 +94,7 @@ public final class StorageCensus {
             new AuditLogger.Snapshot(
                 "storage_census",
                 String.format(
-                    "storage-%d.json.gz",
+                    "storage-%d",
                     logger.clock()
                         .get()),
                 () -> {

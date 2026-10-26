@@ -237,9 +237,9 @@ public final class Ae2Snapshotter {
             ref.addProperty("nbtVariantsCollapsed", items.countCollapsedNbtVariants());
         }
 
-        final String fileName = "ae2-" + logger.clock()
-            .get() + "-g" + census.gridId() + ".json.gz";
-        logger.logSnapshot(new AuditLogger.Snapshot("ae2_snapshot", fileName, () -> {
+        final String fileStem = "ae2-" + logger.clock()
+            .get() + "-g" + census.gridId();
+        logger.logSnapshot(new AuditLogger.Snapshot("ae2_snapshot", fileStem, () -> {
             final JsonObject snapshot = new JsonObject();
             snapshot.addProperty("gridId", census.gridId());
             snapshot.addProperty("census", census.censusIndex());

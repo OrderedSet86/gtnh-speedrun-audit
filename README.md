@@ -27,19 +27,20 @@ Names like moon% are leaderboard categories, each ending at that milestone.
 
 | Area | Logged |
 |---|---|
-| Sessions | Server start and stop, and whether it crashed. Ops, game rules, seed and server mods. Each player's join and leave, with the mods their client reports. |
+| Sessions | Server start and stop, and whether it crashed. Ops, game rules, seed, server mods and the registered dimensions. Each player's join and leave, with the mods their client reports. |
 | Commands | Every command from a player, the console, RCON (remote console) or a command block, and whether it was canceled. The replies of commands such as `/gamerule`, `/difficulty` and `/gt global_energy_display`. |
 | Creative | Gamemode changes, checked every tick and at login. In creative, every block placed or broken and every inventory slot set. |
 | NEI | Every cheat request to NEI (Not Enough Items), denied ones too: gives, slot sets, delete-all, gamemode, time and heal, with the items involved. |
-| Inventories | Full snapshots (main, armor, Baubles, ender chest) every 15 minutes and at join, leave, death and gamemode change. Deaths, with the killer. |
+| Inventories | Full snapshots (main, armor, Baubles, ender chest) every 15 minutes and at join, leave, death and gamemode change, with the player's place and facing. Deaths, with the killer. |
 | AE2 | Item and fluid counts of every AE2 (Applied Energistics 2) network, and what each network can autocraft. Hourly while a player is online, every 4 hours while the server is empty. |
 | Storage | Hourly contents of EnderStorage chests and pouches and of backpacks. Every `/inv view` of another player's inventory, and every click in it. Items destroyed in trash cans. |
-| Placements | GT machines placed by hand, Matter Manipulator, Vajra or multiblock projector. Stargate blocks. |
+| Placements | GT machines placed by hand, Matter Manipulator, Vajra or multiblock projector. GT machines removed, and whether a player broke them, wrenched them or took them with a Vajra, an explosion or a fire destroyed them, or a Matter Manipulator took them. Stargate blocks. |
 | Magic | Thaumcraft nodes, jarred nodes and Ethereal Shards every 15 minutes. Thaumcraft and Blood Magic blocks placed or broken. Blood Altar tier changes. |
 | Power | Every 5 minutes, the EU stored in Lapotronic Supercapacitors and every team's wireless EU. Wireless EU before and after each `/gt global_energy_*` command. GT power failures. |
 | Edits | `/nbtedit` changes, with the data before and after. Game rule and difficulty changes. WorldEdit edits, on servers that run WorldEdit. |
 | Quests | Quest completions, with the party member who finished each task. Quest book edits, and a hash of the quest book. |
 | Milestones | Dimension changes and first visits (moon%). Achievements. The first sighting and first craft of each key item in the config. |
+| Positions | Each player's dimension, position and facing every 30 seconds, and every 5 seconds outside survival. Where each `/home`, `/back`, `/warp`, `/spawn`, `/tpa`, `/rtp` and `/tpl` teleport went. |
 | Multiblocks | The first formation of every GT and TecTech multiblock (assline%), with its hatches, amperage, coils and tiers. The Bricked Blast Furnace (bbf%) and Railcraft multiblocks such as the coke oven (coke%). |
 | Backups | Backup start and finish. GT machine explosions. |
 | Mod files | A SHA-256 hash of every mod jar, `config/` and `scripts/` at each start. A changed jar, recipe or quest book changes the hash. |
@@ -47,7 +48,11 @@ Names like moon% are leaderboard categories, each ending at that milestone.
 ## Backups and crashes
 
 Restoring a backup is allowed, and so is playing on after a crash. A restore doesn't rewind the log, and
-the mod records how far the world went back.
+the mod records how far the world went back and which backup or save came back.
+
+A copy of the world in another folder, such as a practice copy, gets a separate audit chain. The first line of
+the copy's chain names the copied save. Each later start of the original world logs the copies of the original.
+`/audit export` puts every linked chain in the zip.
 
 [INNOCENCE.md](INNOCENCE.md) lists a few events that look suspicious but have innocent causes, such as
 the quest book's `/nbtedit` crop step.

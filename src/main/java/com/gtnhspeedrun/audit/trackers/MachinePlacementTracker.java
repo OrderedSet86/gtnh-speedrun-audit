@@ -15,7 +15,10 @@ import net.minecraft.world.World;
 import net.minecraftforge.common.util.BlockSnapshot;
 import net.minecraftforge.event.world.BlockEvent;
 
+import org.jetbrains.annotations.Nullable;
+
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.gtnhspeedrun.audit.AuditConfig;
@@ -73,7 +76,7 @@ public final class MachinePlacementTracker {
     private final String machineBlock;
     private final String manipulatorPrefix;
     /** This tick's manipulator checks by spot. The first check of a spot has the block before the placement. */
-    private final Map<String, ManipulatorCheck> manipulatorChecks = new LinkedHashMap<>();
+    private final Map<BlockSpot, ManipulatorCheck> manipulatorChecks = new LinkedHashMap<>();
 
     /**
      * Read the tracked blocks from {@link AuditConfig#trackedPlacements} and the watched blocks from
@@ -112,8 +115,7 @@ public final class MachinePlacementTracker {
             return;
         }
         final String blockName = String.valueOf(Block.blockRegistry.getNameForObject(event.placedBlock));
-        if (event.itemInHand != null && ItemKey.formatBaseKey(event.itemInHand)
-            .startsWith(manipulatorPrefix)) {
+        if (isManipulator(event.itemInHand)) {
             // the check's placedBlock is the block already at the spot, and nothing was placed
             noteManipulatorCheck(event, player, blockName);
             return;
@@ -127,13 +129,12 @@ public final class MachinePlacementTracker {
         }
         if (machineBlock.equals(blockName)) {
             final JsonObject data = describePlacement(event, player);
-            data.addProperty("kind", classify(event.world.getTileEntity(event.x, event.y, event.z)));
-            final int machineId = event.placedBlock.getDamageValue(event.world, event.x, event.y, event.z);
-            data.addProperty("machineId", machineId);
-            final String machine = readMachineName(event.placedBlock, machineId);
-            if (machine != null) {
-                data.addProperty("machine", machine);
-            }
+            final TileEntity tile = event.world.getTileEntity(event.x, event.y, event.z);
+            data.addProperty("kind", classify(tile));
+            readGtMachine(
+                event.placedBlock,
+                event.placedBlock.getDamageValue(event.world, event.x, event.y, event.z),
+                tile).writeTo(data);
             logger.log("machine_placed", data);
         } else if (trackedBlocks.contains(blockName)) {
             final JsonObject data = describePlacement(event, player);
@@ -162,22 +163,28 @@ public final class MachinePlacementTracker {
         for (ManipulatorCheck check : manipulatorChecks.values()) {
             final Block now = check.world()
                 .getBlock(check.x(), check.y(), check.z());
-            if (!machineBlock.equals(String.valueOf(Block.blockRegistry.getNameForObject(now)))) {
+            if (!isMachineBlock(now)) {
                 continue;
             }
             // getDamageValue() of GT's machine block returns the tile entity's meta tile ID
             final int machineNow = now.getDamageValue(check.world(), check.x(), check.y(), check.z());
             final ManipulatorBatch batch = batches
-                .computeIfAbsent(check.batchKey(), batchKey -> new ManipulatorBatch(check));
+                .computeIfAbsent(check.batchKey(), batchKey -> new ManipulatorBatch(check.describeBatch()));
             if (machineNow == check.machineBefore()) {
-                batch.checked++;
+                batch.countChecked();
             } else {
-                batch.add(check, now, machineNow);
+                batch.add(
+                    check.spot(),
+                    readGtMachine(
+                        now,
+                        machineNow,
+                        check.world()
+                            .getTileEntity(check.x(), check.y(), check.z())));
             }
         }
         manipulatorChecks.clear();
         for (ManipulatorBatch batch : batches.values()) {
-            logger.log("bulk_placed", batch.finish());
+            logger.log("bulk_placed", batch.finishPlaced());
         }
     }
 
@@ -237,8 +244,22 @@ public final class MachinePlacementTracker {
         logger.log("watched_block", data);
     }
 
+    public boolean isMachineBlock(Block block) {
+        return machineBlock.equals(String.valueOf(Block.blockRegistry.getNameForObject(block)));
+    }
+
+    public boolean isManipulator(@Nullable ItemStack stack) {
+        return stack != null && ItemKey.formatBaseKey(stack)
+            .startsWith(manipulatorPrefix);
+    }
+
+    /** Return this tick's manipulator check of {@code spot}, or null when the spot has none. */
+    public @Nullable ManipulatorCheck findManipulatorCheck(BlockSpot spot) {
+        return manipulatorChecks.get(spot);
+    }
+
     private void noteManipulatorCheck(BlockEvent.PlaceEvent event, EntityPlayerMP player, String blockName) {
-        final String spot = event.world.provider.dimensionId + ":" + event.x + "," + event.y + "," + event.z;
+        final BlockSpot spot = new BlockSpot(event.world.provider.dimensionId, event.x, event.y, event.z);
         if (manipulatorChecks.containsKey(spot)) {
             return;
         }
@@ -327,7 +348,7 @@ public final class MachinePlacementTracker {
         return data;
     }
 
-    private static String classify(TileEntity tile) {
+    private static String classify(@Nullable TileEntity tile) {
         if (tile == null) {
             return "unknown";
         }
@@ -339,14 +360,39 @@ public final class MachinePlacementTracker {
         return "machine";
     }
 
-    private static String readMachineName(Block block, int machineId) {
+    /**
+     * Read the GT machine of a machine block: the meta tile ID, pipe or not, the display name in the server's language,
+     * and the unlocalized key, such as {@code gt.blockmachines.hull.bronze}. The name is left out when getDisplayName()
+     * throws, and the key when getUnlocalizedName() throws or returns an empty key.
+     *
+     * @param machineId the meta tile ID, from {@code getDamageValue()} of the block
+     */
+    public static GtMachine readGtMachine(Block block, int machineId, @Nullable TileEntity tile) {
         final Item item = Item.getItemFromBlock(block);
-        if (item == null) {
+        final ItemStack stack = item == null ? null : new ItemStack(item, 1, machineId);
+        return new GtMachine(machineId, "pipe".equals(classify(tile)), readMachineName(stack), readMachineKey(stack));
+    }
+
+    private static @Nullable String readMachineName(@Nullable ItemStack stack) {
+        if (stack == null) {
             return null;
         }
         try {
-            return JsonUtil.stripFormatting(new ItemStack(item, 1, machineId).getDisplayName());
+            return JsonUtil.stripFormatting(stack.getDisplayName());
         } catch (RuntimeException e) { // noqa: NAR142, degrade and report over GT getDisplayName()
+            return null;
+        }
+    }
+
+    // GT's ItemMachines returns "gt.blockmachines." + the meta tile's name, and "" for an ID with no meta tile
+    private static @Nullable String readMachineKey(@Nullable ItemStack stack) {
+        if (stack == null) {
+            return null;
+        }
+        try {
+            final String key = stack.getUnlocalizedName();
+            return key == null || key.isEmpty() ? null : key;
+        } catch (RuntimeException e) { // noqa: NAR142, degrade and report over GT getUnlocalizedName()
             return null;
         }
     }
@@ -360,10 +406,30 @@ public final class MachinePlacementTracker {
         ItemStack itemInHand) {}
 
     /**
+     * A GT machine read from the world.
+     *
+     * @param machine    the display name in the server's language
+     * @param machineKey the unlocalized key, such as {@code gt.blockmachines.hull.bronze}
+     */
+    public record GtMachine(int machineId, boolean pipe, @Nullable String machine, @Nullable String machineKey) {
+
+        /** Write {@code machineId}, then {@code machine} and {@code machineKey} when known. */
+        public void writeTo(JsonObject data) {
+            data.addProperty("machineId", machineId);
+            if (machine != null) {
+                data.addProperty("machine", machine);
+            }
+            if (machineKey != null) {
+                data.addProperty("machineKey", machineKey);
+            }
+        }
+    }
+
+    /**
      * A manipulator permission check: the spot, the player, and the meta tile ID of the GT machine at the spot
      * before the placement, or -1 for none.
      */
-    private record ManipulatorCheck(World world, int x, int y, int z, String uuid, String name, String itemKey,
+    public record ManipulatorCheck(World world, int x, int y, int z, String uuid, String name, String itemKey,
         String displayName, int machineBefore) {
 
         private static ManipulatorCheck capture(BlockEvent.PlaceEvent event, EntityPlayerMP player, int machineBefore) {
@@ -381,56 +447,77 @@ public final class MachinePlacementTracker {
                 machineBefore);
         }
 
-        private String batchKey() {
+        public String batchKey() {
             return uuid + "|" + world.provider.dimensionId + "|" + itemKey;
+        }
+
+        public BlockSpot spot() {
+            return new BlockSpot(world.provider.dimensionId, x, y, z);
+        }
+
+        /** Return the player, manipulator and dimension fields of a {@code bulk_placed} line. */
+        public JsonObject describeBatch() {
+            final JsonObject header = new JsonObject();
+            header.addProperty("uuid", uuid);
+            header.addProperty("name", name);
+            header.addProperty("itemKey", itemKey);
+            header.addProperty("displayName", displayName);
+            header.addProperty("dim", world.provider.dimensionId);
+            return header;
         }
     }
 
     /**
-     * One {@code bulk_placed} line: {@code machines} and {@code pipes} as [x, y, z, meta tile ID], {@code names} by
-     * meta tile ID, and {@code checked}, the count of spots that had the same machine before.
+     * One {@code bulk_placed} or {@code bulk_removed} line: {@code machines} and {@code pipes} as [x, y, z, meta tile
+     * ID], and {@code names} and {@code keys} by meta tile ID. A {@code bulk_placed} line also has {@code checked}, the
+     * count of spots that had the same machine before.
      */
-    private static final class ManipulatorBatch {
+    public static final class ManipulatorBatch {
 
         private final JsonObject data = new JsonObject();
         private final JsonObject names = new JsonObject();
+        private final JsonObject keys = new JsonObject();
         private final JsonArray machines = new JsonArray();
         private final JsonArray pipes = new JsonArray();
         private int checked;
 
-        private ManipulatorBatch(ManipulatorCheck check) {
-            data.addProperty("uuid", check.uuid());
-            data.addProperty("name", check.name());
-            data.addProperty("itemKey", check.itemKey());
-            data.addProperty("displayName", check.displayName());
-            data.addProperty("dim", check.world().provider.dimensionId);
+        /** @param header the player, manipulator and dimension fields of the line */
+        public ManipulatorBatch(JsonObject header) {
+            for (Map.Entry<String, JsonElement> field : header.entrySet()) {
+                data.add(field.getKey(), field.getValue());
+            }
             data.add("names", names);
+            data.add("keys", keys);
             data.add("machines", machines);
             data.add("pipes", pipes);
         }
 
-        private void add(ManipulatorCheck check, Block block, int machineId) {
+        public void countChecked() {
+            checked++;
+        }
+
+        public void add(BlockSpot spot, GtMachine machine) {
             final JsonArray entry = new JsonArray();
-            entry.add(new JsonPrimitive(check.x()));
-            entry.add(new JsonPrimitive(check.y()));
-            entry.add(new JsonPrimitive(check.z()));
-            entry.add(new JsonPrimitive(machineId));
-            final boolean pipe = "pipe".equals(
-                classify(
-                    check.world()
-                        .getTileEntity(check.x(), check.y(), check.z())));
-            (pipe ? pipes : machines).add(entry);
-            final String id = String.valueOf(machineId);
-            if (!names.has(id)) {
-                final String name = readMachineName(block, machineId);
-                if (name != null) {
-                    names.addProperty(id, name);
-                }
+            entry.add(new JsonPrimitive(spot.x()));
+            entry.add(new JsonPrimitive(spot.y()));
+            entry.add(new JsonPrimitive(spot.z()));
+            entry.add(new JsonPrimitive(machine.machineId()));
+            (machine.pipe() ? pipes : machines).add(entry);
+            final String id = String.valueOf(machine.machineId());
+            if (machine.machine() != null && !names.has(id)) {
+                names.addProperty(id, machine.machine());
+            }
+            if (machine.machineKey() != null && !keys.has(id)) {
+                keys.addProperty(id, machine.machineKey());
             }
         }
 
-        private JsonObject finish() {
+        public JsonObject finishPlaced() {
             data.addProperty("checked", checked);
+            return data;
+        }
+
+        public JsonObject finishRemoved() {
             return data;
         }
     }

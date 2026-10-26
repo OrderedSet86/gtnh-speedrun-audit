@@ -2,10 +2,14 @@ package com.gtnhspeedrun.audit.trackers;
 
 import java.lang.reflect.Method;
 
+import net.minecraft.item.ItemStack;
+
 import org.jetbrains.annotations.Nullable;
 
+import gregtech.api.GregTechAPI;
 import gregtech.api.interfaces.metatileentity.IMetaTileEntity;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
+import gregtech.api.util.GTUtility;
 
 /**
  * Read the {@link MachineSite} of a GT machine for the GT mixins.
@@ -19,6 +23,14 @@ public final class GtMachineSites {
     private static final String NO_META_TILE_ENTITY = "?";
 
     private GtMachineSites() {}
+
+    /**
+     * Return whether {@code stack} is in GT's wrench list. GT fills the list with GT's wrenches, and with every item of
+     * another mod that implements the BuildCraft {@code IToolWrench}.
+     */
+    public static boolean isWrench(ItemStack stack) {
+        return GTUtility.isStackInList(stack, GregTechAPI.sWrenchList);
+    }
 
     /** Read the site, with the position of the base tile of {@code mte}. */
     public static MachineSite readSite(IMetaTileEntity mte) {

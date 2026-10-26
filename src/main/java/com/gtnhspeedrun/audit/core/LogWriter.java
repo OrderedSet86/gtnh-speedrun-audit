@@ -37,11 +37,14 @@ public final class LogWriter implements Runnable {
     private static final long FORCE_INTERVAL_MS = 5000;
     // the writer starts a new part of the log file at this size. The chain continues across the parts
     private static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
+    // bounds the heap when the writer falls behind a flood. A job is a JSON tree of a few KB, or a snapshot supplier
+    // over captured data
+    private static final int MAX_QUEUED_JOBS = 50_000;
     private static final Object POISON = new Object();
 
     private final Logger log;
     private final LogTarget target;
-    private final BlockingQueue<Object> queue = new LinkedBlockingQueue<>();
+    private final BlockingQueue<Object> queue = new LinkedBlockingQueue<>(MAX_QUEUED_JOBS);
     private final Thread thread;
 
     private FileChannel channel;
@@ -53,6 +56,8 @@ public final class LogWriter implements Runnable {
     private long seq;
     private String head;
     private final AtomicLong submittedJobs = new AtomicLong();
+    // jobs refused while the queue was full, since the last queue_overflow line
+    private final AtomicLong droppedJobs = new AtomicLong();
     // ++ on a volatile isn't atomic. Only the writer thread increments this field, so no update is lost
     private volatile long finishedJobs;
     private volatile long publishedSeq;
@@ -87,18 +92,26 @@ public final class LogWriter implements Runnable {
         writer = new OutputStreamWriter(Channels.newOutputStream(channel), StandardCharsets.UTF_8);
     }
 
-    public void submit(PendingEvent event) {
-        if (!dead) {
-            submittedJobs.incrementAndGet();
-            queue.add(event);
-        }
+    /** Queue {@code event}, and return whether the event was queued: false while dead or full. */
+    public boolean submit(PendingEvent event) {
+        return enqueue(event);
     }
 
     public void submitSnapshot(SnapshotJob job) {
-        if (!dead) {
-            submittedJobs.incrementAndGet();
-            queue.add(job);
+        enqueue(job);
+    }
+
+    /** Queue {@code job}, or count it as dropped while the queue is full. The calling thread never waits. */
+    private boolean enqueue(Object job) {
+        if (dead) {
+            return false;
         }
+        if (!queue.offer(job)) {
+            droppedJobs.incrementAndGet();
+            return false;
+        }
+        submittedJobs.incrementAndGet();
+        return true;
     }
 
     /** The seq of the last line written to the file. {@link #publishedHead()} returns the hash of that line. */
@@ -140,9 +153,11 @@ public final class LogWriter implements Runnable {
     }
 
     public void close(long timeoutMs) {
-        queue.add(POISON);
         try {
-            thread.join(timeoutMs);
+            // a full queue has room again once the writer takes a job
+            if (queue.offer(POISON, timeoutMs, TimeUnit.MILLISECONDS)) {
+                thread.join(timeoutMs);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread()
                 .interrupt();
@@ -161,9 +176,11 @@ public final class LogWriter implements Runnable {
                 if (job instanceof PendingEvent event) {
                     appendLine(event);
                     finishedJobs++;
+                    reportDroppedJobs(event.clocks());
                 } else if (job instanceof SnapshotJob snapshot) {
                     writeSnapshot(snapshot);
                     finishedJobs++;
+                    reportDroppedJobs(snapshot.clocks());
                 } else if (job == null) {
                     maybeForce(false);
                 }
@@ -181,10 +198,55 @@ public final class LogWriter implements Runnable {
     }
 
     /**
-     * Append {@code event} as the next line of the chain. The bytes of the line feed the hash chain, so NEVER reorder
-     * or rename a field.
+     * Append a {@code queue_overflow} line with the count of jobs dropped since the last such line, once the queue is
+     * at most half full. {@code clocks} are the clocks of the job just written.
+     */
+    private void reportDroppedJobs(TickClock.Reading clocks) throws IOException {
+        if (!(droppedJobs.get() > 0 && queue.remainingCapacity() >= MAX_QUEUED_JOBS / 2)) {
+            return;
+        }
+        final JsonObject data = new JsonObject();
+        data.addProperty("dropped", droppedJobs.getAndSet(0));
+        appendLine(new PendingEvent("queue_overflow", data, clocks, "writer"));
+    }
+
+    /**
+     * Append {@code event} as the next line of the chain. For an event whose line can't be built, the line is an
+     * {@code unserializable_event} line with the event type and the exception class, so one bad event never stops the
+     * writer. On a failed write, the file is cut back to the end of the last complete line.
      */
     private void appendLine(PendingEvent event) throws IOException {
+        String json;
+        try {
+            json = renderLine(event);
+        } catch (RuntimeException failure) { // noqa: NAR142, event data comes from the state of other mods
+            json = renderLine(describeFailedEvent(event.type(), event.clocks(), failure));
+        }
+        final byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        final long lineStart = bytesWritten;
+        try {
+            writer.write(json);
+            writer.write('\n');
+            writer.flush();
+        } catch (IOException failure) {
+            cutPartialLine(lineStart);
+            throw failure;
+        }
+        bytesWritten += bytes.length + 1;
+
+        head = JsonUtil.sha256Hex(bytes);
+        publishedHead = head;
+        publishedSeq = seq;
+        seq++;
+
+        maybeForce(isUrgent(event.type()));
+        rollIfNeeded();
+    }
+
+    /**
+     * Return the line of {@code event}. The bytes of the line feed the hash chain, so NEVER reorder or rename a field.
+     */
+    private String renderLine(PendingEvent event) {
         final JsonObject line = new JsonObject();
         line.addProperty("v", 1);
         line.addProperty("seq", seq);
@@ -206,21 +268,30 @@ public final class LogWriter implements Runnable {
         line.addProperty("thread", event.threadName());
         line.add("data", event.data());
         line.addProperty("prev", head);
+        return JsonUtil.GSON.toJson(line);
+    }
 
-        final String json = JsonUtil.GSON.toJson(line);
-        final byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
-        writer.write(json);
-        writer.write('\n');
-        writer.flush();
-        bytesWritten += bytes.length + 1;
+    private static PendingEvent describeFailedEvent(String type, TickClock.Reading clocks, RuntimeException failure) {
+        final JsonObject data = new JsonObject();
+        data.addProperty("type", type);
+        data.addProperty(
+            "error",
+            failure.getClass()
+                .getName());
+        return new PendingEvent("unserializable_event", data, clocks, "writer");
+    }
 
-        head = JsonUtil.sha256Hex(bytes);
-        publishedHead = head;
-        publishedSeq = seq;
-        seq++;
-
-        maybeForce(isUrgent(event.type()));
-        rollIfNeeded();
+    /**
+     * Cut the file back to {@code lineStart}, the end of the last complete line, after a failed write.
+     * {@link ChainTail#read} can't parse a partial last line. The write failure stops the writer either way, so a
+     * failed cut is only logged.
+     */
+    private void cutPartialLine(long lineStart) {
+        try {
+            channel.truncate(lineStart);
+        } catch (IOException failure) {
+            log.error("writer.cut_failed offset={}", lineStart, failure);
+        }
     }
 
     private static boolean isUrgent(String type) {
@@ -228,7 +299,8 @@ public final class LogWriter implements Runnable {
             || type.equals("nei_cheat")
             || type.equals("gamemode_change")
             || type.equals("gamerule_change")
-            || type.equals("gt_global_energy");
+            || type.equals("gt_global_energy")
+            || type.equals("world_saved");
     }
 
     private void maybeForce(boolean urgent) throws IOException {
@@ -262,19 +334,33 @@ public final class LogWriter implements Runnable {
         writer.close();
     }
 
+    /**
+     * Write the snapshot file, then the reference line of the file. When the supplier throws, no file is written, and
+     * the line is an {@code unserializable_event} line.
+     */
     private void writeSnapshot(SnapshotJob snapshot) throws IOException {
+        // A file stem has an IGT tick, and a restore replays ticks. No two lines of the chain have one seq.
+        // NEVER overwrite a snapshot file: every snapshot file is chain evidence.
+        final String fileName = snapshot.fileStem() + "-" + seq + ".json.gz";
         final Path file = target.snapshotDir()
-            .resolve(snapshot.fileName());
-        final byte[] json = JsonUtil.GSON.toJson(
-            snapshot.content()
-                .get())
-            .getBytes(StandardCharsets.UTF_8);
-        try (GZIPOutputStream gz = new GZIPOutputStream(Files.newOutputStream(file))) {
+            .resolve(fileName);
+        final byte[] json;
+        try {
+            json = JsonUtil.GSON.toJson(
+                snapshot.content()
+                    .get())
+                .getBytes(StandardCharsets.UTF_8);
+        } catch (RuntimeException failure) { // noqa: NAR142, the supplier reads the captured data of other mods
+            appendLine(describeFailedEvent(snapshot.type(), snapshot.clocks(), failure));
+            return;
+        }
+        try (GZIPOutputStream gz = new GZIPOutputStream(
+            Files.newOutputStream(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE))) {
             gz.write(json);
         }
         final byte[] gzBytes = Files.readAllBytes(file);
         final JsonObject refData = snapshot.refData();
-        refData.addProperty("file", snapshot.fileName());
+        refData.addProperty("file", fileName);
         refData.addProperty("fileSha256", JsonUtil.sha256Hex(gzBytes));
         refData.addProperty("rawBytes", json.length);
         appendLine(new PendingEvent(snapshot.type(), refData, snapshot.clocks(), "writer"));
@@ -287,6 +373,6 @@ public final class LogWriter implements Runnable {
     public record ChainStart(long seq, String prevHash) {}
 
     /** {@code content} runs on the writer thread. */
-    public record SnapshotJob(String type, String fileName, Supplier<JsonElement> content, JsonObject refData,
+    public record SnapshotJob(String type, String fileStem, Supplier<JsonElement> content, JsonObject refData,
         TickClock.Reading clocks) {}
 }

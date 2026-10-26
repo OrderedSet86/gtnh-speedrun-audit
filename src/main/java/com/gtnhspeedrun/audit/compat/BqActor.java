@@ -12,6 +12,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
+import com.gtnhspeedrun.audit.core.AttemptLimiter;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
 
@@ -79,13 +80,27 @@ public final class BqActor {
     }
 
     /**
-     * HEAD of the server handlers that change the quest book: quest edits, chapter edits, imports, and settings such
-     * as the edit-mode toggle. BQ refuses an edit packet from a player who is not an op. The {@code quest_edit} line
-     * is written either way.
+     * HEAD of the server handlers that change the quest book: quest edits, chapter edits, imports, and settings such as
+     * the edit-mode toggle. An edit packet changes the quest book only when the sender is an op. The {@code quest_edit}
+     * line is written either way, and past the limit of {@link AttemptLimiter} a packet from a player who isn't an op
+     * is counted, not logged.
      */
     public static void edit(String handler, NBTTagCompound payload, EntityPlayer sender) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         if (session == null) {
+            return;
+        }
+        // the same check as each BQ handler: ServerConfigurationManager.func_152596_g(), whether the player is an op
+        if (sender != null && !MinecraftServer.getServer()
+            .getConfigurationManager()
+            .func_152596_g(sender.getGameProfile())
+            && !session.attempts()
+                .tryLog(
+                    sender.getGameProfile()
+                        .getId()
+                        .toString(),
+                    sender.getCommandSenderName(),
+                    "quest_edit")) {
             return;
         }
         final JsonObject data = new JsonObject();

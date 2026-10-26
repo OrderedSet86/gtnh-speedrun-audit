@@ -13,7 +13,13 @@ flag-looking events have questbook-endorsed or otherwise innocent explanations.
 - `anchor.json` — the world-side chain anchor at export time.
 - `log/audit-*.jsonl` — the hash-chained event ledger, one file per server session.
 - `snapshots/*.json.gz` — player inventory and AE2 network censuses, each one referenced (with its SHA-256)
-  by a line in the ledger.
+  by a line in the ledger. A file name ends with the seq of that line, such as `nodes-477200-5123.json.gz`, so
+  a restore that replays tick 477200 writes a new file. Bundles from earlier versions end in the tick, and a
+  replayed tick replaced the earlier file.
+- `chains.json` and `chains/<uuid>/` — the chains of world copies (see **World copies**). `chains.json` has one
+  entry per chain, the exported chain first: `folder`, `fork` (absent for the first chain), `parentLinkOk`,
+  `verdict`, `lines`, `lastSeq` and `lastHash`. Each other chain's files are in `chains/<uuid>/log/` and
+  `chains/<uuid>/snapshots/`. Bundles from earlier versions have neither.
 
 ## Independent re-verification
 
@@ -41,6 +47,10 @@ for i, (obj, raw) in enumerate(lines):
 print('chain OK,', len(lines), 'lines')
 ```
 
+Run the same check in each `chains/<uuid>/` directory. A copy's chain starts at seq 0, and line 0's `prev` is the
+genesis hash of the copy's UUID. Its first line's `fork` block names the parent chain, and the parent's line at `parentSeq` must hash to
+`parentHash`.
+
 ## Reading the verdicts
 
 Every `session_start` line embeds the startup verdict:
@@ -53,8 +63,45 @@ Every `session_start` line embeds the startup verdict:
 - `WORLD_ROLLBACK` — the world was restored from a backup. **Allowed by the rules.** The `rollback` object
   says how many events and how much in-game time were rewound. Judge with context: a `gt_explosion` shortly
   before the stop is the normal story; a rollback that lands just before a milestone, without context, is not.
+- `WORLD_COPY` — the world started in a folder other than `homeFolder`, the folder of the world's audit UUID. The
+  copy got a new UUID and a new chain (see **World copies**).
 - `LOG_TRUNCATED` / `TAMPERED_TAIL` / `ANCHOR_MISSING` — the log and world disagree in ways honest play
   does not produce.
+
+A `WORLD_ROLLBACK`, `CRASH_RECOVERY` or `ANCHOR_MISSING` start has `loadedSave`: the logged save with the same
+anchor values as `session_start.anchor`. The anchor of a save from before the timer starts has seq -1, and a
+restore of that save starts with `ANCHOR_MISSING`.
+
+| `kind` | The world is | `savedSidx`, `savedSeq`, `savedWall` name |
+|---|---|---|
+| `backup` | a ServerUtilities backup. `file`, `bytes` and `fileModified` describe the zip | the `backup_done` line |
+| `save` | an overworld save, such as an autosave, `/save-all`, or a folder copied after that save | the `world_saved` line |
+| `stop` | the shutdown save of a clean stop | the `session_end` line |
+| `unlogged` | a save that no line logged, such as a save from a version before `world_saved` | nothing |
+
+A backup outranks a save with the same values, and a save outranks a stop. `matches` counts the lines of that
+kind with those values. Saves before the timer starts all have the same values.
+
+## World copies
+
+A world started in another folder is a copy: a second singleplayer save made from the run's folder, a backup
+unzipped into a new folder, or a renamed folder. The anchor has `homeFolder`, the folder of the world's audit
+UUID. When the world starts in any other folder, the mod gives the world a new audit UUID and starts a new chain.
+Play in a copy then never enters the chain of the original folder.
+
+- The copy's first `session_start` has verdict `WORLD_COPY` and a `fork` block: `parentUuid`, `parentFolder`,
+  and `parentSeq`, `parentHash`, `parentTicks` and `parentWall` of the copied save. `parentLogPresent` is false
+  when the parent chain's directory is missing. `fork.loadedSave` names the copied save in the parent's log, as
+  `loadedSave` does for a restore.
+- A `session_start` has `copies` when chains forked from the session's chain: `uuid`, `folder`, `parentSeq`, and the
+  copy's `tailSeq` and `tailHash` at that start. A copy and its length go into the parent chain at the parent's
+  next start.
+- `homeFolderSet: true` marks the start that set `homeFolder`: a new world, or the first start on this version.
+- `SUMMARY.txt` lists the chains under CHAINS. Its SESSIONS and MILESTONES have the exported chain's ancestors
+  up to each copied save, then the exported chain.
+- The folder name is the only key. A copy in another instance or server folder with the same folder name is not
+  a fork, and starts with `LOG_MISSING` unless `speedrun-audit/` was copied too. A copy's chain deleted before
+  the parent's next start leaves no trace. Play in a copy without this mod leaves none either.
 
 ## Known limits (be honest about these)
 
@@ -86,16 +133,53 @@ Every `session_start` line embeds the startup verdict:
   command and the `dim_change` it causes are a tick or two apart; a portal or rocket has no command before
   it. Use them to check rules on cross-dimension teleports. Older bundles have only `dim_first_visit`, which
   also re-fires after a world rollback.
+- `pos_sample` lines are the place of each online player: every 30 s in survival and every 5 s in any other
+  mode (creative, adventure, spectator), by default (`positionSampleSeconds`,
+  `positionSampleSecondsOutsideSurvival`). One line has every player due on that tick, in `players`, each with
+  `gamemode`, `dim`, `pos` `[x, y, z]` (the feet, to 0.1 block), `yaw` and `pitch`. `yaw` is in degrees from -180
+  to 180: 0 faces south (+z), 90 west, -90 east, ±180 north. `pitch` is from -90 (looking up) to 90 (looking
+  down). A player gets the shorter interval within 5 s of leaving survival. A player with no samples was offline.
+  Bundles before this version have no samples: positions there come only from joins, leaves, commands and
+  dimension changes.
+- `inv_snapshot` lines, and the snapshot files they name, have the same `dim`, `pos`, `yaw` and `pitch`, so a
+  snapshot's armour and the player's place come from one record. Older bundles have neither.
+- `teleport` lines are ServerUtilities teleports of a player: `type` `HOME`, `WARP`, `SPAWN`, `BACK`, `TPA` (the
+  requester, moved by `/tpaccept`), `RTP`, `VANILLA_TP` (the admin teleport of the claimed-chunks screen) or `TPL`
+  (`/tpl`). `warmupSeconds` is the warmup the player waited, so the `command` line is that many seconds earlier.
+  The line is written just before the move, so for a move to another dimension the `teleport` line comes before
+  the `dim_change` line. `from` has `dim`, `pos`, `yaw` and `pitch`. `to` has `dim` and `pos`: the player's feet
+  are put at exactly that spot, and the facing does not change. A teleport cancelled by a move or a hit during the
+  warmup has a `command` line and no `teleport` line. Vanilla `/tp` and `/cofh tpx` do not go through
+  ServerUtilities: use their `command` arguments and the `dim_change` and `pos_sample` lines after them. The pack
+  ships `/home`, `/back`, `/warp`, `/spawn`, `/tpa` and `/rtp` turned off in ServerUtilities' config. A runner who
+  turns them on gets these lines.
 - `creative_slot` lines are creative-inventory packets: the client setting one of its own slots (or
   dropping, slot < 0). Moving an item between slots and taking one from the creative tabs both arrive as slot
   sets, so each line also has the slot's previous contents. Net `item` against `previousKey` over a player's
   lines to find what was spawned. `inCreative: false` means a packet vanilla ignored, which only a modified
-  client sends.
+  client sends. Past 20 of those per player in a minute, they are counted in a `rate_limited` line instead.
 - `nbt_edit` lines are `/nbtedit` saves. `nbtB64` is what the save wrote and `beforeB64` is the target just
   before it, so the two show what the edit changed; above 64 KB only the hashes (`nbtHash`, `beforeHash`) are
   kept. `beforeMissing` says why there is no before state (`chunk not loaded`, `no tile entity`, `empty hand`,
-  …). Older bundles have no before fields. A block opened with `/nbtedit` but never saved has only the
-  command line.
+  …). `beforeMissing: no pending edit` is a save packet from a sender with no `/nbtedit` open. ServerUtilities
+  skips such a packet, and such a packet comes only from a modified client. Past 20 of those per player in a
+  minute, they are counted in a `rate_limited` line instead. Older bundles have no before fields. A block opened with `/nbtedit` but
+  never saved has only the command line.
+- `rate_limited` lines count client packets that had no effect, past 20 lines per player and type in a
+  minute: `nbt_edit` with no pending edit, `creative_slot` outside creative, `nei_packet`, and `quest_edit`
+  from a player who isn't an op. `dropped` is the count for that minute. Many of them mean a modified client
+  flooding the server. A packet that changes the world is never counted in place of a line.
+- `queue_overflow` lines count events dropped because the writer fell 50,000 events behind. Events in that
+  gap aren't in the log.
+- `unserializable_event` lines stand in for an event whose line couldn't be written, with the event `type`
+  and the `error` class. The chain goes on past one.
+- NBT hashes (`nbtHash`, `beforeHash`, `payloadHash`, `liveHash`) have the format in
+  `session_start.nbtHashFormat`. Format 2 covers every value of the NBT. Bundles with no `nbtHashFormat` have
+  format 1, where two NBTs can share a hash when they differ only inside a byte array, or by string text that
+  looks like other fields. Compare hashes only between sessions of one format.
+- `session_start.logTail.cutLastLineIn` names a log file whose last line was cut, as by a power loss mid-write.
+  The chain resumes from the line before the cut line. The cut line shows as `CORRUPT_LINE` in the verifier's
+  report.
 - `death` lines name the `killer` (`player:Name` or the entity name, such as `Zombie`), the `directKiller`
   when it differs (an arrow), and the death `message`. Older bundles have only `damageSource`.
 - `world_saving` lines mark overworld saving turning off (`enabled: false`) and back on. ServerUtilities turns
@@ -119,10 +203,37 @@ Every `session_start` line embeds the startup verdict:
   not the machine, when a Vajra swaps in the offhand block (`gregtech:gt.Tool_Vajra`) or a StructureLib hologram
   projector builds from the inventory (`structurelib:item.structurelib.constructableTrigger`). `machineId` (the
   meta tile ID) and `machine` name the GT machine read from the world. Lines from earlier versions have neither.
+- `machine_removed` lines are GT machines, hatches, pipes and cables leaving the world, one line per block, with
+  the same `machineId`, `machine` and `kind` as `machine_placed`. `cause` is `broken` or `wrenched` (a player's
+  break, by the tool in hand, with `uuid`, `name` and `tool`), `vajra` (a break or a right-click with GT's or
+  Gravitation Suite's Vajra, with the same player fields), `exploded` (the machine's explosion or any
+  explosion over the block), `burned` (a GT cable or pipe set on fire) or `other` (a command, a WorldEdit edit or
+  another mod's code). A line with `kind` `unknown` had no GT tile at the moment of removal. A spot placed twice
+  with no removal between is a log from before this version.
+- `bulk_removed` lines are GT machines a Matter Manipulator removed or replaced, in the shape of `bulk_placed`
+  with no `checked`.
+- `machineKey` (on `machine_placed` and `machine_removed`) and `keys` (on `bulk_placed` and `bulk_removed`) are
+  GT's unlocalized machine keys, such as `gt.blockmachines.hull.bronze`. `achKey` on `achievement` is the
+  achievement's lang key, and `provider` on `dim_first_visit` is the dimension's WorldProvider class. Use these
+  to compare runs: `machine`, `displayName`, `achName` and `dimName` are in the server's language, which in
+  singleplayer is the player's client language.
+- `dim_table` lists every registered dimension at each start: `id`, provider `type`, `provider` class, `loaded`,
+  and `name` and `saveFolder` for a loaded one. `dim_loaded` names each dimension that loads later in the
+  session. Together they name every dim id in `savingOffDims`.
+- In singleplayer, lines from the client thread are not logged: they come from the structure-preview world
+  (dim 2147483647), not from the run's world. `session_end` has `clientThreadLinesDropped` when any were. In
+  earlier bundles, such lines have `"thread": "Client thread"`. Leave them out.
 - `world_saving` lines with `enabled: false` also have `lastSave {seq, ticks, wall}`: the anchor values the
   overworld's latest save wrote. A backup saves every world and then turns saving off, so these are the anchor
   inside that backup. A `WORLD_ROLLBACK` whose `session_start.anchor` equals a `lastSave` restored that backup.
   `backup_done` names the newest file in ServerUtilities' backup folder when a backup thread finishes.
+  `backup_done.save` has the same values as that `lastSave`. `loadedSave` on `session_start` does this match.
+- A `world_saved` line is logged at each overworld save while saving is on, with `anchor {seq, ticks, wall}`.
+  These saves are the autosave (every 900 ticks), `/save-all`, and the save before each backup. The shutdown
+  save after `session_end` has no line. Every line is flushed to the OS when written, and a `world_saved` line is also forced to disk. After a
+  `CRASH_RECOVERY` start with `loadedSave.kind` `save`, the log is known to be complete up to the save that the
+  world came back to. A stretch of more than 900 ticks without `world_saved` is a stretch with saving off, or with
+  lines lost.
 - `gamerule_change` lines are polled every tick, so they catch `/gamerule`, the ServerUtilities config screen and
   mods alike. The `/gamerule` command line just before one names who changed it. Values at boot are in
   `session_start.gamerules`.

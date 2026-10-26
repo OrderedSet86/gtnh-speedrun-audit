@@ -60,7 +60,7 @@ class AuditEventsTest {
         AuditEvents.subscribe(Set.of("test_wanted"), (type, data, igtTicks) -> received.add(type + "@" + igtTicks));
         final LogWriter writer = startWriter(dir);
         try {
-            final AuditLogger logger = new AuditLogger(writer, new TickClock(IGT_TICKS, 0));
+            final AuditLogger logger = new AuditLogger(writer, new TickClock(IGT_TICKS, 0), ClientThreadGate.NONE);
             logger.log("test_unwanted", sampleData());
             logger.log("test_wanted", sampleData());
             assertTrue(writer.drain(DRAIN_TIMEOUT_MS));
@@ -112,10 +112,25 @@ class AuditEventsTest {
         assertEquals(List.of("test_history_throw"), received);
     }
 
+    @Test
+    void listenerThrowingNoClassDefFoundErrorStaysInsidePublishAndPublishHistory() {
+        final List<String> received = new ArrayList<>();
+        AuditEvents.subscribeWithHistory(
+            Set.of("test_linkage"),
+            (type, data, igtTicks) -> { throw new NoClassDefFoundError("missing/SoftDependency"); });
+        AuditEvents
+            .subscribeWithHistory(Set.of("test_linkage"), (type, data, igtTicks) -> received.add("igt" + igtTicks));
+
+        AuditEvents.publishHistory("test_linkage", sampleData(), 1);
+        AuditEvents.publish("test_linkage", sampleData(), 2);
+
+        assertEquals(List.of("igt1", "igt2"), received);
+    }
+
     private static JsonObject readOnlyLine(Path dir, String type, JsonObject data) throws IOException {
         final LogWriter writer = startWriter(dir);
         try {
-            new AuditLogger(writer, new TickClock(0, 0)).log(type, data);
+            new AuditLogger(writer, new TickClock(0, 0), ClientThreadGate.NONE).log(type, data);
             assertTrue(writer.drain(DRAIN_TIMEOUT_MS));
         } finally {
             writer.close(DRAIN_TIMEOUT_MS);

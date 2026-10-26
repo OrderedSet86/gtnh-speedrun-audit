@@ -12,9 +12,12 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.JsonUtil;
+import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.trackers.NbtEdit;
 
+import serverutils.command.CmdEditNBT;
 import serverutils.lib.data.ForgePlayer;
 import serverutils.lib.data.Universe;
 import serverutils.net.MessageEditNBTResponse;
@@ -25,9 +28,9 @@ import serverutils.net.MessageEditNBTResponse;
  * HEAD, so forged packets that fail the pending-edit check later in onMessage() are logged as attempts.
  *
  * <p>
- * At HEAD the target still has the current NBT, so the log line has the current NBT next to the new NBT. The payload
- * of the packet has only the new NBT. For a target that cannot be read, the line has a reason in place of the current
- * NBT.
+ * At HEAD the target still has the current NBT, so the log line of a pending edit has the current NBT next to the new
+ * NBT. The payload of the packet has only the new NBT. For a target that cannot be read, and for a packet with no
+ * pending edit, the line has a reason in place of the current NBT.
  */
 @Mixin(value = MessageEditNBTResponse.class, remap = false)
 public class MessageEditNBTResponseMixin {
@@ -54,6 +57,30 @@ public class MessageEditNBTResponseMixin {
             case "entity" -> "entity " + info.getInteger("id");
             default -> type + " " + info.getString("id");
         };
+        // onMessage() writes the payload only when the info equals the player's entry in CmdEditNBT.EDITING, and
+        // throws an NPE for a player with no entry. Any other packet changes nothing. Such a packet is logged with no
+        // current NBT, and past the limit the packet is counted, not logged
+        final boolean pending = info.equals(
+            CmdEditNBT.EDITING.get(
+                player.getGameProfile()
+                    .getId()));
+        if (!(pending || audit$tryLogAttempt(player))) {
+            return;
+        }
+        final NbtEdit edit = NbtEdit.of(type, description);
+        if (pending) {
+            audit$recordBefore(edit, player, type);
+        } else {
+            edit.beforeMissing("no pending edit");
+        }
+        final String b64 = JsonUtil.nbtToB64(mainNbt);
+        edit.player(player)
+            .written(JsonUtil.canonicalNbtHash(mainNbt), b64.length() <= MAX_B64_CHARS ? b64 : null)
+            .log();
+    }
+
+    /** Record the target's current NBT on {@code edit}, or the reason why there is none. */
+    private void audit$recordBefore(NbtEdit edit, EntityPlayerMP player, String type) { // noqa: NAR130
         Object before;
         try {
             before = audit$readBefore(player, type);
@@ -61,17 +88,24 @@ public class MessageEditNBTResponseMixin {
             // the edit must go through even when the read of the current NBT fails
             before = "error: " + failure;
         }
-        final NbtEdit edit = NbtEdit.of(type, description);
         if (before instanceof NBTTagCompound beforeNbt) {
             final String encoded = JsonUtil.nbtToB64(beforeNbt);
             edit.before(JsonUtil.canonicalNbtHash(beforeNbt), encoded.length() <= MAX_B64_CHARS ? encoded : null);
         } else {
             edit.beforeMissing((String) before);
         }
-        final String b64 = JsonUtil.nbtToB64(mainNbt);
-        edit.player(player)
-            .written(JsonUtil.canonicalNbtHash(mainNbt), b64.length() <= MAX_B64_CHARS ? b64 : null)
-            .log();
+    }
+
+    /** Return whether the session logs this attempt. False without a session, or past the limit. */
+    private static boolean audit$tryLogAttempt(EntityPlayerMP player) { // noqa: NAR130
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        return session != null && session.attempts()
+            .tryLog(
+                player.getGameProfile()
+                    .getId()
+                    .toString(),
+                player.getCommandSenderName(),
+                "nbt_edit");
     }
 
     /**

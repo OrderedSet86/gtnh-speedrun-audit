@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
+import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.common.MinecraftForge;
 
@@ -20,6 +22,7 @@ import com.gtnhspeedrun.audit.compat.Compat;
 import com.gtnhspeedrun.audit.compat.GtPowerCensus;
 import com.gtnhspeedrun.audit.compat.GtWirelessAudit;
 import com.gtnhspeedrun.audit.compat.WorldEditAudit;
+import com.gtnhspeedrun.audit.core.ClientThreadGate;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.harness.Ae2Bench;
 import com.gtnhspeedrun.audit.harness.StructureBench;
@@ -33,14 +36,18 @@ import com.gtnhspeedrun.audit.snapshot.StorageCensus;
 import com.gtnhspeedrun.audit.trackers.BackupProbe;
 import com.gtnhspeedrun.audit.trackers.CommandTracker;
 import com.gtnhspeedrun.audit.trackers.DifficultyTracker;
+import com.gtnhspeedrun.audit.trackers.DimensionTable;
 import com.gtnhspeedrun.audit.trackers.FingerprintTracker;
 import com.gtnhspeedrun.audit.trackers.GamemodeTracker;
 import com.gtnhspeedrun.audit.trackers.GameruleTracker;
+import com.gtnhspeedrun.audit.trackers.GtMachineSites;
 import com.gtnhspeedrun.audit.trackers.InvseeViews;
 import com.gtnhspeedrun.audit.trackers.ItemIdTable;
 import com.gtnhspeedrun.audit.trackers.MachinePlacementTracker;
+import com.gtnhspeedrun.audit.trackers.MachineRemovals;
 import com.gtnhspeedrun.audit.trackers.MilestoneTracker;
 import com.gtnhspeedrun.audit.trackers.PlayerSessionTracker;
+import com.gtnhspeedrun.audit.trackers.PositionSampler;
 import com.gtnhspeedrun.audit.trackers.StructureBounds;
 import com.gtnhspeedrun.audit.trackers.TrashCanCommandTracker;
 import com.gtnhspeedrun.audit.trackers.WorldSaving;
@@ -77,6 +84,9 @@ public class GtnhSpeedrunAudit {
 
     /** The live session, or null between worlds. The field is static, so mixin sinks can read it through session(). */
     private static volatile SessionManager session;
+    // set in preInit. In a client JVM, preInit runs on the client thread. The field is static because session() is
+    // static
+    private static volatile ClientThreadGate clientThreadGate = ClientThreadGate.NONE;
 
     private final List<Object> forgeBusListeners = new ArrayList<>();
     private final List<Object> fmlBusListeners = new ArrayList<>();
@@ -85,14 +95,26 @@ public class GtnhSpeedrunAudit {
      * Runnable, so no WorldEdit type appears in this class.
      */
     private Runnable worldEditStop;
+    /** The dimension tracker of the live session, or null between worlds. */
+    private DimensionTable dimensions;
 
+    /** Return the live session, or null between worlds and on the client thread of a singleplayer game. */
     public static SessionManager session() {
-        return session;
+        return isOnClientThread() ? null : session;
+    }
+
+    public static boolean isOnClientThread() {
+        return clientThreadGate.isGated(Thread.currentThread());
     }
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
         AuditConfig.synchronizeConfiguration(event.getSuggestedConfigurationFile());
+        if (FMLCommonHandler.instance()
+            .getSide()
+            .isClient()) {
+            clientThreadGate = new ClientThreadGate(Thread.currentThread());
+        }
     }
 
     /**
@@ -114,9 +136,10 @@ public class GtnhSpeedrunAudit {
                 AuditConfig.watchedBlocks = new String[] { "minecraft:diamond_block" };
                 AuditConfig.nodeCensusTiles = new String[] { "net.minecraft.tileentity.TileEntityChest" };
             }
-            final SessionManager sm = new SessionManager(LOG, event.getServer());
-            sm.start();
+            final SessionManager sm = new SessionManager(LOG, event.getServer(), clientThreadGate);
+            // the catch below stops `started`. Set it before start(), so a start() that fails partway is stopped too
             started = sm;
+            sm.start();
             session = sm;
 
             final WorldSavingTracker worldSaving = new WorldSavingTracker(sm, BACKUPS);
@@ -141,13 +164,36 @@ public class GtnhSpeedrunAudit {
                 selftest ? SelfTest.STAND_IN_MANIPULATOR_PREFIX : MachinePlacementTracker.MANIPULATOR_PREFIX);
             onForgeBus(placements); // PlaceEvent, BreakEvent
             onFmlBus(placements); // end of tick: Matter Manipulator placements
+            final Predicate<ItemStack> isWrench;
+            if (selftest) {
+                isWrench = SelfTest::isStandInWrench;
+            } else if (Compat.GT5.isLoaded()) {
+                isWrench = GtMachineSites::isWrench;
+            } else {
+                isWrench = stack -> false;
+            }
+            final MachineRemovals removals = new MachineRemovals(
+                sm.logger(),
+                placements,
+                new MachineRemovals.Tools(isWrench, selftest ? SelfTest::isStandInVajra : MachineRemovals::isVajra));
+            onForgeBus(removals); // BreakEvent, PlayerInteractEvent, ExplosionEvent.Detonate
+            onFmlBus(removals); // end of tick: Matter Manipulator removals
+            MachineRemovals.activate(removals);
             onFmlBus(inventory); // login/logout snapshots
             onFmlBus(milestones); // dimension changes, crafts
+            dimensions = new DimensionTable(sm);
+            onForgeBus(dimensions); // WorldEvent.Load
             onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp, AuditConfig.flagClientMods));
             onFmlBus(new GamemodeTracker(sm.logger(), inventory, event.getServer()));
             onFmlBus(new DifficultyTracker(sm.logger(), event.getServer()));
             onFmlBus(new GameruleTracker(sm.logger(), event.getServer()));
             onFmlBus(scheduler);
+            // the self-test steps are 5 ticks apart (SelfTest.STEP_GAP_TICKS), and the config intervals are whole
+            // seconds
+            final PositionSampler.Intervals sampleIntervals = selftest ? new PositionSampler.Intervals(5, 1)
+                : PositionSampler.Intervals
+                    .ofSeconds(AuditConfig.positionSampleSeconds, AuditConfig.positionSampleSecondsOutsideSurvival);
+            onFmlBus(new PositionSampler(sm.logger(), event.getServer(), sampleIntervals));
 
             // NEVER load a class that uses the types of an optional mod before a check that the mod is loaded. Such
             // classes are in compat/ and harness/, and Ae2Snapshotter is in snapshot/
@@ -229,6 +275,7 @@ public class GtnhSpeedrunAudit {
             // a broken audit trail must be loud, but the server of the run must keep running
             LOG.error("Speedrun audit failed to start — THIS RUN IS NOT BEING AUDITED", e);
             session = null;
+            MachineRemovals.activate(null);
             unregisterAuditListeners();
             if (started != null) {
                 started.stopped();
@@ -257,6 +304,12 @@ public class GtnhSpeedrunAudit {
         } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over the item registry of
                                                       // every mod
             LOG.error("Item ID table not recorded", e);
+        }
+        try {
+            dimensions.logDimensionTable();
+        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over the dimensions of every
+                                                      // mod
+            LOG.error("dim_table.failed", e);
         }
         if (Compat.BETTER_QUESTING.isLoaded()) {
             BqQuestDb.log(sm.logger(), server);
@@ -291,6 +344,8 @@ public class GtnhSpeedrunAudit {
     public void serverStopped(FMLServerStoppedEvent event) {
         final SessionManager sm = session;
         session = null;
+        dimensions = null;
+        MachineRemovals.activate(null);
         if (sm != null) {
             sm.stopped();
         }

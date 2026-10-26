@@ -13,6 +13,7 @@ import org.jetbrains.annotations.Nullable;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
+import com.gtnhspeedrun.audit.core.AttemptLimiter;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.snapshot.ItemKey;
 
@@ -33,11 +34,12 @@ public final class NeiSinks {
 
     /**
      * Call at the head of {@code NEISPH.handlePacket}. The head runs before authentication, so a denied packet is
-     * logged too.
+     * logged too. Past the limit of {@link AttemptLimiter}, a packet is counted, not logged.
      */
     public static void logNeiPacket(String uuid, String name, int type) {
         final SessionManager session = GtnhSpeedrunAudit.session();
-        if (session == null) {
+        if (!(session != null && session.attempts()
+            .tryLog(uuid, name, "nei_packet"))) {
             return;
         }
         final JsonObject data = new JsonObject();

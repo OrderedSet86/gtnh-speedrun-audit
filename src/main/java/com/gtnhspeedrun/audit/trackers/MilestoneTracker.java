@@ -2,7 +2,12 @@ package com.gtnhspeedrun.audit.trackers;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
+import net.minecraft.stats.Achievement;
+import net.minecraft.util.ChatComponentTranslation;
+import net.minecraft.util.IChatComponent;
 import net.minecraftforge.event.entity.player.AchievementEvent;
+
+import org.jetbrains.annotations.Nullable;
 
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.core.AuditLogger;
@@ -86,6 +91,10 @@ public final class MilestoneTracker {
         data.addProperty("name", player.getCommandSenderName());
         data.addProperty("dim", dim);
         data.addProperty("dimName", player.worldObj.provider.getDimensionName());
+        data.addProperty(
+            "provider",
+            player.worldObj.provider.getClass()
+                .getName());
         data.addProperty("cause", cause);
         logger.log("dim_first_visit", data);
     }
@@ -129,8 +138,19 @@ public final class MilestoneTracker {
             "achName",
             event.achievement.func_150951_e()
                 .getUnformattedText());
+        final String key = readAchievementKey(event.achievement);
+        if (key != null) {
+            data.addProperty("achKey", key);
+        }
         data.addProperty("parentUnlocked", parentUnlocked);
         logger.log("achievement", data);
+    }
+
+    // Vanilla Achievement builds the name as a ChatComponentTranslation of "achievement." + the short name.
+    // func_150951_e() of a mod's Achievement subclass can return another component type, and then no key is logged
+    private static @Nullable String readAchievementKey(Achievement achievement) {
+        final IChatComponent name = achievement.func_150951_e();
+        return name instanceof ChatComponentTranslation translation ? translation.getKey() : null;
     }
 
     /**

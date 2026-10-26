@@ -12,12 +12,12 @@ import com.gtnhspeedrun.audit.core.SessionManager;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /**
- * Log when overworld saving turns off or on, and when a ServerUtilities backup finishes. The session's tick calls
- * {@link #checkWorldSaving()}, so these lines keep their place in the tick, before timing_started and before the run
- * clocks advance.
+ * Log each overworld save, when overworld saving turns off or on, and when a ServerUtilities backup finishes. The
+ * session's tick calls {@link #checkWorldSaving()} before timing_started is logged and before the run clocks advance.
  */
 public final class WorldSavingTracker {
 
+    private final SessionManager session;
     private final AuditLogger logger;
     private final ChainAnchorData anchor;
     private final MinecraftServer server;
@@ -26,8 +26,11 @@ public final class WorldSavingTracker {
     private Boolean backupWasRunning;
     // null until the first overworld save of this session
     private AnchorValues lastSavedAnchor;
+    // null until saving turns off after the first overworld save of this session
+    private AnchorValues saveBeforeSavingOff;
 
     public WorldSavingTracker(SessionManager session, BackupProbe backups) {
+        this.session = session;
         this.logger = session.logger();
         this.anchor = session.anchor();
         this.server = session.server();
@@ -36,7 +39,8 @@ public final class WorldSavingTracker {
 
     /**
      * Log world_saving when overworld saving turns off, as at the start of a backup, and when overworld saving turns
-     * back on. Log backup_done when a ServerUtilities backup thread finishes.
+     * back on. Log backup_done when a ServerUtilities backup thread finishes, with the latest off line's lastSave as
+     * {@code save}.
      *
      * <p>
      * After the first overworld save of the session, the off line has {@code lastSave}: the anchor values that the
@@ -53,6 +57,7 @@ public final class WorldSavingTracker {
             WorldSaving.addSavingFields(server, data, backups);
             if (off && lastSavedAnchor != null) {
                 data.add("lastSave", lastSavedAnchor.toJson());
+                saveBeforeSavingOff = lastSavedAnchor;
             }
             logger.log("world_saving", data);
         }
@@ -62,6 +67,9 @@ public final class WorldSavingTracker {
             final JsonObject data = new JsonObject();
             backups.describeNewest()
                 .accept(data);
+            if (saveBeforeSavingOff != null) {
+                data.add("save", saveBeforeSavingOff.toJson());
+            }
             logger.log("backup_done", data);
         }
         backupWasRunning = running;
@@ -72,6 +80,11 @@ public final class WorldSavingTracker {
      * posts WorldEvent.Save after saveLevel() wrote the map storage of the overworld, the anchor included.
      * saveLevel() and the post are in one save call on the server thread, so SessionManager.publishAnchor() can't run
      * between them. The anchor fields read here are the values that the save wrote.
+     *
+     * <p>
+     * Log world_saved with those values, except after session_end: a clean log ends with session_end, and the
+     * shutdown save comes after session_end. A copy of the world folder made between this save and the next
+     * starts with session_start.anchor equal to the values.
      */
     @SubscribeEvent
     public void onWorldSave(WorldEvent.Save event) {
@@ -79,5 +92,11 @@ public final class WorldSavingTracker {
             return;
         }
         lastSavedAnchor = AnchorValues.readFrom(anchor);
+        if (session.isStopping() || WorldSaving.isOverworldSavingOff()) {
+            return;
+        }
+        final JsonObject data = new JsonObject();
+        data.add("anchor", lastSavedAnchor.toJson());
+        logger.log("world_saved", data);
     }
 }

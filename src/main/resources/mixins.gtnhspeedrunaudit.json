@@ -12,6 +12,7 @@
         "minecraft.CommandHandlerMixin",
         "minecraft.EntityPlayerMPChatMixin",
         "minecraft.NetHandlerPlayServerMixin",
+        "minecraft.WorldServerSaveMixin",
         "nei.NEISPHMixin",
         "nei.NEIServerUtilsMixin",
         "structurelib.StructureUtilityMixin"

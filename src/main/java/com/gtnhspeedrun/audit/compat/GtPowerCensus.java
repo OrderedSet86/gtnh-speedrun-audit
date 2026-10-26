@@ -143,7 +143,7 @@ public final class GtPowerCensus {
             new AuditLogger.Snapshot(
                 "power_census",
                 String.format(
-                    "power-%d.json.gz",
+                    "power-%d",
                     logger.clock()
                         .get()),
                 () -> file,

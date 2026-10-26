@@ -10,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
+import com.gtnhspeedrun.audit.core.AttemptLimiter;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.snapshot.ItemKey;
 import com.gtnhspeedrun.audit.snapshot.StackJson;
@@ -62,8 +63,9 @@ public final class InventoryChanges {
      * <p>
      * A take from the creative tabs and a move between slots both arrive as slot sets, so the line has the slot's
      * previous contents too. A verifier nets {@code previousKey} against {@code itemKey} across a player's lines to
-     * tell a spawn from a move. Vanilla ignores the packet from a player not in creative, and only a modified client
-     * sends the packet outside creative. Such a packet is logged with {@code inCreative} false.
+     * tell a spawn from a move. The packet arrives outside creative only from a modified client, and vanilla's handler
+     * then skips the packet. Such a packet is logged with {@code inCreative} false. Past the limit of
+     * {@link AttemptLimiter}, the packet is counted, not logged.
      */
     public static void logCreativeSlot(EntityPlayerMP player, SlotChange change, boolean inCreative) {
         final ItemStack stack = change.stack();
@@ -72,12 +74,15 @@ public final class InventoryChanges {
         if (session == null || ItemStack.areItemStacksEqual(stack, previous)) {
             return;
         }
+        final String uuid = player.getGameProfile()
+            .getId()
+            .toString();
+        if (!(inCreative || session.attempts()
+            .tryLog(uuid, player.getCommandSenderName(), "creative_slot"))) {
+            return;
+        }
         final JsonObject data = new JsonObject();
-        data.addProperty(
-            "uuid",
-            player.getGameProfile()
-                .getId()
-                .toString());
+        data.addProperty("uuid", uuid);
         data.addProperty("name", player.getCommandSenderName());
         data.addProperty("slot", change.slot());
         if (stack != null && stack.getItem() != null) {

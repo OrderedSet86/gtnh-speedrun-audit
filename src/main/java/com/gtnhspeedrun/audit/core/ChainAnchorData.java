@@ -38,6 +38,11 @@ public final class ChainAnchorData extends WorldSavedData {
     public long cumulativeOnlineTicks;
     /** SHA-256 of the item ID table that was logged last. */
     public String idTableSha256 = "";
+    /**
+     * The world folder that {@link #worldAuditUuid} belongs to. A start in another folder is a world copy, and the
+     * copy gets a new audit UUID.
+     */
+    public String homeFolder = "";
 
     public final Set<String> visitedDims = new HashSet<>();
     public final Set<String> seenKeyItems = new HashSet<>();
@@ -74,6 +79,8 @@ public final class ChainAnchorData extends WorldSavedData {
         timingStartWallMs = nbt.getLong("timingStartWallMs");
         cumulativeOnlineTicks = nbt.getLong("cumulativeOnlineTicks");
         idTableSha256 = nbt.getString("idTableSha256");
+        // a world saved before the homeFolder tag existed has no tag. getString() returns "" for a missing tag
+        homeFolder = nbt.getString("homeFolder");
         readSet(nbt, "visitedDims", visitedDims);
         readSet(nbt, "seenKeyItems", seenKeyItems);
         readSet(nbt, "earnedAchievements", earnedAchievements);
@@ -93,6 +100,7 @@ public final class ChainAnchorData extends WorldSavedData {
         nbt.setLong("timingStartWallMs", timingStartWallMs);
         nbt.setLong("cumulativeOnlineTicks", cumulativeOnlineTicks);
         nbt.setString("idTableSha256", idTableSha256);
+        nbt.setString("homeFolder", homeFolder);
         writeSet(nbt, "visitedDims", visitedDims);
         writeSet(nbt, "seenKeyItems", seenKeyItems);
         writeSet(nbt, "earnedAchievements", earnedAchievements);

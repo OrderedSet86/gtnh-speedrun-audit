@@ -7,6 +7,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.init.Items;
+import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 
 import com.google.gson.JsonArray;
@@ -14,6 +16,7 @@ import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
+import com.gtnhspeedrun.audit.trackers.MachineRemovals;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -59,6 +62,16 @@ public final class SelfTest {
         this.resultDir = resultDir;
         this.scenario = new Scenario(session, checks, auditListeners);
         this.logChecks = new LogChecks(session, checks, scenario);
+    }
+
+    /** Return whether {@code stack} is shears, the self-test's stand-in for a GT wrench. */
+    public static boolean isStandInWrench(ItemStack stack) {
+        return stack.getItem() == Items.shears;
+    }
+
+    /** Return whether {@code stack} is a Vajra, or a golden pickaxe, the self-test's stand-in for a Vajra. */
+    public static boolean isStandInVajra(ItemStack stack) {
+        return stack.getItem() == Items.golden_pickaxe || MachineRemovals.isVajra(stack);
     }
 
     @SubscribeEvent

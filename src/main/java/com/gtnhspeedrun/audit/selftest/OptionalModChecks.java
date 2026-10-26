@@ -131,10 +131,14 @@ public final class OptionalModChecks {
         final String[][] targets = { { null, "net.minecraft.command.CommandHandler" },
             { null, "net.minecraft.entity.player.EntityPlayerMP" }, { null, "net.minecraft.server.MinecraftServer" },
             { null, "net.minecraft.network.rcon.RConConsoleSource" },
-            { null, "net.minecraft.network.NetHandlerPlayServer" },
+            { null, "net.minecraft.network.NetHandlerPlayServer" }, { null, "net.minecraft.world.WorldServer" },
             { "NotEnoughItems", "codechicken.nei.NEIServerUtils" }, { "NotEnoughItems", "codechicken.nei.NEISPH" },
             { "gregtech", "gregtech.common.data.GTPowerfailTracker" },
             { "gregtech", "gregtech.api.metatileentity.implementations.MTEMultiBlockBase" },
+            { "gregtech", "gregtech.api.metatileentity.MetaTileEntity" },
+            { "gregtech", "gregtech.api.metatileentity.MetaPipeEntity" },
+            { "gregtech", "gregtech.api.metatileentity.BaseTileEntity" },
+            { "gregtech", "gregtech.common.blocks.BlockMachines" },
             { "gregtech", "tectech.thing.metaTileEntity.multi.base.TTMultiblockBase" },
             { "structurelib", "com.gtnewhorizon.structurelib.structure.StructureUtility" },
             { "betterquesting", "betterquesting.api2.utils.ParticipantInfo" },
@@ -146,7 +150,9 @@ public final class OptionalModChecks {
             { "AWWayofTime", "WayofTime.alchemicalWizardry.common.tileEntity.TEAltar" },
             { "ExtraUtilities", "com.rwtema.extrautils.gui.SlotTrash" },
             { "serverutilities", "serverutils.invsee.InvseeContainer" },
-            { "serverutilities", "serverutils.net.MessageEditNBTResponse" } };
+            { "serverutilities", "serverutils.net.MessageEditNBTResponse" },
+            { "serverutilities", "serverutils.task.TeleportTask" },
+            { "serverutilities", "serverutils.command.tp.CmdTplast" } };
         for (String[] target : targets) {
             if (target[0] != null && !Loader.isModLoaded(target[0])) {
                 continue;
@@ -256,6 +262,45 @@ public final class OptionalModChecks {
             "extreme entity crusher formation logged once",
             crusherFormations == 1,
             "count=" + crusherFormations);
+    }
+
+    /**
+     * Check the removals of {@code Scenario.removeGtHulls}: the breakBlock mixin logs the real bronze hulls' removals
+     * with GT's machine key, the hull at x -12 with the cause {@code other}, and the hull at x -14 with the cause
+     * {@code vajra}, alice and the Vajra.
+     */
+    public void checkGtHullRemoval(List<JsonObject> lines) {
+        final List<String> hulls = new ArrayList<>();
+        for (JsonObject data : LogChecks.selectEventData(lines, "machine_removed")) {
+            if (!(data.get("y")
+                .getAsInt() == scenario.offsetY(3)
+                && data.get("z")
+                    .getAsInt() == scenario.offsetZ(0)
+                && data.has("machineKey"))) {
+                continue;
+            }
+            hulls.add(
+                (data.get("x")
+                    .getAsInt() - scenario.offsetX(0)) + " "
+                    + data.get("cause")
+                        .getAsString()
+                    + " "
+                    + data.get("machineId")
+                        .getAsInt()
+                    + " "
+                    + data.get("machineKey")
+                        .getAsString()
+                    + (data.has("tool") ? " " + data.get("tool")
+                        .getAsString() : "")
+                    + (data.has("name") ? " " + data.get("name")
+                        .getAsString() : ""));
+        }
+        final String hull = Scenario.BRONZE_HULL_META + " gt.blockmachines.hull.bronze";
+        checks.check(
+            "breakBlock mixin: real GT hull removals logged with the key, a Vajra removal with the player",
+            hulls.equals(
+                List.of("-12 other " + hull, "-14 vajra " + hull + " " + Scenario.GT_VAJRA + "@0 SelfTestAlice")),
+            hulls.toString());
     }
 
     /** Check that the pattern output appears in an AE2 census file as a count-0 entry flagged craftable. */
