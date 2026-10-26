@@ -40,7 +40,7 @@ Names like moon% are leaderboard categories, each ending at that milestone.
 | Edits | `/nbtedit` changes, with the data before and after. Game rule and difficulty changes. WorldEdit edits, on servers that run WorldEdit. |
 | Quests | Quest completions, with the party member who finished each task. Quest book edits, and a hash of the quest book. |
 | Milestones | Dimension changes and first visits (moon%). Achievements. The first sighting and first craft of each key item in the config. |
-| Positions | Each player's dimension, position and facing every 30 seconds, and every 5 seconds outside survival. Where each `/home`, `/back`, `/warp`, `/spawn`, `/tpa`, `/rtp` and `/tpl` teleport went. |
+| Positions | Each player's dimension, position and facing every 30 seconds, and every 5 seconds outside survival, except while the player stands still. Where each `/home`, `/back`, `/warp`, `/spawn`, `/tpa`, `/rtp` and `/tpl` teleport went. |
 | Multiblocks | The first formation of every GT and TecTech multiblock (assline%), with its hatches, amperage, coils and tiers. The Bricked Blast Furnace (bbf%) and Railcraft multiblocks such as the coke oven (coke%). |
 | Backups | Backup start and finish. GT machine explosions. |
 | Mod files | A SHA-256 hash of every mod jar, `config/` and `scripts/` at each start. A changed jar, recipe or quest book changes the hash. |

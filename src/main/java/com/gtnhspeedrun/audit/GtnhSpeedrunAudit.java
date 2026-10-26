@@ -183,7 +183,7 @@ public class GtnhSpeedrunAudit {
             onFmlBus(milestones); // dimension changes, crafts
             dimensions = new DimensionTable(sm);
             onForgeBus(dimensions); // WorldEvent.Load
-            onFmlBus(new PlayerSessionTracker(sm.logger(), AuditConfig.logPlayerIp, AuditConfig.flagClientMods));
+            onFmlBus(new PlayerSessionTracker(sm, AuditConfig.logPlayerIp, AuditConfig.flagClientMods));
             onFmlBus(new GamemodeTracker(sm.logger(), inventory, event.getServer()));
             onFmlBus(new DifficultyTracker(sm.logger(), event.getServer()));
             onFmlBus(new GameruleTracker(sm.logger(), event.getServer()));
@@ -193,7 +193,7 @@ public class GtnhSpeedrunAudit {
             final PositionSampler.Intervals sampleIntervals = selftest ? new PositionSampler.Intervals(5, 1)
                 : PositionSampler.Intervals
                     .ofSeconds(AuditConfig.positionSampleSeconds, AuditConfig.positionSampleSecondsOutsideSurvival);
-            onFmlBus(new PositionSampler(sm.logger(), event.getServer(), sampleIntervals));
+            onFmlBus(new PositionSampler(sm, event.getServer(), sampleIntervals));
 
             // NEVER load a class that uses the types of an optional mod before a check that the mod is loaded. Such
             // classes are in compat/ and harness/, and Ae2Snapshotter is in snapshot/

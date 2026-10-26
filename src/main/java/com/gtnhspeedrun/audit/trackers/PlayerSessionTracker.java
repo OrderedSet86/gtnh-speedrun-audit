@@ -13,6 +13,7 @@ import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.AuditLogger;
 import com.gtnhspeedrun.audit.core.JsonUtil;
+import com.gtnhspeedrun.audit.core.PlayerNumbers;
 import com.gtnhspeedrun.audit.core.SessionManager;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -29,11 +30,13 @@ import cpw.mods.fml.common.network.handshake.NetworkDispatcher;
 public final class PlayerSessionTracker {
 
     private final AuditLogger logger;
+    private final PlayerNumbers playerNumbers;
     private final boolean logIp;
     private final String[] flagClientMods;
 
-    public PlayerSessionTracker(AuditLogger logger, boolean logIp, String[] flagClientMods) {
-        this.logger = logger;
+    public PlayerSessionTracker(SessionManager session, boolean logIp, String[] flagClientMods) {
+        this.logger = session.logger();
+        this.playerNumbers = session.playerNumbers();
         this.logIp = logIp;
         this.flagClientMods = flagClientMods;
     }
@@ -42,6 +45,11 @@ public final class PlayerSessionTracker {
     public void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.player instanceof EntityPlayerMP player) {
             final JsonObject data = describePlayer(player, true);
+            data.addProperty(
+                "playerNumber",
+                playerNumbers.numberFor(
+                    player.getGameProfile()
+                        .getId()));
             attachClientMods(player, data);
             logger.log("player_join", data);
         }

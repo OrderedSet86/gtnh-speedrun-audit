@@ -56,6 +56,7 @@ public final class SessionManager {
     private final Set<String> onceKeys = new HashSet<>();
     private final List<Runnable> snapshotHooks = new ArrayList<>();
     private final List<Runnable> tickHooks = new ArrayList<>();
+    private final PlayerNumbers playerNumbers = new PlayerNumbers();
 
     private AuditDirs dirs;
     private ChainAnchorData anchor;
@@ -455,6 +456,10 @@ public final class SessionManager {
 
     public AuditLogger logger() {
         return logger;
+    }
+
+    public PlayerNumbers playerNumbers() {
+        return playerNumbers;
     }
 
     public ChainAnchorData anchor() {

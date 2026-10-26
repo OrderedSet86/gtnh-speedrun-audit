@@ -133,16 +133,33 @@ Play in a copy then never enters the chain of the original folder.
   command and the `dim_change` it causes are a tick or two apart; a portal or rocket has no command before
   it. Use them to check rules on cross-dimension teleports. Older bundles have only `dim_first_visit`, which
   also re-fires after a world rollback.
-- `pos_sample` lines are the place of each online player: every 30 s in survival and every 5 s in any other
-  mode (creative, adventure, spectator), by default (`positionSampleSeconds`,
-  `positionSampleSecondsOutsideSurvival`). One line has every player due on that tick, in `players`, each with
-  `gamemode`, `dim`, `pos` `[x, y, z]` (the feet, to 0.1 block), `yaw` and `pitch`. `yaw` is in degrees from -180
-  to 180: 0 faces south (+z), 90 west, -90 east, ±180 north. `pitch` is from -90 (looking up) to 90 (looking
-  down). A player gets the shorter interval within 5 s of leaving survival. A player with no samples was offline.
-  Bundles before this version have no samples: positions there come only from joins, leaves, commands and
-  dimension changes.
-- `inv_snapshot` lines, and the snapshot files they name, have the same `dim`, `pos`, `yaw` and `pitch`, so a
-  snapshot's armour and the player's place come from one record. Older bundles have neither.
+- `pos_sample` lines are the place of each online player, sampled every 30 s in survival and every 5 s in any
+  other mode (creative, adventure, spectator), by default (`positionSampleSeconds`,
+  `positionSampleSecondsOutsideSurvival`). A player gets the shorter interval within 5 s of leaving survival.
+  One line has a row in `players` for each player sampled on that tick:
+
+  ```
+  [player, mode, dim, x, y, z, yaw, pitch]
+  [0,"s",0,1335,1050,-2150,-160,30]
+  ```
+
+  - `player` is the `playerNumber` of the player's `player_join` line in the same session. The first player to
+    join is 0, the next is 1. A player who rejoins keeps the number.
+  - `mode` is `s` (survival), `c` (creative), `a` (adventure), an empty string for a player with no gamemode, or
+    the full name of another mode, such as `spectator`.
+  - `x`, `y` and `z` are the feet, in tenths of a block: 1335 is x = 133.5.
+  - `yaw` is in whole degrees from -180 to 179: 0 faces south (+z), 90 west, -90 east, -180 north. `pitch` is
+    from -90 (looking up) to 90 (looking down).
+
+  A sample with no row for an online player is a player who stayed still: in the dimension and mode of the
+  player's last row, within 1 block of that row on each axis, and within 10 degrees of that row's yaw and pitch.
+  The first sample after each join always has a row. A row is the player's place on that tick only. Between
+  samples, the player can have gone anywhere. Who was online is in the `player_join` and `player_leave` lines.
+  Bundles before this version
+  have no samples: positions there come only from joins, leaves, commands and dimension changes.
+- `inv_snapshot` lines, and the snapshot files they name, have `dim`, `pos` `[x, y, z]` (the feet, to 0.1 block),
+  `yaw` and `pitch` (to 0.1 degree), so a snapshot's armour and the player's place come from one record. Older
+  bundles have neither.
 - `teleport` lines are ServerUtilities teleports of a player: `type` `HOME`, `WARP`, `SPAWN`, `BACK`, `TPA` (the
   requester, moved by `/tpaccept`), `RTP`, `VANILLA_TP` (the admin teleport of the claimed-chunks screen) or `TPL`
   (`/tpl`). `warmupSeconds` is the warmup the player waited, so the `command` line is that many seconds earlier.

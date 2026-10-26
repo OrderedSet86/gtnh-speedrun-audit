@@ -92,6 +92,7 @@ public final class Scenario {
     public static final float ALICE_RAW_YAW = 560.0F;
     public static final double ALICE_YAW = -160.0;
     public static final float ALICE_PITCH = 30.0F;
+    private static final double ALICE_SAMPLE_MOVE_BLOCKS = 2.0;
 
     private final MinecraftServer server;
     private final SessionManager session;
@@ -229,6 +230,9 @@ public final class Scenario {
             }
             case 4 -> session.runSnapshotHooks();
             case 5 -> {
+                // pos_sample: a move of more than `PositionRow.STILL_TENTHS` tenths of a block gets a row. Step 6 moves
+                // alice back
+                alice.setPosition(alice.posX + ALICE_SAMPLE_MOVE_BLOCKS, alice.posY, alice.posZ);
                 if (Compat.WORLDEDIT.isLoaded()) {
                     final String problem = WorldEditFixture.edit(fixturePos(overworld, offset(20, 17, 20)));
                     if (problem != null) {
@@ -250,6 +254,7 @@ public final class Scenario {
                 overworld.levelSaving = true;
             }
             case 6 -> {
+                alice.setPosition(alice.posX - ALICE_SAMPLE_MOVE_BLOCKS, alice.posY, alice.posZ);
                 overworld.difficultySetting = EnumDifficulty.NORMAL;
                 overworld.levelSaving = false;
                 server.getCommandManager()

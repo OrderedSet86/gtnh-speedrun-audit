@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -31,6 +30,7 @@ import com.gtnhspeedrun.audit.harness.NbtEditDrill;
 import com.gtnhspeedrun.audit.harness.QuestEditDrill;
 import com.gtnhspeedrun.audit.harness.TeleportDrill;
 import com.gtnhspeedrun.audit.snapshot.StorageCensus;
+import com.gtnhspeedrun.audit.trackers.PositionRow;
 
 /** Check the session's JSONL log, read back after the last step, for the events that the scenario drove. */
 public final class LogChecks {
@@ -693,81 +693,35 @@ public final class LogChecks {
     }
 
     /**
-     * Check alice's position samples, the place in every inventory snapshot line, and on a pack server the teleport
-     * lines of {@link TeleportDrill}. In the self-test, the sample interval is 5 ticks in survival and 1 tick in
-     * any other mode. Alice is in creative from step 2 to step 3.
+     * Check the position samples of alice and bob, the place in every inventory snapshot line, and on a pack server the
+     * teleport lines of {@link TeleportDrill}. In the self-test, a survival player is sampled on every fifth tick and a
+     * player in any other mode on every tick. The scenario runs one step on every fifth tick. Alice is in creative from
+     * step 2 to step 3, and moves 2 blocks at step 5 and back at step 6. Bob never moves.
      */
     private void checkPlaces(List<JsonObject> lines) {
-        final long SURVIVAL_TICKS = 5;
-        final List<JsonObject> samples = new ArrayList<>();
-        for (JsonObject line : lines) {
-            if (!"pos_sample".equals(
-                line.get("t")
-                    .getAsString())) {
-                continue;
-            }
-            for (JsonElement entry : line.getAsJsonObject("data")
-                .getAsJsonArray("players")) {
-                final JsonObject sample = entry.getAsJsonObject();
-                // the clock is frozen at 0 before the first movement of step 1
-                if ("SelfTestAlice".equals(
-                    sample.get("name")
-                        .getAsString())
-                    && line.get("ticks")
-                        .getAsLong() > 0) {
-                    sample.addProperty(
-                        "ticks",
-                        line.get("ticks")
-                            .getAsLong());
-                    sample.addProperty(
-                        "seq",
-                        line.get("seq")
-                            .getAsLong());
-                    samples.add(sample);
-                }
-            }
+        final Map<Integer, List<PositionRow>> rowsByPlayer = selectPositionRows(lines);
+        final List<PositionRow> aliceRows = rowsByPlayer
+            .getOrDefault(findPlayerNumber(lines, "SelfTestAlice"), List.of());
+        final List<PositionRow> bobRows = rowsByPlayer.getOrDefault(findPlayerNumber(lines, "SelfTestBob"), List.of());
+        final List<String> aliceModes = new ArrayList<>();
+        for (PositionRow row : aliceRows) {
+            aliceModes.add(row.mode());
         }
-        samples.sort(
-            Comparator.comparingLong(
-                sample -> sample.get("seq")
-                    .getAsLong()));
-        final List<Long> creativeGaps = new ArrayList<>();
-        final List<Long> survivalGaps = new ArrayList<>();
-        for (int i = 1; i < samples.size(); i++) {
-            final String mode = samples.get(i)
-                .get("gamemode")
-                .getAsString();
-            if (mode.equals(
-                samples.get(i - 1)
-                    .get("gamemode")
-                    .getAsString())) {
-                final long gap = samples.get(i)
-                    .get("ticks")
-                    .getAsLong()
-                    - samples.get(i - 1)
-                        .get("ticks")
-                        .getAsLong();
-                ("creative".equals(mode) ? creativeGaps : survivalGaps).add(gap);
-            }
-        }
+        // the first sample, creative at step 2, survival at step 3, and the moves of steps 5 and 6. A FakePlayer joins
+        // with no gamemode
         checks.check(
-            "pos_sample: every tick in creative, every 5 ticks in survival",
-            !creativeGaps.isEmpty() && !survivalGaps.isEmpty()
-                && creativeGaps.stream()
-                    .allMatch(gap -> gap == 1)
-                && survivalGaps.stream()
-                    .allMatch(gap -> gap == SURVIVAL_TICKS),
-            "creative gaps=" + creativeGaps + " survival gaps=" + survivalGaps);
+            "pos_sample: alice has a row at the first sample, each gamemode change and each move, and none while still",
+            aliceModes.equals(List.of("", "c", "s", "s", "s")),
+            "modes=" + aliceModes);
+        checks.check("pos_sample: one row for bob, who never moves", bobRows.size() == 1, "rows=" + bobRows.size());
         checks.check(
             "pos_sample: yaw wrapped and pitch kept",
-            !samples.isEmpty() && samples.stream()
+            !aliceRows.isEmpty() && aliceRows.stream()
                 .allMatch(
-                    sample -> sample.get("yaw")
-                        .getAsDouble() == Scenario.ALICE_YAW
-                        && sample.get("pitch")
-                            .getAsDouble() == Scenario.ALICE_PITCH),
-            samples.isEmpty() ? "no samples"
-                : samples.get(0)
+                    row -> row.yaw() == Math.round(Scenario.ALICE_YAW)
+                        && row.pitch() == Math.round(Scenario.ALICE_PITCH)),
+            aliceRows.isEmpty() ? "no rows"
+                : aliceRows.get(0)
                     .toString());
 
         final List<JsonObject> snapshots = selectEventData(lines, "inv_snapshot");
@@ -835,6 +789,32 @@ public final class LogChecks {
                 .toString()
                 .equals(formatPosition(teleportFeet[1])),
             String.valueOf(aliceLeave));
+    }
+
+    /** Collect the rows of every {@code pos_sample} line by player number, in log order. */
+    private static Map<Integer, List<PositionRow>> selectPositionRows(List<JsonObject> lines) {
+        final Map<Integer, List<PositionRow>> rowsByPlayer = new HashMap<>();
+        for (JsonObject data : selectEventData(lines, "pos_sample")) {
+            for (JsonElement rawRow : data.getAsJsonArray("players")) {
+                final PositionRow row = PositionRow.parseRow(rawRow.getAsJsonArray());
+                rowsByPlayer.computeIfAbsent(row.player(), key -> new ArrayList<>())
+                    .add(row);
+            }
+        }
+        return rowsByPlayer;
+    }
+
+    /** Return the {@code playerNumber} of the first {@code player_join} of {@code name}, or -1 for no join. */
+    private static int findPlayerNumber(List<JsonObject> lines, String name) {
+        for (JsonObject data : selectEventData(lines, "player_join")) {
+            if (name.equals(
+                data.get("name")
+                    .getAsString())) {
+                return data.get("playerNumber")
+                    .getAsInt();
+            }
+        }
+        return -1;
     }
 
     private static String formatPosition(double[] feet) {
