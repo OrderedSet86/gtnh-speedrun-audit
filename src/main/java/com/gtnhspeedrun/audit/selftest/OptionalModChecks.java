@@ -11,15 +11,23 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.zip.DataFormatException;
 import java.util.zip.GZIPInputStream;
+import java.util.zip.Inflater;
+
+import net.minecraft.block.Block;
+import net.minecraft.util.ChunkCoordinates;
+import net.minecraft.world.World;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.harness.Ae2Fixture;
 import com.gtnhspeedrun.audit.harness.FormationSideCheck;
@@ -54,17 +62,10 @@ public final class OptionalModChecks {
      */
     public void checkTecTechFootprint(JsonObject tecTech, List<JsonObject> lines) {
         final int BOUNDS_LENGTH = 6;
-        final int[] box = new int[BOUNDS_LENGTH];
         final boolean hasBox = tecTech != null && tecTech.has("bounds")
             && tecTech.getAsJsonArray("bounds")
                 .size() == BOUNDS_LENGTH;
-        if (hasBox) {
-            for (int i = 0; i < BOUNDS_LENGTH; i++) {
-                box[i] = tecTech.getAsJsonArray("bounds")
-                    .get(i)
-                    .getAsInt();
-            }
-        }
+        final int[] box = hasBox ? readBounds(tecTech) : new int[BOUNDS_LENGTH];
         final int[] hatch = TecTechFixture.hatchPosition;
         final String[] tecTechFacing = scenario.getTecTechFacing();
         checks.check(
@@ -113,6 +114,112 @@ public final class OptionalModChecks {
                             footprints.get(0)
                                 .get("bounds"))),
             footprints.toString());
+    }
+
+    /**
+     * Check the Active Transformer's {@code extents}. The key of each cell with a block is the key of the block in the
+     * world at that position. The controller and the hatch cells have GT machine keys, and {@code extentBlocks} counts
+     * the cells with a block. The rotation's footprint line has the same palette and count. Log the Extreme Entity
+     * Crusher's block count against the volume of the crusher's box.
+     */
+    public void checkTecTechExtents(JsonObject tecTech, List<JsonObject> lines) {
+        final String GT_MACHINE_KEY_PREFIX = "gt.blockmachines.";
+        if (!(tecTech != null && tecTech.has("extents") && tecTech.has("bounds"))) {
+            checks.check("tectech extents: on the formation line", false, String.valueOf(tecTech));
+            return;
+        }
+        final DecodedExtents extents;
+        try {
+            extents = new DecodedExtents(tecTech);
+        } catch (DataFormatException | IllegalArgumentException e) {
+            checks.check("tectech extents: decodable", false, String.valueOf(e));
+            return;
+        }
+        final World world = session.server().worldServers[0];
+        final List<String> mismatched = new ArrayList<>();
+        int withBlock = 0;
+        for (int cell = 0; cell < extents.cells.length; cell++) {
+            final String key = extents.readKey(cell);
+            if (key == null) {
+                continue;
+            }
+            withBlock++;
+            final int[] position = extents.readPosition(cell);
+            final int x = position[0];
+            final int y = position[1];
+            final int z = position[2];
+            final String worldName = Block.blockRegistry.getNameForObject(world.getBlock(x, y, z));
+            final boolean matches = key.startsWith(GT_MACHINE_KEY_PREFIX)
+                ? "gregtech:gt.blockmachines".equals(worldName)
+                : key.equals(worldName + "@" + world.getBlockMetadata(x, y, z));
+            if (!matches) {
+                mismatched.add(x + "," + y + "," + z + " " + key + " world=" + worldName);
+            }
+        }
+        checks.check(
+            "tectech extents: each cell has the key of the block in the world",
+            mismatched.isEmpty(),
+            mismatched.toString());
+        final int[] hatch = TecTechFixture.hatchPosition;
+        final String controllerKey = extents.readKeyAt(scenario.readTecTechControllerPosition());
+        final String hatchKey = hatch == null ? null : extents.readKeyAt(hatch);
+        checks.check(
+            "tectech extents: GT machine keys at the controller and the hatch",
+            controllerKey != null && controllerKey.startsWith(GT_MACHINE_KEY_PREFIX)
+                && hatchKey != null
+                && hatchKey.startsWith(GT_MACHINE_KEY_PREFIX)
+                && !hatchKey.equals(controllerKey),
+            "controller=" + controllerKey + " hatch=" + hatchKey);
+        final int BOX_CELLS = 27;
+        checks.check(
+            "tectech extents: extentBlocks counts the cells with a block, within the 3x3x3 box",
+            withBlock == tecTech.get("extentBlocks")
+                .getAsInt() && withBlock <= BOX_CELLS,
+            "cells=" + withBlock + " extentBlocks=" + tecTech.get("extentBlocks"));
+        final List<JsonObject> rotated = LogChecks.selectEventData(lines, "multiblock_footprint")
+            .stream()
+            .filter(
+                data -> "MTEActiveTransformer".equals(
+                    data.get("class")
+                        .getAsString()))
+            .collect(Collectors.toList());
+        checks.check(
+            "tectech extents: the rotation's footprint line has the same palette and count",
+            rotated.size() == 1 && String.valueOf(tecTech.get("extentPalette"))
+                .equals(
+                    String.valueOf(
+                        rotated.get(0)
+                            .get("extentPalette")))
+                && String.valueOf(tecTech.get("extentBlocks"))
+                    .equals(
+                        String.valueOf(
+                            rotated.get(0)
+                                .get("extentBlocks"))),
+            rotated.toString());
+        for (JsonObject crusher : LogChecks.selectEventData(lines, "multiblock_formed")) {
+            if ("MTEExtremeEntityCrusher".equals(
+                crusher.get("class")
+                    .getAsString())
+                && crusher.has("bounds")) {
+                final int[] crusherBox = readBounds(crusher);
+                GtnhSpeedrunAudit.LOG.info(
+                    "selftest.crusher_extents extentBlocks={} boxCells={}",
+                    crusher.get("extentBlocks"),
+                    (crusherBox[3] - crusherBox[0] + 1) * (crusherBox[4] - crusherBox[1] + 1)
+                        * (crusherBox[5] - crusherBox[2] + 1));
+            }
+        }
+    }
+
+    private static int[] readBounds(JsonObject line) {
+        final int BOUNDS_LENGTH = 6;
+        final int[] box = new int[BOUNDS_LENGTH];
+        for (int i = 0; i < BOUNDS_LENGTH; i++) {
+            box[i] = line.getAsJsonArray("bounds")
+                .get(i)
+                .getAsInt();
+        }
+        return box;
     }
 
     /**
@@ -396,38 +503,29 @@ public final class OptionalModChecks {
     /** Check that the pattern output appears in an AE2 census file as a count-0 entry flagged craftable. */
     public void checkAe2Craftable(List<JsonObject> lines) {
         final List<String> seen = new ArrayList<>();
-        for (JsonObject data : LogChecks.selectEventData(lines, "ae2_snapshot")) {
-            final Path snapshotPath = session.snapshotDir()
-                .resolve(
-                    data.get("file")
-                        .getAsString());
-            try {
-                final JsonObject snapshot = readSnapshotFile(data);
-                for (JsonElement element : snapshot.getAsJsonArray("items")) {
-                    final JsonObject item = element.getAsJsonObject();
-                    if (AE2_CRAFTABLE_KEY.equals(
-                        item.get("key")
-                            .getAsString())) {
-                        final boolean ok = item.get("count")
-                            .getAsLong() == 0 && item.has("craftable")
-                            && data.get("craftableItems")
-                                .getAsInt() >= 1;
-                        checks.check("ae2 census flags the pattern output craftable", ok, item + " line=" + data);
-                        return;
-                    }
+        for (JsonObject grid : readAe2Grids(lines, seen)) {
+            for (JsonElement element : grid.getAsJsonArray("items")) {
+                final JsonObject item = element.getAsJsonObject();
+                if (AE2_CRAFTABLE_KEY.equals(
+                    item.get("key")
+                        .getAsString())) {
+                    final boolean ok = item.get("count")
+                        .getAsLong() == 0 && item.has("craftable")
+                        && grid.get("craftableItems")
+                            .getAsInt() >= 1;
+                    checks.check("ae2 census flags the pattern output craftable", ok, item + " grid=" + grid);
+                    return;
                 }
-                seen.add(snapshotPath.getFileName() + " craftableItems=" + data.get("craftableItems"));
-            } catch (Exception e) {
-                seen.add(snapshotPath.getFileName() + " unreadable: " + e);
             }
+            seen.add(grid.get("gridId") + " craftableItems=" + grid.get("craftableItems"));
         }
         checks
             .check("ae2 census flags the pattern output craftable", false, AE2_CRAFTABLE_KEY + " absent from " + seen);
     }
 
     /**
-     * Check the fixture's pattern: a {@code pattern_slot} line with the author, the census line's channel and pattern
-     * counts, and in a census file a provider slot with the author whose pattern's output is the craftable item.
+     * Check the fixture's pattern: a {@code pattern_slot} line with the author, and in a census file a grid with the
+     * channel and pattern counts and a provider slot with the author whose pattern's output is the craftable item.
      */
     public void checkAe2Patterns(List<JsonObject> lines) {
         checks.check(
@@ -440,38 +538,98 @@ public final class OptionalModChecks {
                             .getAsString())),
             String.valueOf(LogChecks.selectEventData(lines, "pattern_slot")));
         final List<String> seen = new ArrayList<>();
-        for (JsonObject data : LogChecks.selectEventData(lines, "ae2_snapshot")) {
-            if (!(data.has("channelsInUse") && data.has("patterns")
-                && data.get("patterns")
-                    .getAsInt() >= 1)) {
-                seen.add(String.valueOf(data));
-                continue;
+        for (JsonObject grid : readAe2Grids(lines, seen)) {
+            if (grid.has("channelsInUse") && grid.get("patternStacks")
+                .getAsInt() >= 1 && hasAuthoredPattern(grid)) {
+                checks.check("ae2 census: a provider slot with the author and the pattern's output", true, null);
+                return;
             }
-            final Path snapshotPath = session.snapshotDir()
-                .resolve(
-                    data.get("file")
-                        .getAsString());
-            try (InputStream in = new GZIPInputStream(Files.newInputStream(snapshotPath))) {
-                final JsonObject snapshot = new JsonParser().parse(new InputStreamReader(in, StandardCharsets.UTF_8))
-                    .getAsJsonObject();
-                if (hasAuthoredPattern(snapshot)) {
-                    checks.check("ae2 census: a provider slot with the author and the pattern's output", true, null);
-                    return;
-                }
-                seen.add(snapshotPath.getFileName() + " " + snapshot.get("providers") + " " + snapshot.get("patterns"));
-            } catch (IOException | RuntimeException e) { // noqa: NAR142, degrade and report over census files
-                seen.add(snapshotPath.getFileName() + " unreadable: " + e);
-            }
+            seen.add(grid.get("gridId") + " " + grid.get("providers") + " " + grid.get("patterns"));
         }
         checks.check("ae2 census: a provider slot with the author and the pattern's output", false, seen.toString());
     }
 
     /**
-     * Return whether {@code snapshot} has a provider slot with the author {@link Ae2Fixture#PATTERN_AUTHOR} and a
-     * pattern that contains {@link #AE2_CRAFTABLE_KEY}.
+     * Check the layout of the census files. Each line's {@code grids} is the count of the file's grids, a census has a
+     * `gridsSkipped` of 1 or more, the fixture's grid is anchored at the interface, and no grid is anchored at the lone
+     * cell.
      */
-    private static boolean hasAuthoredPattern(JsonObject snapshot) {
-        for (JsonElement provider : snapshot.getAsJsonArray("providers")) {
+    public void checkAe2CensusFile(List<JsonObject> lines) {
+        final List<String> mismatched = new ArrayList<>();
+        final List<String> unreadable = new ArrayList<>();
+        long mostSkipped = 0;
+        for (JsonObject data : LogChecks.selectEventData(lines, "ae2_census")) {
+            mostSkipped = Math.max(
+                mostSkipped,
+                data.get("gridsSkipped")
+                    .getAsLong());
+            try {
+                final int fileGrids = readSnapshotFile(data).getAsJsonArray("grids")
+                    .size();
+                if (fileGrids != data.get("grids")
+                    .getAsInt()) {
+                    mismatched.add(data.get("file") + " line=" + data.get("grids") + " file=" + fileGrids);
+                }
+            } catch (IOException | JsonParseException | IllegalStateException e) {
+                unreadable.add(data.get("file") + ": " + e);
+            }
+        }
+        checks.check(
+            "ae2_census: each line's grids is the count of the file's grids",
+            mismatched.isEmpty() && unreadable.isEmpty(),
+            mismatched + " " + unreadable);
+        checks.check(
+            "ae2_census: the lone energy cell's grid is skipped",
+            mostSkipped >= 1,
+            "gridsSkipped=" + mostSkipped);
+        final String interfaceAnchor = formatOverworldAnchor(scenario.readAe2InterfaceSpot());
+        final String loneCellAnchor = formatOverworldAnchor(scenario.readAe2LoneCellSpot());
+        final List<String> anchors = new ArrayList<>();
+        boolean fixtureAnchored = false;
+        for (JsonObject grid : readAe2Grids(lines, anchors)) {
+            final String anchor = String.valueOf(grid.get("anchor"));
+            anchors.add(anchor);
+            fixtureAnchored |= hasAuthoredPattern(grid) && anchor.equals(interfaceAnchor);
+        }
+        checks.check(
+            "ae2_census: the fixture's grid is anchored at the interface",
+            fixtureAnchored,
+            "expected " + interfaceAnchor + " in " + anchors);
+        checks.check(
+            "ae2_census: no grid is anchored at the lone energy cell",
+            !anchors.contains(loneCellAnchor),
+            loneCellAnchor + " in " + anchors);
+    }
+
+    /** Return {@code spot} in dimension 0, in the form of a census file's {@code anchor}: {@code [0,x,y,z]}. */
+    private static String formatOverworldAnchor(ChunkCoordinates spot) {
+        return "[0," + spot.posX + "," + spot.posY + "," + spot.posZ + "]";
+    }
+
+    /**
+     * Return every grid entry of the files of the {@code ae2_census} lines, in log order. Each unreadable file is added
+     * to {@code unreadable}.
+     */
+    private List<JsonObject> readAe2Grids(List<JsonObject> lines, List<String> unreadable) {
+        final List<JsonObject> grids = new ArrayList<>();
+        for (JsonObject data : LogChecks.selectEventData(lines, "ae2_census")) {
+            try {
+                for (JsonElement grid : readSnapshotFile(data).getAsJsonArray("grids")) {
+                    grids.add(grid.getAsJsonObject());
+                }
+            } catch (IOException | JsonParseException | IllegalStateException e) {
+                unreadable.add(data.get("file") + " unreadable: " + e);
+            }
+        }
+        return grids;
+    }
+
+    /**
+     * Return whether {@code grid} has a provider slot with the author {@link Ae2Fixture#PATTERN_AUTHOR} and a pattern
+     * that contains {@link #AE2_CRAFTABLE_KEY}.
+     */
+    private static boolean hasAuthoredPattern(JsonObject grid) {
+        for (JsonElement provider : grid.getAsJsonArray("providers")) {
             for (JsonElement rawSlot : provider.getAsJsonObject()
                 .getAsJsonArray("slots")) {
                 final JsonObject slot = rawSlot.getAsJsonObject();
@@ -481,7 +639,7 @@ public final class OptionalModChecks {
                     && slot.has("pattern"))) {
                     continue;
                 }
-                final JsonObject pattern = snapshot.getAsJsonArray("patterns")
+                final JsonObject pattern = grid.getAsJsonArray("patterns")
                     .get(
                         slot.get("pattern")
                             .getAsInt())
@@ -639,5 +797,60 @@ public final class OptionalModChecks {
             && edit.get("dim")
                 .getAsInt() == 0;
         checks.check("worldedit_edit: exact placed/removed counts and the chest's tile", ok, String.valueOf(edit));
+    }
+
+    /** The cells of one line's {@code extents}, decoded by the cell layout of {@code ExtentCells}. */
+    private static final class DecodedExtents {
+
+        private final int[] box;
+        private final int sizeX;
+        private final int sizeZ;
+        private final int[] cells;
+        private final List<String> palette = new ArrayList<>();
+
+        /** Decode one little-endian 16-bit value for each cell of the line's {@code bounds} box. */
+        private DecodedExtents(JsonObject line) throws DataFormatException {
+            box = readBounds(line);
+            sizeX = box[3] - box[0] + 1;
+            sizeZ = box[5] - box[2] + 1;
+            for (JsonElement key : line.getAsJsonArray("extentPalette")) {
+                palette.add(key.getAsString());
+            }
+            final int cellCount = sizeX * (box[4] - box[1] + 1) * sizeZ;
+            final Inflater inflater = new Inflater();
+            inflater.setInput(
+                Base64.getDecoder()
+                    .decode(
+                        line.get("extents")
+                            .getAsString()));
+            final byte[] bytes = new byte[cellCount * 2];
+            int read = 0;
+            while (read < bytes.length && !inflater.finished()) {
+                read += inflater.inflate(bytes, read, bytes.length - read);
+            }
+            inflater.end();
+            cells = new int[cellCount];
+            for (int i = 0; i < cellCount; i++) {
+                cells[i] = (bytes[2 * i] & 0xFF) | (bytes[2 * i + 1] & 0xFF) << 8;
+            }
+        }
+
+        /** Return the palette key at {@code point} {x, y, z}, or null for no block or a point outside the box. */
+        private String readKeyAt(int[] point) {
+            if (!isInBox(box, point)) {
+                return null;
+            }
+            return readKey(((point[1] - box[1]) * sizeZ + (point[2] - box[2])) * sizeX + (point[0] - box[0]));
+        }
+
+        /** Return the palette key of {@code cell}, or null for no block. */
+        private String readKey(int cell) {
+            return cells[cell] == 0 ? null : palette.get(cells[cell] - 1);
+        }
+
+        /** Return {x, y, z} of {@code cell}. */
+        private int[] readPosition(int cell) {
+            return new int[] { box[0] + cell % sizeX, box[1] + cell / sizeX / sizeZ, box[2] + cell / sizeX % sizeZ };
+        }
     }
 }

@@ -3,19 +3,27 @@ package com.gtnhspeedrun.audit.snapshot;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 
 import net.minecraft.item.Item;
 import net.minecraft.server.MinecraftServer;
 
+import org.jetbrains.annotations.Nullable;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.gtnhspeedrun.audit.AuditConfig;
 import com.gtnhspeedrun.audit.core.AuditLogger;
+import com.gtnhspeedrun.audit.snapshot.Ae2PatternCensus.Place;
 
+import appeng.api.networking.IGridHost;
+import appeng.api.networking.IGridNode;
 import appeng.api.networking.storage.IStorageGrid;
 import appeng.api.storage.data.IAEFluidStack;
 import appeng.api.storage.data.IAEItemStack;
+import appeng.api.util.DimensionalCoord;
 import appeng.hooks.TickHandler;
 import appeng.me.Grid;
 import appeng.me.GridStorage;
@@ -31,10 +39,16 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * AFK automation still changes the counts between censuses, and the censuses before and after bound that drift.
  *
  * <p>
- * {@code getStorageList()} returns the network's cached aggregate, so a walk costs one step per distinct type and
- * scans no cell. The grid id is the {@code GridStorage} id. The {@code GridStorage} id stays the same across
- * restarts, and {@code Grid.getId()} is random for each instance. The {@code GridStorage} id is read through the
- * package-private {@code Grid.getMyStorage()}, by a cached reflective call.
+ * A census is one {@code ae2_census} line and one snapshot file, with an entry in the file's {@code grids} for each
+ * grid with an item, a fluid or a pattern. {@code gridsSkipped} on the line is the count of the other grids.
+ *
+ * <p>
+ * {@code getStorageList()} returns the network's cached totals. A walk takes one step for each distinct type, and reads
+ * no storage cell. The grid id is the {@code GridStorage} id, read through the package-private
+ * {@code Grid.getMyStorage()} by a cached reflective call. {@code Grid.getId()} is random for each instance. AE2 saves
+ * the {@code GridStorage} id in each node's NBT, and {@code Grid.add()} gives a grid the saved storage of a joining
+ * node, or a new storage when no node has a saved storage. Newly placed nodes have no saved storage. The {@code anchor}
+ * of each entry is a block position. A re-formed grid has the same anchor while the grid's ME Controller is in place.
  *
  * <p>
  * The walk runs in one tick. At the default hourly interval a census is one tick in 72,000. On the {@code Ae2Bench}
@@ -117,11 +131,18 @@ public final class Ae2Snapshotter {
             Ae2CensusFailures.announceAe2CensusFailure(failures);
             return;
         }
+        final List<GridCensus> written = new ArrayList<>();
+        int gridsSkipped = 0;
         for (Grid grid : grids) {
             String id = null;
             try {
                 id = readGridId(grid);
-                takeGridCensus(grid, id);
+                final GridCensus census = takeGridCensus(grid, id);
+                if (census == null) {
+                    gridsSkipped++;
+                } else {
+                    written.add(census);
+                }
             } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over AE2 grid code
                 // one broken grid must not stop the census of the other grids
                 failures.add(
@@ -129,6 +150,7 @@ public final class Ae2Snapshotter {
                         .logAe2CensusFailure(new Ae2CensusFailures.Ae2CensusFailure(censusIndex, "grid", id, e)));
             }
         }
+        emit(censusIndex, List.copyOf(written), gridsSkipped);
         if (!failures.isEmpty()) {
             Ae2CensusFailures.announceAe2CensusFailure(failures);
         }
@@ -165,16 +187,17 @@ public final class Ae2Snapshotter {
     }
 
     /**
-     * Take one grid's census within the calling tick. No other code runs between the reads, so the item list, the
-     * fluid list and the node count are from one instant.
+     * Take one grid's census within the calling tick. No other code runs between the reads, so the item list, the fluid
+     * list and the node count are from one instant. Return null for a grid with no item, no fluid and no pattern.
      */
-    private void takeGridCensus(Grid grid, String gridId) {
+    @Nullable
+    private GridCensus takeGridCensus(Grid grid, String gridId) {
         if (grid.isEmpty()) {
-            return;
+            return null;
         }
         final IStorageGrid storage = grid.getCache(IStorageGrid.class);
         if (storage == null) {
-            return;
+            return null;
         }
         final ItemCensus items = walkItems(
             storage.getItemInventory()
@@ -184,15 +207,61 @@ public final class Ae2Snapshotter {
         final FluidCensus fluids = walkFluids(
             storage.getFluidInventory()
                 .getStorageList());
-        emit(
-            new GridCensus(
-                gridId,
-                grid.getNodes()
-                    .size(),
-                censusIndex,
-                items,
-                fluids,
-                Ae2PatternCensus.takePatternCensus(grid, keyCache)));
+        final Ae2PatternCensus patterns = Ae2PatternCensus.takePatternCensus(grid, keyCache);
+        if (!(items.size > 0 || fluids.size > 0 || patterns.countPatternStacks() > 0)) {
+            return null;
+        }
+        return new GridCensus(
+            gridId,
+            readAnchor(grid),
+            grid.getNodes()
+                .size(),
+            items,
+            fluids,
+            patterns);
+    }
+
+    /**
+     * Return the place of the grid's ME Controller, or the place of the grid's lowest node when the grid has no
+     * controller. Places sort by (dim, x, y, z). For a controller of several blocks, return the lowest block. Return
+     * null when no node has a place.
+     */
+    @Nullable
+    private static Place readAnchor(Grid grid) {
+        // TileController's supertypes include IC2 interfaces that are not on the compile classpath, so the class is
+        // matched by name
+        final String CONTROLLER_CLASS = "appeng.tile.networking.TileController";
+        for (Class<? extends IGridHost> machineClass : grid.getMachinesClasses()) {
+            if (CONTROLLER_CLASS.equals(machineClass.getName())) {
+                final Place controller = findLowestPlace(grid.getMachines(machineClass));
+                if (controller != null) {
+                    return controller;
+                }
+            }
+        }
+        return findLowestPlace(grid.getNodes());
+    }
+
+    private static final Comparator<Place> PLACE_ORDER = Comparator.comparingInt(Place::dim)
+        .thenComparingInt(Place::x)
+        .thenComparingInt(Place::y)
+        .thenComparingInt(Place::z);
+
+    @Nullable
+    private static Place findLowestPlace(Iterable<IGridNode> nodes) {
+        Place lowest = null;
+        for (IGridNode node : nodes) {
+            final DimensionalCoord location = node.getGridBlock()
+                .getLocation();
+            if (location == null) {
+                continue;
+            }
+            final Place place = new Place(location.getDimension(), location.x, location.y, location.z);
+            if (lowest == null || PLACE_ORDER.compare(place, lowest) < 0) {
+                lowest = place;
+            }
+        }
+        return lowest;
     }
 
     /**
@@ -218,58 +287,88 @@ public final class Ae2Snapshotter {
     }
 
     /**
-     * Queue one {@code ae2_snapshot} line with the grid's totals for the writer thread, with a snapshot file of every
-     * item and fluid entry.
+     * Queue one {@code ae2_census} line with the census totals for the writer thread, with one snapshot file of every
+     * written grid. The line is logged for a census with no grid too.
      */
-    private void emit(GridCensus census) {
+    private void emit(int census, List<GridCensus> grids, int gridsSkipped) {
+        long nodes = 0;
+        long totalItems = 0;
+        long patternStacks = 0;
+        for (GridCensus grid : grids) {
+            nodes += grid.nodeCount();
+            totalItems += grid.items().totalItems;
+            patternStacks += grid.patterns()
+                .countPatternStacks();
+        }
+        final JsonObject ref = new JsonObject();
+        ref.addProperty("census", census);
+        ref.addProperty("grids", grids.size());
+        ref.addProperty("gridsSkipped", gridsSkipped);
+        ref.addProperty("nodes", nodes);
+        ref.addProperty("totalItems", totalItems);
+        ref.addProperty("patternStacks", patternStacks);
+
+        final String fileStem = "ae2-" + logger.clock()
+            .get();
+        logger.logSnapshot(new AuditLogger.Snapshot("ae2_census", fileStem, () -> {
+            final JsonObject snapshot = new JsonObject();
+            snapshot.addProperty("census", census);
+            final JsonArray gridArray = new JsonArray();
+            for (GridCensus grid : grids) {
+                gridArray.add(toGridJson(grid));
+            }
+            snapshot.add("grids", gridArray);
+            return snapshot;
+        }, ref));
+    }
+
+    /** Return one entry of the census file's {@code grids}. Call on the writer thread. */
+    private static JsonObject toGridJson(GridCensus census) {
         final ItemCensus items = census.items();
         final FluidCensus fluids = census.fluids();
-        final JsonObject ref = new JsonObject();
-        ref.addProperty("gridId", census.gridId());
-        ref.addProperty("census", census.censusIndex());
-        ref.addProperty("nodes", census.nodeCount());
-        ref.addProperty("distinctItems", items.size);
-        ref.addProperty("totalItems", items.totalItems);
-        ref.addProperty("distinctFluids", fluids.size);
-        ref.addProperty("craftableItems", items.countCraftable());
-        census.patterns()
-            .addRefFields(ref);
+        final JsonObject grid = new JsonObject();
+        grid.addProperty("gridId", census.gridId());
+        final Place anchor = census.anchor();
+        if (anchor != null) {
+            final JsonArray place = new JsonArray();
+            place.add(new JsonPrimitive(anchor.dim()));
+            place.add(new JsonPrimitive(anchor.x()));
+            place.add(new JsonPrimitive(anchor.y()));
+            place.add(new JsonPrimitive(anchor.z()));
+            grid.add("anchor", place);
+        }
+        grid.addProperty("nodes", census.nodeCount());
+        grid.addProperty("distinctItems", items.size);
+        grid.addProperty("totalItems", items.totalItems);
+        grid.addProperty("distinctFluids", fluids.size);
+        grid.addProperty("craftableItems", items.countCraftable());
         if (items.countCollapsedNbtVariants() > 0) {
             // NBT variants of one item and meta sum into one key. A verifier reads this count to tell a census that
             // merged variants from one that had none.
-            ref.addProperty("nbtVariantsCollapsed", items.countCollapsedNbtVariants());
+            grid.addProperty("nbtVariantsCollapsed", items.countCollapsedNbtVariants());
         }
-
-        final String fileStem = "ae2-" + logger.clock()
-            .get() + "-g" + census.gridId();
-        logger.logSnapshot(new AuditLogger.Snapshot("ae2_snapshot", fileStem, () -> {
-            final JsonObject snapshot = new JsonObject();
-            snapshot.addProperty("gridId", census.gridId());
-            snapshot.addProperty("census", census.censusIndex());
-            snapshot.addProperty("nodes", census.nodeCount());
-            final JsonArray itemArr = new JsonArray();
-            for (int i = 0; i < items.size; i++) {
-                final JsonObject o = new JsonObject();
-                o.addProperty("key", items.keys[i]);
-                o.addProperty("count", items.counts[i]);
-                if (items.craftable[i]) {
-                    o.addProperty("craftable", true);
-                }
-                itemArr.add(o);
+        final JsonArray itemArr = new JsonArray();
+        for (int i = 0; i < items.size; i++) {
+            final JsonObject o = new JsonObject();
+            o.addProperty("key", items.keys[i]);
+            o.addProperty("count", items.counts[i]);
+            if (items.craftable[i]) {
+                o.addProperty("craftable", true);
             }
-            snapshot.add("items", itemArr);
-            final JsonArray fluidArr = new JsonArray();
-            for (int i = 0; i < fluids.size; i++) {
-                final JsonObject o = new JsonObject();
-                o.addProperty("fluid", fluids.names[i]);
-                o.addProperty("mb", fluids.amounts[i]);
-                fluidArr.add(o);
-            }
-            snapshot.add("fluids", fluidArr);
-            census.patterns()
-                .addSnapshotFields(snapshot);
-            return snapshot;
-        }, ref));
+            itemArr.add(o);
+        }
+        grid.add("items", itemArr);
+        final JsonArray fluidArr = new JsonArray();
+        for (int i = 0; i < fluids.size; i++) {
+            final JsonObject o = new JsonObject();
+            o.addProperty("fluid", fluids.names[i]);
+            o.addProperty("mb", fluids.amounts[i]);
+            fluidArr.add(o);
+        }
+        grid.add("fluids", fluidArr);
+        census.patterns()
+            .addGridFields(grid);
+        return grid;
     }
 
     /**
@@ -531,6 +630,7 @@ public final class Ae2Snapshotter {
         }
     }
 
-    private record GridCensus(String gridId, int nodeCount, int censusIndex, ItemCensus items, FluidCensus fluids,
-        Ae2PatternCensus patterns) {}
+    /** @param anchor null when no node of the grid has a place */
+    private record GridCensus(String gridId, @Nullable Place anchor, int nodeCount, ItemCensus items,
+        FluidCensus fluids, Ae2PatternCensus patterns) {}
 }

@@ -169,29 +169,31 @@ public final class Ae2PatternCensus {
                 List.copyOf(rowSlots)));
     }
 
-    public void addRefFields(JsonObject ref) {
-        ref.addProperty("channelsInUse", channelsInUse);
-        ref.addProperty("controllerState", controllerState);
-        ref.addProperty("booting", booting);
-        ref.addProperty("patternProviders", providers.size());
-        ref.addProperty("patterns", patternCount);
-        ref.addProperty("distinctPatterns", patterns.size());
-        if (readErrors > 0) {
-            ref.addProperty("patternProviderReadErrors", readErrors);
-        }
+    /** Return the count of pattern stacks in the slots of every provider. */
+    public int countPatternStacks() {
+        return patternCount;
     }
 
     /**
-     * Add {@code patterns}, each distinct pattern's outputs, and {@code providers}, each provider's place and pattern
-     * slots. A slot's {@code pattern} is the index into {@code patterns}, absent when the crafting grid has no detail
-     * for the stack.
+     * Add the channel and pattern counts, {@code patterns}, each distinct pattern's outputs, and {@code providers},
+     * each provider's place and pattern slots. A slot's {@code pattern} is the index into {@code patterns}, absent when
+     * the crafting grid has no detail for the stack.
      *
      * <pre>
      *     "patterns":[{"crafting":false,"outputs":[{"key":"minecraft:nether_star@0","count":1}]}],
      *     "providers":[{"class":"TileInterface","dim":0,"pos":[10,71,10],"slots":[{"slot":0,"author":"Alex","pattern":0}]}]
      * </pre>
      */
-    public void addSnapshotFields(JsonObject snapshot) {
+    public void addGridFields(JsonObject grid) {
+        grid.addProperty("channelsInUse", channelsInUse);
+        grid.addProperty("controllerState", controllerState);
+        grid.addProperty("booting", booting);
+        grid.addProperty("patternProviders", providers.size());
+        grid.addProperty("patternStacks", patternCount);
+        grid.addProperty("distinctPatterns", patterns.size());
+        if (readErrors > 0) {
+            grid.addProperty("patternProviderReadErrors", readErrors);
+        }
         final JsonArray patternArray = new JsonArray();
         for (Pattern pattern : patterns) {
             final JsonObject entry = new JsonObject();
@@ -206,7 +208,7 @@ public final class Ae2PatternCensus {
             entry.add("outputs", outputs);
             patternArray.add(entry);
         }
-        snapshot.add("patterns", patternArray);
+        grid.add("patterns", patternArray);
         final JsonArray providerArray = new JsonArray();
         for (Provider provider : providers) {
             final JsonObject entry = new JsonObject();
@@ -235,13 +237,13 @@ public final class Ae2PatternCensus {
             entry.add("slots", slotArray);
             providerArray.add(entry);
         }
-        snapshot.add("providers", providerArray);
+        grid.add("providers", providerArray);
     }
 
     /** One pattern provider: the provider's class name, the provider's block or null, and the slots with a pattern. */
     private record Provider(String className, @Nullable Place place, List<PatternSlot> slots) {}
 
-    private record Place(int dim, int x, int y, int z) {}
+    public record Place(int dim, int x, int y, int z) {}
 
     /**
      * The crafting details of one grid by pattern stack, and the index in {@code patterns} of each detail read so far.

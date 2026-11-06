@@ -269,6 +269,7 @@ public final class LogChecks {
                 .findFirst()
                 .orElse(null);
             optionalModChecks.checkTecTechFootprint(tecTech, lines);
+            optionalModChecks.checkTecTechExtents(tecTech, lines);
             checks.check(
                 "tectech multi-amp hatch read: EV at 4 amps",
                 tecTech != null && tecTech.has("energyTier")
@@ -491,11 +492,12 @@ public final class LogChecks {
         }
         if (Compat.AE2.isLoaded()) {
             checks.check(
-                "event logged: ae2_snapshot",
-                counts.getOrDefault("ae2_snapshot", 0) > 0,
-                "count=" + counts.getOrDefault("ae2_snapshot", 0));
+                "event logged: ae2_census",
+                counts.getOrDefault("ae2_census", 0) > 0,
+                "count=" + counts.getOrDefault("ae2_census", 0));
             optionalModChecks.checkAe2Craftable(lines);
             optionalModChecks.checkAe2Patterns(lines);
+            optionalModChecks.checkAe2CensusFile(lines);
         }
         if (Compat.WORLDEDIT.isLoaded()) {
             optionalModChecks.checkWorldEdit(lines);

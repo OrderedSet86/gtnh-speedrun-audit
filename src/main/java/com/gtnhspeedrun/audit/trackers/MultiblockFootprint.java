@@ -5,10 +5,12 @@ import org.jetbrains.annotations.Nullable;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.gtnhspeedrun.audit.trackers.ExtentCells.Extents;
 
 /**
  * Describe where a formed multiblock is: the box of the positions that the structure check of the multiblock visited,
- * from {@link StructureBounds}, and the controller's facing.
+ * from {@link StructureBounds}, the controller's facing, and the blocks at those positions, encoded by
+ * {@link ExtentCells}.
  */
 public final class MultiblockFootprint {
 
@@ -17,6 +19,9 @@ public final class MultiblockFootprint {
     public final String facing;
     public final String rotation;
     public final String flip;
+    // StructureBounds.computeExtentHash() of the check, 0 for no positions
+    private long extentHash;
+    private @Nullable Extents extents;
 
     /** @param alignment null for a controller that is not a StructureLib {@code IAlignment} */
     public MultiblockFootprint(int[] bounds, String facing, @Nullable Alignment alignment) {
@@ -29,6 +34,19 @@ public final class MultiblockFootprint {
     /** Describe a controller that is not a StructureLib {@code IAlignment}, and so has only a front facing. */
     public static MultiblockFootprint ofFacing(int[] bounds, String facing) {
         return new MultiblockFootprint(bounds, facing, null);
+    }
+
+    public void setExtentHash(long extentHash) {
+        this.extentHash = extentHash;
+    }
+
+    /** Set the blocks that {@link #writeTo} writes. Encode the blocks only for a footprint that is logged. */
+    public void setExtents(@Nullable Extents extents) {
+        this.extents = extents;
+    }
+
+    public boolean hasExtents() {
+        return extents != null;
     }
 
     /**
@@ -46,6 +64,8 @@ public final class MultiblockFootprint {
             .append(rotation)
             .append('/')
             .append(flip)
+            .append('#')
+            .append(Long.toHexString(extentHash))
             .toString();
     }
 
@@ -65,6 +85,9 @@ public final class MultiblockFootprint {
         }
         if (flip != null) {
             data.addProperty("flip", flip);
+        }
+        if (extents != null) {
+            extents.writeTo(data);
         }
     }
 

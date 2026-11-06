@@ -19,6 +19,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.gtnewhorizon.structurelib.alignment.IAlignment;
 import com.gtnewhorizon.structurelib.alignment.enumerable.ExtendedFacing;
+import com.gtnhspeedrun.audit.trackers.ExtentCells;
 import com.gtnhspeedrun.audit.trackers.FormationGuard;
 import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
@@ -204,6 +205,7 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
         final IGregTechTileEntity base = self.getBaseMetaTileEntity();
         final MachineSite site = GtMachineSites.readSite(self);
         final MultiblockFootprint footprint = audit$footprint(base, site);
+        audit$encodeExtents(base, site, footprint);
         final String logged = MultiblockSinks.logGtMultiblockFormed(
             audit$loggedFormation,
             new MultiblockSinks.GtFormation(site, audit$power(), footprint));
@@ -244,6 +246,9 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
         if (key.equals(audit$loggedFootprint)) {
             return;
         }
+        if (!footprint.hasExtents()) {
+            audit$encodeExtents(base, site, footprint);
+        }
         final boolean logged = MultiblockSinks.logGtMultiblockFootprint(site, footprint);
         if (logged) {
             audit$loggedFootprint = key;
@@ -252,15 +257,16 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
     }
 
     /**
-     * Reads the box and the facing. An IAlignment controller (every StructureLib multiblock) also has a rotation and a
-     * flip. Other controllers have only a front facing.
+     * Reads the box, the hash of the visited positions, and the facing. An IAlignment controller (every StructureLib
+     * multiblock) also has a rotation and a flip. Other controllers have only a front facing.
      */
     @Unique
     private MultiblockFootprint audit$footprint(IGregTechTileEntity base, MachineSite site) { // noqa: NAR130
         final int[] bounds = StructureBounds.computeBounds(this, site);
+        final MultiblockFootprint footprint;
         if ((Object) this instanceof IAlignment alignment) {
             final ExtendedFacing facing = alignment.getExtendedFacing();
-            return new MultiblockFootprint(
+            footprint = new MultiblockFootprint(
                 bounds,
                 facing.getDirection()
                     .name(),
@@ -269,11 +275,30 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
                         .name(),
                     facing.getFlip()
                         .name()));
+        } else {
+            footprint = MultiblockFootprint.ofFacing(
+                bounds,
+                base.getFrontFacing()
+                    .name());
         }
-        return MultiblockFootprint.ofFacing(
-            bounds,
-            base.getFrontFacing()
-                .name());
+        footprint.setExtentHash(StructureBounds.computeExtentHash(this));
+        return footprint;
+    }
+
+    /**
+     * Reads the block at each visited position and at the controller, and sets the footprint's extents. A footprint
+     * with no box, or a frame with no positions, gets no extents.
+     */
+    @Unique
+    private void audit$encodeExtents(IGregTechTileEntity base, MachineSite site, // noqa: NAR130
+        MultiblockFootprint footprint) {
+        final int[] positions = StructureBounds.copyPositions(this, site);
+        if (!(positions != null && footprint.bounds != null)) {
+            return;
+        }
+        footprint.setExtents(
+            ExtentCells
+                .encodeExtents(footprint.bounds, positions, ExtentCells.readBlockKeys(base.getWorld(), positions)));
     }
 
     /**

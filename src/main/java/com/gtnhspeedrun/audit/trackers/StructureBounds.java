@@ -1,11 +1,16 @@
 package com.gtnhspeedrun.audit.trackers;
 
+import java.util.Arrays;
+
+import org.jetbrains.annotations.Nullable;
+
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * Track the bounding box of the block positions that StructureLib visits during a multiblock's structure check. The
- * box is the footprint in the {@code multiblock_formed} and {@code multiblock_footprint} lines.
+ * Track the block positions that StructureLib visits during a multiblock's structure check, and the bounding box of the
+ * positions. The box is the {@code bounds} of the {@code multiblock_formed} and {@code multiblock_footprint} lines, and
+ * the positions are the cells of the lines' {@code extents}.
  *
  * <p>
  * The GT mixins call {@link #push} for the controller at the start of a check. The StructureUtility mixin passes every
@@ -17,18 +22,24 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * Each {@code StructureUtility.iterateV2} call opens a scratch level, and only a call that returns true merges the
  * call's positions into the level below. A multiblock of variable length ends the structure check with a probe that
  * fails, such as the Assembly Line's next slice, the LSC's next layer or the LINAC's next segment. The positions of
- * that failed probe stay out of the box.
+ * that failed probe stay out of the box and out of the frame's positions. The positions of all levels of a frame are in
+ * one array, each level after the level below. A failed level is cut off the end of the array, and a succeeded level
+ * stays in place.
  *
  * <p>
- * Call on the server thread only. The hooks allocate nothing per check or per position. In singleplayer the client
- * thread also runs StructureLib for projector hints, and the hooks return early on the client thread. A check that
- * throws skips its pop, so {@link Ticker} clears the stack at the start of every server tick.
+ * Call on the server thread only. The hooks allocate nothing per check or per position, except when a frame's position
+ * array grows, up to {@link #MAX_POSITIONS} positions. In singleplayer the client thread also runs StructureLib for
+ * projector hints, and the hooks return early on the client thread. A check that throws skips its pop, so
+ * {@link Ticker} clears the stack at the start of every server tick.
  */
 public final class StructureBounds {
 
     private static final int MAX_FRAMES = 16;
     private static final int MAX_LEVELS = 16;
     private static final int BOX_INTS = 6; // minX, minY, minZ, maxX, maxY, maxZ
+    public static final int POSITION_INTS = 3; // x, y, z
+    private static final int INITIAL_POSITIONS = 1024;
+    public static final int MAX_POSITIONS = 1 << 20;
 
     // static: the GT and StructureLib mixins call the hooks with no instance. The frames are preallocated, so a
     // hook allocates nothing.
@@ -80,6 +91,8 @@ public final class StructureBounds {
         frame.levels = 0;
         frame.skippedLevels = 0;
         frame.found[0] = false;
+        frame.positionCount = 0;
+        frame.positionsOverflowed = false;
         top = frame;
     }
 
@@ -98,6 +111,65 @@ public final class StructureBounds {
             top = depth > 0 ? FRAMES[depth - 1] : null;
             return;
         }
+    }
+
+    /**
+     * Return the sum, mod 2^64, of a mix of each visited position of the newest frame of {@code owner}. The sum is the
+     * same for any order of one set of visits. Return 0 when {@link #copyPositions} would return null.
+     */
+    public static long computeExtentHash(Object owner) {
+        final Frame frame = findPositionFrame(owner);
+        if (frame == null) {
+            return 0;
+        }
+        long hash = 0;
+        for (int i = 0; i < frame.positionCount * POSITION_INTS; i += POSITION_INTS) {
+            hash += mixPosition(frame.positions[i], frame.positions[i + 1], frame.positions[i + 2]);
+        }
+        return hash;
+    }
+
+    /**
+     * Return the visited positions of the newest frame of {@code owner}, then the controller, as x, y, z triplets.
+     * Return null off the server thread, or when the frame is missing, overflowed, past {@link #MAX_POSITIONS} or has
+     * no position.
+     */
+    @Nullable
+    public static int[] copyPositions(Object owner, MachineSite controller) {
+        final Frame frame = findPositionFrame(owner);
+        if (frame == null) {
+            return null;
+        }
+        final int length = frame.positionCount * POSITION_INTS;
+        final int[] positions = Arrays.copyOf(frame.positions, length + POSITION_INTS);
+        positions[length] = controller.x();
+        positions[length + 1] = controller.y();
+        positions[length + 2] = controller.z();
+        return positions;
+    }
+
+    private static @Nullable Frame findPositionFrame(Object owner) {
+        if (Thread.currentThread() != serverThread) {
+            return null;
+        }
+        for (int i = depth - 1; i >= 0; i--) {
+            final Frame frame = FRAMES[i];
+            if (frame.owner != owner) {
+                continue;
+            }
+            return frame.overflowed || frame.positionsOverflowed || frame.positionCount == 0 ? null : frame;
+        }
+        return null;
+    }
+
+    // splitmix64's finalizer over the packed position: x and z in 26 bits each, y in 12 bits
+    private static long mixPosition(int x, int y, int z) {
+        final long X_Z_MASK = 0x3FFFFFFL;
+        final long Y_MASK = 0xFFFL;
+        long mixed = ((x & X_Z_MASK) << 38 | (z & X_Z_MASK) << 12 | (y & Y_MASK)) + 0x9E3779B97F4A7C15L;
+        mixed = (mixed ^ (mixed >>> 30)) * 0xBF58476D1CE4E5B9L;
+        mixed = (mixed ^ (mixed >>> 27)) * 0x94D049BB133111EBL;
+        return mixed ^ (mixed >>> 31);
     }
 
     /**
@@ -140,6 +212,7 @@ public final class StructureBounds {
             return;
         }
         frame.found[++frame.levels] = false;
+        frame.levelStart[frame.levels] = frame.positionCount;
     }
 
     public static void visited(int x, int y, int z) {
@@ -148,6 +221,7 @@ public final class StructureBounds {
             return;
         }
         frame.includePoint(x, y, z);
+        frame.appendPosition(x, y, z);
     }
 
     public static void iterateFinished(boolean succeeded) {
@@ -163,7 +237,9 @@ public final class StructureBounds {
             return;
         }
         final int level = frame.levels--;
-        if (succeeded && frame.found[level]) {
+        if (!succeeded) {
+            frame.positionCount = frame.levelStart[level];
+        } else if (frame.found[level]) {
             frame.mergeDown(level);
         }
     }
@@ -189,6 +265,29 @@ public final class StructureBounds {
         private int skippedLevels;
         private final int[] box = new int[(MAX_LEVELS + 1) * BOX_INTS];
         private final boolean[] found = new boolean[MAX_LEVELS + 1];
+        private int[] positions = new int[INITIAL_POSITIONS * POSITION_INTS];
+        private int positionCount;
+        private boolean positionsOverflowed;
+        // the positionCount when the level's iterateV2 call started
+        private final int[] levelStart = new int[MAX_LEVELS + 1];
+
+        private void appendPosition(int x, int y, int z) {
+            if (positionsOverflowed) {
+                return;
+            }
+            final int at = positionCount * POSITION_INTS;
+            if (at == positions.length) {
+                if (positionCount == MAX_POSITIONS) {
+                    positionsOverflowed = true;
+                    return;
+                }
+                positions = Arrays.copyOf(positions, Math.min(positionCount * 2, MAX_POSITIONS) * POSITION_INTS);
+            }
+            positions[at] = x;
+            positions[at + 1] = y;
+            positions[at + 2] = z;
+            positionCount++;
+        }
 
         private void includePoint(int x, int y, int z) {
             final int at = levels * BOX_INTS;

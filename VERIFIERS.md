@@ -29,8 +29,8 @@ Do not trust `verify-report.json` — recompute it. The chain rules:
 2. Line 0's `prev` must equal `SHA-256("gtnhspeedrunaudit:genesis:" + worldAuditUuid)` (hex).
 3. Every other line's `prev` must equal the SHA-256 of the previous line's exact UTF-8 bytes
    (without the trailing newline).
-4. Every `inv_snapshot`/`ae2_snapshot` line carries `fileSha256`; hash the named file in `snapshots/`
-   and compare.
+4. Every `inv_snapshot` and `ae2_census` line (`ae2_snapshot` in older bundles) has `fileSha256`. Hash the named
+   file in `snapshots/` and compare.
 
 Twenty lines of Python:
 
@@ -129,6 +129,20 @@ Play in a copy then never enters the chain of the original folder.
   layers) logs a `multiblock_footprint` line with the same fields. The controller saves the footprint it last
   logged, so after updating to a version with footprints each GT multiblock logs one `multiblock_footprint`
   at its first check (TecTech ones at their next re-check), and nothing again until it changes.
+- A line with `bounds` also has the blocks of the multiblock: `extentPalette` is a list of block keys, and `extents` has
+  one cell for each block position of the `bounds` box. A cell is an unsigned 16-bit little-endian value: 0 for no
+  block, else the index in `extentPalette` + 1. Cell `((y - minY) * sizeZ + (z - minZ)) * sizeX + (x - minX)` is the
+  block at (x, y, z). `extents` is the cells, zlib-compressed, in base64:
+
+  ```python
+  cells = np.frombuffer(zlib.decompress(base64.b64decode(extents)), '<u2').reshape(sizeY, sizeZ, sizeX)
+  ```
+
+  The cells are the positions the structure check visited, plus the controller, with the block in the world when
+  the line was written. A cell with air is 0, so the positions that must be empty are 0. A GT machine
+  (controller, hatch, bus) has the `machineKey` of `machine_placed`, and any other block `modid:name@meta`.
+  `extentBlocks` counts the cells with a block. The footprint key includes the visited positions, so a `multiblock_footprint` line is logged for a change of shape inside the same box, but not for a block swapped in place (a coil upgrade). A box of more than 4,194,304 cells, or a check that visited more than 1,048,576 positions, has no
+  `extents`. Bundles before this version have no `extents`. After an update to this version, the mod logs one `multiblock_footprint` line for each GT multiblock with a StructureLib check, at the multiblock's first check.
 - `dim_change` lines record every dimension change (`fromDim`, `toDim`, arrival position). A teleport
   command and the `dim_change` it causes are a tick or two apart; a portal or rocket has no command before
   it. Use them to check rules on cross-dimension teleports. Older bundles have only `dim_first_visit`, which
@@ -379,21 +393,30 @@ Play in a copy then never enters the chain of the original folder.
   meant only a manual `/audit snapshot` ever produced one. An absent census in those bundles is the mod's
   fault, not the runner's. From the fix on, a census that fails logs `ae2_census_failed` (flagged in
   SUMMARY) instead of failing silently.
+- Each AE2 census is one `ae2_census` line and one file, `ae2-<ticks>-<seq>.json.gz`. The file has `census` and
+  `grids`, one entry for each grid with an item, a fluid or a pattern. The line has `census`, `grids` (the
+  count of entries), `gridsSkipped` (grids with nothing stored), and the totals `nodes`, `totalItems` and
+  `patternStacks`. A grid entry has `gridId`, `anchor`, `nodes`, `distinctItems`, `totalItems`, `distinctFluids`,
+  `craftableItems`, `items`, `fluids`, and the pattern fields below. `anchor` is `[dim, x, y, z]`: the block of the
+  grid's ME Controller (the lowest by dim, x, y, z, when the controller has several blocks), or the lowest node
+  of a grid with no controller. `gridId` is AE2's grid storage id. AE2 saves the id in each node. A grid made of
+  newly placed nodes gets a new id, so match grids across censuses by `anchor`. Bundles before this version have
+  one `ae2_snapshot` line and one file for each grid, including grids with nothing stored, with the grid fields
+  on the line and no `anchor`.
 - An AE2 census **is** instantaneous: every loaded grid is read to completion within a single server tick,
-  so all the `ae2_snapshot` lines of one `census` index describe the same instant. Two censuses that
-  disagree disagree because something actually moved in between, not because the reader was mid-walk.
-  (Versions before this one spread the walk over ~50 ticks and recorded a `walkTicks` field; if you are
-  handed a bundle that has one, treat any count as ±whatever a factory moves in `walkTicks` ticks.)
+  so the grids of one `ae2_census` file are from one instant. A difference between two censuses is a change in
+  the network between them, not a partial walk. In older bundles, the walk took about 50 ticks, and the census
+  line has `walkTicks`. In such a bundle, read each count as ± what a factory moves in `walkTicks` ticks.
 - AE2 census keys are `modid:name@meta`. NBT is **not** part of the key, so variants of one item — a tool at
   a different durability, a suit of armor at a different charge — are **summed into a single entry**. Totals
   are exact regardless, because merging only ever adds counts together; what you lose is the ability to tell
   two otherwise-identical stacks apart by their tags, which is not a quantity anyone audits. If
   `nbtVariantsCollapsed` is present and non-zero, that many entries merged. NBT-level evidence, where it
   matters, lives in the inventory snapshots and `nbt_edit` lines.
-- Each `ae2_snapshot` line also has the network's `channelsInUse`, `patternProviders`, `patterns` (pattern
+- Each grid entry also has the network's `channelsInUse`, `patternProviders`, `patternStacks` (pattern
   stacks in provider slots) and `distinctPatterns`. `channelsInUse` is -1 when the field could not be read, and
   0 while the network boots or has a controller conflict, so read `channelsInUse` with `controllerState` and
-  `booting`. The census file has
+  `booting`. The grid entry has
   `patterns`, each distinct pattern's `outputs` and whether the pattern is a `crafting` pattern, and `providers`, each
   ME interface (block or part), AE2 Fluid Crafting interface, GT Crafting Input Buffer and GT Large Molecular
   Assembler (the slots of the assembler's pattern hatches) with the provider's place and slots. A slot has the pattern's `author`, the name of the player who encoded the pattern, and the
@@ -406,9 +429,10 @@ Play in a copy then never enters the chain of the original folder.
   The line's player is the player whose GUI click or Interface Terminal action changed the slot. A line for
   any other change has no player.
 - AE2 census entries have `craftable: true` when the network could autocraft the item at that instant (a
-  pattern for it, or a crafting level emitter). An entry with `count: 0` is craftable only: AE2 lists craftable
-  items in the network's item list, and the census records what it lists. `craftableItems` on the line counts
-  them. Bundles from v0.6.0 and earlier also have count-0 entries, without the flag; read those as craftable.
+  pattern for the item, or a crafting level emitter). An entry with `count: 0` is craftable only: the network's
+  item list in AE2 has each craftable item, and the census has every entry of that list. `craftableItems` on the
+  grid entry is the count of craftable entries. Bundles from v0.6.0 and earlier also have count-0 entries, without
+  the flag. Read those as craftable.
 - Timing — three clocks, every line carries all of them: `wall` (epoch ms; RTA = wall minus the anchored
   timing_started moment), `ticks` (cumulative server ticks = IGT, the main metric; AFK machine time counts),
   and `pticks` (ticks with at least one player connected). The tick clocks rewind with a rollback; wall time

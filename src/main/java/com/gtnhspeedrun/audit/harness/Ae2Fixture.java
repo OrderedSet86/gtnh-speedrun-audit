@@ -18,6 +18,7 @@ import appeng.tile.misc.TileInterface;
 public final class Ae2Fixture {
 
     public static final String PATTERN_AUTHOR = "SelfTestAuthor";
+    private static final String CREATIVE_CELL_NAME = "appliedenergistics2:tile.BlockCreativeEnergyCell";
 
     private Ae2Fixture() {}
 
@@ -32,7 +33,7 @@ public final class Ae2Fixture {
         final int y = pos.y();
         final int z = pos.z();
         final Object rawInterface = Block.blockRegistry.getObject("appliedenergistics2:tile.BlockInterface");
-        final Object rawCell = Block.blockRegistry.getObject("appliedenergistics2:tile.BlockCreativeEnergyCell");
+        final Object rawCell = Block.blockRegistry.getObject(CREATIVE_CELL_NAME);
         final Object rawPattern = Item.itemRegistry.getObject("appliedenergistics2:item.ItemEncodedPattern");
         if (!(rawInterface instanceof Block interfaceBlock && rawCell instanceof Block cellBlock
             && rawPattern instanceof Item patternItem)) {
@@ -55,6 +56,21 @@ public final class Ae2Fixture {
         tile.getInterfaceDuality()
             .getPatterns()
             .setInventorySlotContents(0, pattern);
+        return null;
+    }
+
+    /**
+     * Place a Creative Energy Cell with no neighbour at {@code pos}: a grid with no item, no fluid and no pattern.
+     *
+     * @return null on success, otherwise what went wrong
+     */
+    public static String buildLoneCell(WorldPos pos) {
+        final Object rawCell = Block.blockRegistry.getObject(CREATIVE_CELL_NAME);
+        if (!(rawCell instanceof Block cellBlock)) {
+            return "cell=" + rawCell;
+        }
+        pos.world()
+            .setBlock(pos.x(), pos.y(), pos.z(), cellBlock);
         return null;
     }
 

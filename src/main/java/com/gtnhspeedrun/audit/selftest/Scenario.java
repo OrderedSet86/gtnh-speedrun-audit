@@ -574,22 +574,37 @@ public final class Scenario {
     }
 
     /**
-     * Give the AE2 census a grid to count, so the test runs the ae2_snapshot code. The grid is an ME Interface with
-     * one processing pattern for a nether star, the {@code AE2_CRAFTABLE_KEY} of {@link OptionalModChecks}, powered so
-     * the pattern is provided. The census then writes the pattern output as a count-0 craftable entry. The AE2 types
-     * are in Ae2Fixture, so Scenario loads on a server without AE2.
+     * Give the AE2 census two grids, so the test runs the ae2_census code. One grid is an ME Interface with one
+     * processing pattern for a nether star, the {@code AE2_CRAFTABLE_KEY} of {@link OptionalModChecks}, powered so the
+     * pattern is provided. The census then writes the pattern output as a count-0 craftable entry. The other grid is a
+     * lone Creative Energy Cell, a grid with no item, fluid or pattern, so the census skips the cell's grid. The AE2
+     * types are in Ae2Fixture, so Scenario loads on a server without AE2.
      */
     private void placeAe2GridHost(WorldServer world) {
         if (!Compat.AE2.isLoaded()) {
             return;
         }
         final String problem = Ae2Fixture.build(
-            fixturePos(world, offset(10, 7, 10)),
+            fixturePos(world, readAe2InterfaceSpot()),
             new ItemStack(Blocks.cobblestone),
             new ItemStack(Items.nether_star));
         if (problem != null) {
             checks.check("ae2 grid with a pattern built", false, problem);
         }
+        final String loneCellProblem = Ae2Fixture.buildLoneCell(fixturePos(world, readAe2LoneCellSpot()));
+        if (loneCellProblem != null) {
+            checks.check("ae2 lone energy cell built", false, loneCellProblem);
+        }
+    }
+
+    /** Return the overworld spot of the fixture's ME Interface, the lowest node of the fixture's grid. */
+    public ChunkCoordinates readAe2InterfaceSpot() {
+        return offset(10, 7, 10);
+    }
+
+    /** Return the overworld spot of the lone Creative Energy Cell, three blocks from the interface's grid. */
+    public ChunkCoordinates readAe2LoneCellSpot() {
+        return offset(10, 7, 14);
     }
 
     /**
