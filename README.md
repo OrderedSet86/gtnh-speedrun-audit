@@ -27,20 +27,21 @@ Names like moon% are leaderboard categories, each ending at that milestone.
 
 | Area | Logged |
 |---|---|
-| Sessions | Server start and stop, and whether it crashed. Ops, game rules, seed, server mods and the registered dimensions. Each player's join and leave, with the mods their client reports. |
+| Sessions | Server start and stop, and whether the server crashed. Ops, game rules, seed, server mods and the registered dimensions. Whether commands are allowed, each change of the setting, and each opening of a singleplayer world to LAN. Each player's join and leave, with the mods their client reports. |
 | Commands | Every command from a player, the console, RCON (remote console) or a command block, and whether it was canceled. The replies of commands such as `/gamerule`, `/difficulty` and `/gt global_energy_display`. |
 | Creative | Gamemode changes, checked every tick and at login. In creative, every block placed or broken and every inventory slot set. |
-| NEI | Every cheat request to NEI (Not Enough Items), denied ones too: gives, slot sets, delete-all, gamemode, time and heal, with the items involved. |
+| NEI | Every cheat request to NEI (Not Enough Items), denied ones too: gives, slot sets, delete-all, gamemode, time, rain, heal, magnet, the creative+ stash, enchantments, mob spawners, time and rain locks, and ghost-slot filters, with the items involved. |
 | Inventories | Full snapshots (main, armor, Baubles, ender chest) every 15 minutes and at join, leave, death and gamemode change, with the player's place and facing. Deaths, with the killer. |
-| AE2 | Item and fluid counts of every AE2 (Applied Energistics 2) network, and what each network can autocraft. Hourly while a player is online, every 4 hours while the server is empty. |
-| Storage | Hourly contents of EnderStorage chests and pouches and of backpacks. Every `/inv view` of another player's inventory, and every click in it. Items destroyed in trash cans. |
+| AE2 | Item and fluid counts of every AE2 (Applied Energistics 2) network, what each network can autocraft, the network's channels in use, and every pattern in the network's interfaces with the pattern's author. Hourly while a player is online, every 4 hours while the server is empty. Each pattern encoded, and each pattern put into or taken out of an interface. |
+| Storage | Hourly contents of EnderStorage chests and pouches and of backpacks. Every `/inv view` of another player's inventory, and every click in the view. Items destroyed in trash cans. Items a player took from or put into a chest, machine or other GUI, and in creative every GUI opened and every click in the GUI. |
 | Placements | GT machines placed by hand, Matter Manipulator, Vajra or multiblock projector. GT machines removed, and whether a player broke them, wrenched them or took them with a Vajra, an explosion or a fire destroyed them, or a Matter Manipulator took them. Stargate blocks. |
 | Magic | Thaumcraft nodes, jarred nodes and Ethereal Shards every 15 minutes. Thaumcraft and Blood Magic blocks placed or broken. Blood Altar tier changes. |
 | Power | Every 5 minutes, the EU stored in Lapotronic Supercapacitors and every team's wireless EU. Wireless EU before and after each `/gt global_energy_*` command. GT power failures. |
 | Edits | `/nbtedit` changes, with the data before and after. Game rule and difficulty changes. WorldEdit edits, on servers that run WorldEdit. |
 | Quests | Quest completions, with the party member who finished each task. Quest book edits, and a hash of the quest book. |
 | Milestones | Dimension changes and first visits (moon%). Achievements. The first sighting and first craft of each key item in the config. |
-| Positions | Each player's dimension, position and facing every 30 seconds, and every 5 seconds outside survival, except while the player stands still. Where each `/home`, `/back`, `/warp`, `/spawn`, `/tpa`, `/rtp` and `/tpl` teleport went. |
+| Prospecting | Each use of a GT prospecting tool or Advanced Seismic Prospector: who, where, and the ores, veins and fluids in the scan's result. |
+| Positions | Each player's dimension, position and facing every 30 seconds, and every 5 seconds outside survival, except while the player stands still. Where each `/home`, `/back`, `/warp`, `/spawn`, `/tpa`, `/rtp` and `/tpl` teleport went, and each player that any other command, such as `/tp`, moved. |
 | Multiblocks | The first formation of every GT and TecTech multiblock (assline%), with its hatches, amperage, coils and tiers. The Bricked Blast Furnace (bbf%) and Railcraft multiblocks such as the coke oven (coke%). |
 | Backups | Backup start and finish. GT machine explosions. |
 | Mod files | A SHA-256 hash of every mod jar, `config/` and `scripts/` at each start. A changed jar, recipe or quest book changes the hash. |

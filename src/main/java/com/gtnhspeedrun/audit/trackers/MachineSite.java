@@ -31,6 +31,14 @@ public record MachineSite(String className, @Nullable String localName, int dim,
         return className + "@" + dim + ":" + x + "," + y + "," + z;
     }
 
+    /**
+     * Return the machine type: the local name, or the class name for a machine with no local name. Every GT
+     * single-block machine with a recipe map has the class {@code MTEBasicMachineWithRecipe}.
+     */
+    public String formatTypeKey() {
+        return localName != null ? localName : className;
+    }
+
     /** Write {@code class}, then {@code localName} when there is one, then the position. */
     public void writeTo(JsonObject data) {
         data.addProperty("class", className);

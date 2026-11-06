@@ -12,10 +12,12 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.gtnhspeedrun.audit.trackers.CommandOutputCapture;
+import com.gtnhspeedrun.audit.trackers.CommandTeleports;
 
 /**
  * Marks the start and the end of each command's execution for CommandOutputCapture, so each reply goes to the log line
- * of the reply's command. The mixin is in the early config because CommandHandler is a vanilla class.
+ * of the reply's command, and for CommandTeleports, so a player that the command moves gets a teleport line. The mixin
+ * is in the early config because CommandHandler is a vanilla class.
  */
 @Mixin(CommandHandler.class)
 public class CommandHandlerMixin {
@@ -34,10 +36,12 @@ public class CommandHandlerMixin {
             // resolved stays null, and CommandOutputCapture matches the typed name
         }
         CommandOutputCapture.begin(sender, line, resolved);
+        CommandTeleports.begin(sender, resolved != null ? resolved.getCommandName() : String.valueOf(line));
     }
 
     @Inject(method = "executeCommand", at = @At("RETURN"), require = 1)
     private void audit$end(ICommandSender sender, String line, CallbackInfoReturnable<Integer> cir) { // noqa: NAR130
+        CommandTeleports.end();
         CommandOutputCapture.end();
     }
 }

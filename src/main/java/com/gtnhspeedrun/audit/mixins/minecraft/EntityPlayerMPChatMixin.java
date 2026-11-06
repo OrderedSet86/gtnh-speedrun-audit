@@ -10,12 +10,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.gtnhspeedrun.audit.trackers.CommandOutputCapture;
+import com.gtnhspeedrun.audit.trackers.ProspectSinks;
 
 /**
- * Passes the lines of a player's two chat paths to CommandOutputCapture. Vanilla commands call addChatMessage().
- * addChatComponentMessage() sends the packet directly, and NEI and other mods call addChatComponentMessage(). The
- * handlers are no-ops outside an allowlisted command. The mixin is in the early config because EntityPlayerMP is a
- * vanilla class.
+ * Passes the lines of a player's two chat paths to CommandOutputCapture and ProspectSinks. Vanilla commands call
+ * addChatMessage(). addChatComponentMessage() sends the packet directly, and NEI and other mods call
+ * addChatComponentMessage(). The handlers are no-ops outside an allowlisted command and outside a prospecting use. The
+ * mixin is in the early config because EntityPlayerMP is a vanilla class.
  */
 @Mixin(EntityPlayerMP.class)
 public class EntityPlayerMPChatMixin {
@@ -23,10 +24,12 @@ public class EntityPlayerMPChatMixin {
     @Inject(method = "addChatMessage", at = @At("HEAD"), require = 1)
     private void audit$line(IChatComponent message, CallbackInfo ci) { // noqa: NAR130
         CommandOutputCapture.captureLine((ICommandSender) (Object) this, message);
+        ProspectSinks.captureLine((ICommandSender) (Object) this, message);
     }
 
     @Inject(method = "addChatComponentMessage", at = @At("HEAD"), require = 1)
     private void audit$component(IChatComponent message, CallbackInfo ci) { // noqa: NAR130
         CommandOutputCapture.captureLine((ICommandSender) (Object) this, message);
+        ProspectSinks.captureLine((ICommandSender) (Object) this, message);
     }
 }

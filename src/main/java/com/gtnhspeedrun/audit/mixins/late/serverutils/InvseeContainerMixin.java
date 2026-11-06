@@ -1,11 +1,9 @@
 package com.gtnhspeedrun.audit.mixins.late.serverutils;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.Container;
-import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 
@@ -19,8 +17,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
 import com.gtnhspeedrun.audit.snapshot.StackJson;
+import com.gtnhspeedrun.audit.trackers.ContainerSlots;
 import com.gtnhspeedrun.audit.trackers.InventoryChanges;
 import com.gtnhspeedrun.audit.trackers.InvseeViewHolder;
 import com.gtnhspeedrun.audit.trackers.InvseeViews;
@@ -114,12 +112,7 @@ public class InvseeContainerMixin implements InvseeViewHolder {
             return;
         }
         audit$clickTick = tick;
-        final List<?> slots = ((Container) (Object) this).inventorySlots;
-        final List<ItemStack> before = new ArrayList<>(slots.size());
-        for (Object slot : slots) {
-            before.add(StackJson.copy(((Slot) slot).getStack()));
-        }
-        audit$before = before;
+        audit$before = ContainerSlots.copySlots((Container) (Object) this);
         audit$cursorBefore = StackJson.copy(player.inventory.getItemStack());
     }
 
@@ -133,27 +126,8 @@ public class InvseeContainerMixin implements InvseeViewHolder {
         if (--audit$depth > 0 || player.worldObj.isRemote || audit$before == null) {
             return;
         }
-        final List<?> slots = ((Container) (Object) this).inventorySlots;
-        final JsonArray changes = new JsonArray();
-        for (int i = 0; i < slots.size() && i < audit$before.size(); i++) {
-            final Slot slot = (Slot) slots.get(i);
-            final ItemStack was = audit$before.get(i);
-            final ItemStack now = slot.getStack();
-            if (ItemStack.areItemStacksEqual(was, now)) {
-                continue;
-            }
-            final JsonObject change = new JsonObject();
-            change.addProperty("containerSlot", i);
-            change.addProperty("owner", slot.inventory == player.inventory ? "viewer" : "target");
-            change.addProperty(
-                "inventory",
-                slot.inventory.getClass()
-                    .getSimpleName());
-            change.addProperty("index", slot.getSlotIndex());
-            change.add("before", StackJson.toJson(was));
-            change.add("after", StackJson.toJson(now));
-            changes.add(change);
-        }
+        final JsonArray changes = ContainerSlots
+            .diffSlots((Container) (Object) this, audit$before, new ContainerSlots.Owners(player, "viewer", "target"));
         final ItemStack cursorNow = player.inventory.getItemStack();
         final boolean cursorChanged = !ItemStack.areItemStacksEqual(audit$cursorBefore, cursorNow);
         if (changes.size() > 0 || cursorChanged) {

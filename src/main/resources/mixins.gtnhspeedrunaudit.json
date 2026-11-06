@@ -12,9 +12,14 @@
         "minecraft.CommandHandlerMixin",
         "minecraft.EntityPlayerMPChatMixin",
         "minecraft.NetHandlerPlayServerMixin",
+        "minecraft.ServerConfigurationManagerAccessor",
         "minecraft.WorldServerSaveMixin",
+        "nei.NEIServerConfigMixin",
         "nei.NEISPHMixin",
         "nei.NEIServerUtilsMixin",
         "structurelib.StructureUtilityMixin"
+    ],
+    "client": [
+        "minecraft.IntegratedServerMixin"
     ]
 }

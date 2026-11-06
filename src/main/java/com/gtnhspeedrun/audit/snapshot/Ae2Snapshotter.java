@@ -191,7 +191,8 @@ public final class Ae2Snapshotter {
                     .size(),
                 censusIndex,
                 items,
-                fluids));
+                fluids,
+                Ae2PatternCensus.takePatternCensus(grid, keyCache)));
     }
 
     /**
@@ -231,6 +232,8 @@ public final class Ae2Snapshotter {
         ref.addProperty("totalItems", items.totalItems);
         ref.addProperty("distinctFluids", fluids.size);
         ref.addProperty("craftableItems", items.countCraftable());
+        census.patterns()
+            .addRefFields(ref);
         if (items.countCollapsedNbtVariants() > 0) {
             // NBT variants of one item and meta sum into one key. A verifier reads this count to tell a census that
             // merged variants from one that had none.
@@ -263,6 +266,8 @@ public final class Ae2Snapshotter {
                 fluidArr.add(o);
             }
             snapshot.add("fluids", fluidArr);
+            census.patterns()
+                .addSnapshotFields(snapshot);
             return snapshot;
         }, ref));
     }
@@ -282,7 +287,7 @@ public final class Ae2Snapshotter {
      * {@code craftable} is the AE2 flag for an item that the network has a pattern for, or a level emitter set to
      * craft. The AE2 crafting grid is a cell provider on the storage grid, so the storage list has every craftable
      * item. A craftable-only item is an entry with count 0, and a stocked item has the flag on the entry of the item.
-     * The census reads no pattern and no interface.
+     * {@link Ae2PatternCensus} reads the patterns.
      */
     public static final class ItemCensus {
 
@@ -343,11 +348,7 @@ public final class Ae2Snapshotter {
                 return;
             }
 
-            String key = cache.get(id);
-            if (key == null) {
-                key = Item.itemRegistry.getNameForObject(item) + "@" + ae.getItemDamage();
-                cache.put(id, key);
-            }
+            final String key = readKey(cache, item, ae.getItemDamage());
 
             if (size == keys.length) {
                 final int grown = size + (size >> 1) + 16;
@@ -364,6 +365,19 @@ public final class Ae2Snapshotter {
             if (keyItems != null) {
                 keyItems.checkBase(key, key, AE2_SIGHTING);
             }
+        }
+
+        /**
+         * Return the census key {@code modid:name@meta} of an item and meta, from the cache when the cache has the key.
+         */
+        public static String readKey(KeyCache cache, Item item, int meta) {
+            final long id = packItemId(item, meta);
+            String key = cache.get(id);
+            if (key == null) {
+                key = Item.itemRegistry.getNameForObject(item) + "@" + meta;
+                cache.put(id, key);
+            }
+            return key;
         }
 
         private static long packItemId(Item item, int meta) {
@@ -517,5 +531,6 @@ public final class Ae2Snapshotter {
         }
     }
 
-    private record GridCensus(String gridId, int nodeCount, int censusIndex, ItemCensus items, FluidCensus fluids) {}
+    private record GridCensus(String gridId, int nodeCount, int censusIndex, ItemCensus items, FluidCensus fluids,
+        Ae2PatternCensus patterns) {}
 }

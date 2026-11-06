@@ -20,6 +20,7 @@ import com.gtnhspeedrun.audit.compat.BqQuestDb;
 import com.gtnhspeedrun.audit.compat.BqQuestTracker;
 import com.gtnhspeedrun.audit.compat.Compat;
 import com.gtnhspeedrun.audit.compat.GtPowerCensus;
+import com.gtnhspeedrun.audit.compat.GtPowerUse;
 import com.gtnhspeedrun.audit.compat.GtWirelessAudit;
 import com.gtnhspeedrun.audit.compat.WorldEditAudit;
 import com.gtnhspeedrun.audit.core.ClientThreadGate;
@@ -35,6 +36,8 @@ import com.gtnhspeedrun.audit.snapshot.SnapshotScheduler;
 import com.gtnhspeedrun.audit.snapshot.StorageCensus;
 import com.gtnhspeedrun.audit.trackers.BackupProbe;
 import com.gtnhspeedrun.audit.trackers.CommandTracker;
+import com.gtnhspeedrun.audit.trackers.CommandsAllowedTracker;
+import com.gtnhspeedrun.audit.trackers.ContainerSessions;
 import com.gtnhspeedrun.audit.trackers.DifficultyTracker;
 import com.gtnhspeedrun.audit.trackers.DimensionTable;
 import com.gtnhspeedrun.audit.trackers.FingerprintTracker;
@@ -48,6 +51,7 @@ import com.gtnhspeedrun.audit.trackers.MachineRemovals;
 import com.gtnhspeedrun.audit.trackers.MilestoneTracker;
 import com.gtnhspeedrun.audit.trackers.PlayerSessionTracker;
 import com.gtnhspeedrun.audit.trackers.PositionSampler;
+import com.gtnhspeedrun.audit.trackers.ProspectSinks;
 import com.gtnhspeedrun.audit.trackers.StructureBounds;
 import com.gtnhspeedrun.audit.trackers.TrashCanCommandTracker;
 import com.gtnhspeedrun.audit.trackers.WorldSaving;
@@ -187,6 +191,11 @@ public class GtnhSpeedrunAudit {
             onFmlBus(new GamemodeTracker(sm.logger(), inventory, event.getServer()));
             onFmlBus(new DifficultyTracker(sm.logger(), event.getServer()));
             onFmlBus(new GameruleTracker(sm.logger(), event.getServer()));
+            onFmlBus(new CommandsAllowedTracker(sm.logger(), event.getServer()));
+            onFmlBus(new ProspectSinks()); // end of tick: scans with no open tool use
+            final ContainerSessions containers = new ContainerSessions(sm.logger(), event.getServer());
+            onForgeBus(containers); // PlayerInteractEvent
+            onFmlBus(containers); // player ticks, logouts
             onFmlBus(scheduler);
             // the self-test steps are 5 ticks apart (SelfTest.STEP_GAP_TICKS), and the config intervals are whole
             // seconds
@@ -230,6 +239,10 @@ public class GtnhSpeedrunAudit {
                 final GtPowerCensus power = new GtPowerCensus(sm.logger(), event.getServer());
                 onFmlBus(power);
                 sm.addSnapshotHook(() -> power.takeCensus("manual"));
+                final GtPowerUse powerUse = new GtPowerUse(sm.logger());
+                onFmlBus(powerUse);
+                sm.addSnapshotHook(() -> powerUse.takeInterval("manual"));
+                sm.addStopHook(() -> powerUse.takeInterval("stop"));
             }
             if (Compat.AE2.isLoaded()) {
                 final Ae2Snapshotter ae2 = new Ae2Snapshotter(sm.logger(), keyItems, event.getServer());

@@ -17,6 +17,8 @@ import appeng.tile.misc.TileInterface;
  */
 public final class Ae2Fixture {
 
+    public static final String PATTERN_AUTHOR = "SelfTestAuthor";
+
     private Ae2Fixture() {}
 
     /**
@@ -48,6 +50,7 @@ public final class Ae2Fixture {
         tag.setTag("out", wrapInTagList(out));
         tag.setBoolean("crafting", false);
         tag.setBoolean("substitute", false);
+        tag.setString("author", PATTERN_AUTHOR);
         pattern.setTagCompound(tag);
         tile.getInterfaceDuality()
             .getPatterns()

@@ -41,6 +41,24 @@ public class LateMixinLoader implements ILateMixinLoader {
             mixins.add("gt.BaseTileEntityMixin");
             mixins.add("gt.BlockMachinesMixin");
             mixins.add("gt.GTPowerfailTrackerMixin");
+            mixins.add("gt.DetravNetworkMixin");
+            mixins.add("gt.DetravProspectorMixin");
+            mixins.add("gt.BehaviourProspectingMixin");
+            mixins.add("gt.MTEAdvSeismicProspectorMixin");
+            mixins.add("gt.GTUtilityItemNbtMixin");
+            mixins.add("gt.MTEHatchCraftingInputMEMixin");
+            mixins.add("gt.BaseMetaTileEntityPowerMixin");
+            mixins.add("gt.WirelessNetworkManagerMixin");
+            mixins.add("gt.MTEBasicMachineMixin");
+        }
+        if (loadedMods.contains("appliedenergistics2")) {
+            mixins.add("ae2.ContainerPatternTermMixin");
+            mixins.add("ae2.ContainerPatternTermExMixin");
+            mixins.add("ae2.DualityInterfaceMixin");
+            mixins.add("ae2.ContainerInterfaceTerminalMixin");
+        }
+        if (loadedMods.contains("visualprospecting")) {
+            mixins.add("visualprospecting.VisualProspectingApiMixin");
         }
         if (loadedMods.contains("betterquesting")) {
             mixins.add("bq.ParticipantInfoMixin");

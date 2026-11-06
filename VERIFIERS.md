@@ -166,8 +166,12 @@ Play in a copy then never enters the chain of the original folder.
   The line is written just before the move, so for a move to another dimension the `teleport` line comes before
   the `dim_change` line. `from` has `dim`, `pos`, `yaw` and `pitch`. `to` has `dim` and `pos`: the player's feet
   are put at exactly that spot, and the facing does not change. A teleport cancelled by a move or a hit during the
-  warmup has a `command` line and no `teleport` line. Vanilla `/tp` and `/cofh tpx` do not go through
-  ServerUtilities: use their `command` arguments and the `dim_change` and `pos_sample` lines after them. The pack
+  warmup has a `command` line and no `teleport` line. A player that any other command moved, such as vanilla `/tp`
+  or `/cofh tpx`, gets a `teleport` line with `type` `COMMAND`, the command's name in `command` and the command's
+  sender in `by`. Every online player's place is read before and after the command, and a player in another dimension or
+  more than 0.5 block away afterwards was moved. That line is written after the move, so for a move to another
+  dimension the `teleport` line comes after the `dim_change` line. A teleport that finishes after the command returns, such
+  as a ServerUtilities warmup, is not a `COMMAND` teleport. Bundles before this version have no `COMMAND` lines. The pack
   ships `/home`, `/back`, `/warp`, `/spawn`, `/tpa` and `/rtp` turned off in ServerUtilities' config. A runner who
   turns them on gets these lines.
 - `creative_slot` lines are creative-inventory packets: the client setting one of its own slots (or
@@ -264,6 +268,42 @@ Play in a copy then never enters the chain of the original folder.
   full; NEI's client then fills open-container slots with `set_slot`). `set_slot` lines have `previous`, the
   slot's stack before the set, so a delete shows what was deleted. `delete_all_items` lines list every
   stack in `items`. NEI's load-saved-state also runs `delete_all_items` and then refills by `set_slot`.
+- More NEI cheats are `nei_cheat` lines: `toggle_rain` (`dim`, `wasRaining`), `toggle_magnet`,
+  `cycle_creative_inv` (a row swap with NEI's 54-slot creative+ stash), `creative_plus` (the stash opened or
+  closed), `modify_enchantment` (`enchantment`, `level` and `add`, from NEI's enchantment screen),
+  `set_spawner_mob` (a mob spawner's mob, with `dim`, `x`, `y` and `z`) and `disable_action` (a per-dimension
+  lock set by `CHANGE_PROPERTY`). NEI checks no permission for the `set_spawner_mob` packet. With `rain`
+  disabled, NEI stops rain in the dimension. With a time zone (`dawn`, `noon`, `dusk` or `midnight`) disabled,
+  NEI's time change skips that zone. `set_dummy_slot` lines are NEI drags onto a ghost slot, a filter such as an
+  Item Translocator's: the stack, `slot`, `slotClass`, `container` and `previous`. The stack in a ghost slot is a
+  filter setting, not an item. NEI calls `set_time`, `toggle_rain`, `set_spawner_mob`, `set_dummy_slot` and
+  `disable_action` with no player, so those lines have the uuid and name of the NEI packet's sender. In bundles
+  before this version, `set_time` lines have a null player.
+- `commands_allowed` is logged at each start: `commandsAllowed`, a singleplayer world's "Allow Cheats" (with "Allow
+  Cheats" on, the world's owner may use commands), and `commandsAllowedForAll`. With `commandsAllowedForAll` on,
+  every player may use commands.
+  `commands_allowed_change` lines come from a poll of both settings every tick (`setting`, `from`, `to`). `lan_open` is a singleplayer
+  world opened to LAN (`gameType` for players who join, `allowCheats`, `port`). Open to LAN with "Allow Cheats"
+  also turns `commandsAllowedForAll` on.
+- `prospect` lines are ore prospecting: `tool` is `prospector_scanner` (a click on a block with a Prospector's
+  Scanner, electric or not), `prospecting_hammer`, `adv_seismic_prospector` or `electric_prospector` (the
+  scanner's map). A chat tool has `itemKey`, the clicked block and the chat `lines` the player received during
+  the use (at most 64 lines or 4 KB, then `truncated`). A map has the centre `x`, `z`, `chunkX`, `chunkZ`, `radius` in chunks and `mode` (0
+  big ores, 1 all ores, 2 fluids, 3 pollution). The ore `veins` and `fluids` that VisualProspecting received for
+  the player in the same tick are on the same line. A line with `tool` `visualprospecting` has such results
+  with no tool scan in the same tick. An Advanced Seismic Prospector line has `tier`, `radius` and the `ores` and `oils`
+  written to the data stick. On GT 5.09.52 and later the scanner map is sent ticks after the right-click, and a
+  scan cancelled by a new right-click has no line.
+- `container_session` lines are GUIs a player had open, other than the player's inventory: chests,
+  machines, crafting tables. When the GUI closes, the item counts by key in the GUI's slots outside the player's
+  inventory and in the player's inventory (main, armour and cursor) are compared with the counts at the open: `containerDelta` and
+  `playerDelta`. A line is written when `playerDelta` is not empty, and for every GUI of a creative player.
+  `pos` is the block of the first tile entity among the GUI's slots. For a GUI with no tile entity slot, such as a
+  double chest or a ModularUI machine, `pos` is the block the player right-clicked within 20 ticks before the
+  open. Items that a machine makes or uses while the GUI is open
+  count in `containerDelta` only. Items picked up from the ground while a GUI is open count in `playerDelta`. A
+  creative player's GUI also gets `container_open`, and each click in that GUI a `container_click` line with the changed slots and the cursor. `/inv view` is not in these
+  lines.
 - `trash_insert` lines are stacks a player put into an Extra Utilities trash can by hand. They are voided at once.
   Pipe and hopper inserts are not logged. `trash_can_closed` lines are the contents of a ServerUtilities
   `/trash_can` when it closed, which is when they are destroyed.
@@ -306,6 +346,17 @@ Play in a copy then never enters the chain of the original folder.
   They also list every team's wireless EU. EU values are decimal strings. Capacitor counts come from the LSC's last
   structure check and are valid only when `formed` is true. The log line has the totals (`lscStored`,
   `wirelessStored`) and `readErrors`. A census has no entry for an LSC in an unloaded chunk.
+- `power_use` files (`power-use-<ticks>.json.gz`, every 5 min, on `/audit snapshot` and at a clean stop) list
+  the EU GT machines consumed since the previous `power_use` line: `types` per machine type, `multis` per
+  multiblock controller with the controller's position, and `recipes` per machine type and first output
+  (`starts`, `outputAmount`, `eu`). The log line has `fromTick`, `toTick`, the total `eu` and `wirelessEu`, and
+  `readErrors`. Every `eu` includes the `wirelessEu` of the same entry. Machine EU is the EU drained from energy
+  hatches, from the machine's buffer and from the wireless network, less the EU moved into the machine's buffer.
+  Recipe EU is EU per tick times duration, counted at the recipe start, so a recipe that power-fails counts in
+  full. Not counted: non-GT machines, and the Space Elevator modules, the Nanochip Assembly Complex and the
+  Lapotronic Supercapacitor. Those three change their EU field directly. The Active Transformer and the Power Substation are
+  listed with the EU they send to their dynamo hatches. An interval with nothing consumed and no recipe started
+  has no line.
 - `storage_census` files (hourly) hold every EnderStorage item inventory, by frequency and owner, and the
   Backpack mod's backpack files. Backpack files are as of the mod's last save of each backpack.
 - `item_id_table` is the world's numeric block and item ids at each server start (keys prefixed `\u0001`
@@ -339,6 +390,21 @@ Play in a copy then never enters the chain of the original folder.
   two otherwise-identical stacks apart by their tags, which is not a quantity anyone audits. If
   `nbtVariantsCollapsed` is present and non-zero, that many entries merged. NBT-level evidence, where it
   matters, lives in the inventory snapshots and `nbt_edit` lines.
+- Each `ae2_snapshot` line also has the network's `channelsInUse`, `patternProviders`, `patterns` (pattern
+  stacks in provider slots) and `distinctPatterns`. `channelsInUse` is -1 when the field could not be read, and
+  0 while the network boots or has a controller conflict, so read `channelsInUse` with `controllerState` and
+  `booting`. The census file has
+  `patterns`, each distinct pattern's `outputs` and whether the pattern is a `crafting` pattern, and `providers`, each
+  ME interface (block or part), AE2 Fluid Crafting interface, GT Crafting Input Buffer and GT Large Molecular
+  Assembler (the slots of the assembler's pattern hatches) with the provider's place and slots. A slot has the pattern's `author`, the name of the player who encoded the pattern, and the
+  pattern's index in `patterns`. AE2 compares patterns without the author, so identical patterns of two players are one entry in
+  `patterns` and two slots. A pattern encoded before AE2 wrote the tag has no author.
+- `pattern_encoded` lines are patterns encoded in a pattern terminal, with the player, the `author` tag AE2
+  wrote, and the stack. `pattern_slot` lines are patterns put into or taken out of an ME interface (`removed`,
+  `added`, `author`) or GT's Crafting Input Buffer (`added` only). A Crafting Input Buffer line with neither stack is an emptied
+  slot.
+  The line's player is the player whose GUI click or Interface Terminal action changed the slot. A line for
+  any other change has no player.
 - AE2 census entries have `craftable: true` when the network could autocraft the item at that instant (a
   pattern for it, or a crafting level emitter). An entry with `count: 0` is craftable only: AE2 lists craftable
   items in the network's item list, and the census records what it lists. `craftableItems` on the line counts

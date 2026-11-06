@@ -16,6 +16,7 @@ public enum Compat {
     GT5("gregtech"),
     RAILCRAFT("Railcraft"),
     SERVER_UTILITIES("serverutilities"),
+    VISUAL_PROSPECTING("visualprospecting"),
     WORLDEDIT("worldedit");
 
     private final String modId;

@@ -130,11 +130,39 @@ public class NEIServerUtilsMixin {
             .log();
     }
 
-    /** Logs a set_time cheat. NEI passes no player to setHourForward(), so the line has no uuid and no name. */
+    /** Logs a set_time cheat. NEI passes no player to setHourForward(), so the player is the packet's sender. */
     @Inject(method = "setHourForward", at = @At("HEAD"), require = 1)
     private static void audit$setHour(World world, int hour, boolean notify, CallbackInfo ci) { // noqa: NAR130, NAR131
         NeiSinks.NeiCheat.of("set_time")
             .detail("hour=" + hour)
+            .log();
+    }
+
+    /** Logs a rain toggle, in the dimension of the packet's sender. */
+    @Inject(method = "toggleRaining", at = @At("HEAD"), require = 1)
+    private static void audit$toggleRain(World world, boolean notify, CallbackInfo ci) { // noqa: NAR130
+        final JsonObject extra = new JsonObject();
+        extra.addProperty("dim", world.provider.dimensionId);
+        extra.addProperty("wasRaining", world.isRaining());
+        NeiSinks.NeiCheat.of("toggle_rain")
+            .extra(extra)
+            .log();
+    }
+
+    /** Logs the magnet mode toggle: with magnet mode on, item drops in range fly to the player. */
+    @Inject(method = "toggleMagnetMode", at = @At("HEAD"), require = 1)
+    private static void audit$toggleMagnet(EntityPlayerMP player, CallbackInfo ci) { // noqa: NAR130
+        NeiSinks.NeiCheat.of("toggle_magnet")
+            .player(player)
+            .log();
+    }
+
+    /** Logs a row swap between the main inventory and the creative+ stash. */
+    @Inject(method = "cycleCreativeInv", at = @At("HEAD"), require = 1)
+    private static void audit$cycleCreativeInv(EntityPlayerMP player, int steps, CallbackInfo ci) { // noqa: NAR130
+        NeiSinks.NeiCheat.of("cycle_creative_inv")
+            .player(player)
+            .detail("steps=" + steps)
             .log();
     }
 

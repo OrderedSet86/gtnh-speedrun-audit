@@ -27,8 +27,8 @@ import com.gtnhspeedrun.audit.core.AttemptLimiter;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.core.Verifier;
 import com.gtnhspeedrun.audit.harness.NbtEditDrill;
+import com.gtnhspeedrun.audit.harness.ProspectDrill;
 import com.gtnhspeedrun.audit.harness.QuestEditDrill;
-import com.gtnhspeedrun.audit.harness.TeleportDrill;
 import com.gtnhspeedrun.audit.snapshot.StorageCensus;
 import com.gtnhspeedrun.audit.trackers.PositionRow;
 
@@ -79,7 +79,13 @@ public final class LogChecks {
         "machine_removed",
         "bulk_removed",
         "dim_table",
-        "pos_sample");
+        "pos_sample",
+        "commands_allowed",
+        "commands_allowed_change",
+        "lan_open",
+        "prospect",
+        "container_session",
+        "container_click");
 
     private final SessionManager session;
     private final CheckList checks;
@@ -296,6 +302,15 @@ public final class LogChecks {
             counts.getOrDefault("gamerule_change", 0) == 2,
             "count=" + counts.getOrDefault("gamerule_change", 0));
         checks.check(
+            "commands_allowed_change for all players on then off",
+            selectEventData(lines, "commands_allowed_change").stream()
+                .filter(
+                    data -> "commandsAllowedForAll".equals(
+                        data.get("setting")
+                            .getAsString()))
+                .count() == 2,
+            String.valueOf(selectEventData(lines, "commands_allowed_change")));
+        checks.check(
             "command_output only for allowlisted commands",
             counts.getOrDefault("command_output", 0) == 2 && selectEventData(lines, "command_output").stream()
                 .allMatch(
@@ -444,6 +459,12 @@ public final class LogChecks {
             optionalModChecks.checkStructureTierPlans();
             optionalModChecks.checkStructureTiersOnThisSide(lines);
             optionalModChecks.checkGtHullRemoval(lines);
+            optionalModChecks.checkPowerUse(lines);
+        }
+        checkProspects(lines);
+        checkContainerSession(lines);
+        if (Compat.NEI.isLoaded()) {
+            optionalModChecks.checkNeiDrill(lines);
         }
         if (Compat.BETTER_QUESTING.isLoaded()) {
             checks.check("event logged: quest_db", counts.getOrDefault("quest_db", 0) > 0, null);
@@ -474,6 +495,7 @@ public final class LogChecks {
                 counts.getOrDefault("ae2_snapshot", 0) > 0,
                 "count=" + counts.getOrDefault("ae2_snapshot", 0));
             optionalModChecks.checkAe2Craftable(lines);
+            optionalModChecks.checkAe2Patterns(lines);
         }
         if (Compat.WORLDEDIT.isLoaded()) {
             optionalModChecks.checkWorldEdit(lines);
@@ -698,6 +720,79 @@ public final class LogChecks {
      * player in any other mode on every tick. The scenario runs one step on every fifth tick. Alice is in creative from
      * step 2 to step 3, and moves 2 blocks at step 5 and back at step 6. Bob never moves.
      */
+    /**
+     * Check the session of the scenario's chest: one emerald taken, a stick put in by the click, and the chest's spot.
+     */
+    private void checkContainerSession(List<JsonObject> lines) {
+        final String chestSpot = "[" + scenario
+            .offsetX(-6) + "," + scenario.offsetY(0) + "," + scenario.offsetZ(12) + "]";
+        final JsonObject chest = selectEventData(lines, "container_session").stream()
+            .filter(
+                data -> data.has("pos") && chestSpot.equals(
+                    data.getAsJsonArray("pos")
+                        .toString()))
+            .findFirst()
+            .orElse(null);
+        checks.check(
+            "container_session: the chest's spot and the emerald taken",
+            chest != null && "{\"minecraft:emerald@0\":1}".equals(
+                chest.getAsJsonObject("playerDelta")
+                    .toString())
+                && "{\"minecraft:emerald@0\":-1,\"minecraft:stick@0\":1}".equals(
+                    chest.getAsJsonObject("containerDelta")
+                        .toString()),
+            String.valueOf(selectEventData(lines, "container_session")));
+    }
+
+    /**
+     * Check the prospect lines of the scenario: the chat tool use with the use's chat line, the scan with no open use,
+     * and on a pack server the scanner map with the map's radius and mode.
+     */
+    private void checkProspects(List<JsonObject> lines) {
+        final List<JsonObject> prospects = selectEventData(lines, "prospect");
+        checks.check(
+            "prospect: a chat tool use has its place and chat line",
+            prospects.stream()
+                .anyMatch(
+                    data -> "selftest".equals(
+                        data.get("tool")
+                            .getAsString())
+                        && data.get("x")
+                            .getAsInt() == 1
+                        && data.has("lines")
+                        && data.getAsJsonArray("lines")
+                            .toString()
+                            .contains(Scenario.PROSPECT_LINE_KEY)),
+            String.valueOf(prospects));
+        checks.check(
+            "prospect: a scan with no open use is logged at the end of the tick",
+            prospects.stream()
+                .anyMatch(
+                    data -> "visualprospecting".equals(
+                        data.get("tool")
+                            .getAsString())),
+            String.valueOf(prospects));
+        if (!scenario.hasProspectDrillRun()) {
+            return;
+        }
+        checks.check(
+            "prospect drill: the scanner map has its radius and mode",
+            prospects.stream()
+                .anyMatch(
+                    data -> "electric_prospector".equals(
+                        data.get("tool")
+                            .getAsString())
+                        && data.get("radius")
+                            .getAsInt() == ProspectDrill.RADIUS_CHUNKS
+                        && data.get("mode")
+                            .getAsInt() == ProspectDrill.MODE),
+            String.valueOf(prospects));
+    }
+
+    /**
+     * Check the places in the log: the {@code pos_sample} rows of alice and bob, the place of each {@code inv_snapshot}
+     * line, the console's /tp, and, with ServerUtilities, the /home and /tpl teleports of the drill.
+     */
     private void checkPlaces(List<JsonObject> lines) {
         final Map<Integer, List<PositionRow>> rowsByPlayer = selectPositionRows(lines);
         final List<PositionRow> aliceRows = rowsByPlayer
@@ -756,12 +851,41 @@ public final class LogChecks {
                     .getAsDouble() == Scenario.ALICE_YAW,
             String.valueOf(aliceJoin));
 
+        final String commandSpot = formatPosition(scenario.getCommandTeleportFeet());
+        final List<JsonObject> commandTeleports = selectEventData(lines, "teleport").stream()
+            .filter(
+                data -> commandSpot.equals(
+                    data.getAsJsonObject("to")
+                        .getAsJsonArray("pos")
+                        .toString()))
+            .collect(Collectors.toList());
+        checks.check(
+            "command teleport: one COMMAND line for the console's /tp, from alice's place before the command",
+            commandTeleports.size() == 1 && "COMMAND".equals(
+                commandTeleports.get(0)
+                    .get("type")
+                    .getAsString())
+                && "tp".equals(
+                    commandTeleports.get(0)
+                        .get("command")
+                        .getAsString())
+                && formatPosition(scenario.getCommandTeleportFrom()).equals(
+                    commandTeleports.get(0)
+                        .getAsJsonObject("from")
+                        .getAsJsonArray("pos")
+                        .toString()),
+            String.valueOf(commandTeleports));
+
         final double[][] teleportFeet = scenario.getTeleportFeet();
         if (teleportFeet == null) {
             checks.check("teleport drill", true, "skipped: ServerUtilities not loaded");
             return;
         }
         final List<String> teleports = selectEventData(lines, "teleport").stream()
+            .filter(
+                data -> !"COMMAND".equals(
+                    data.get("type")
+                        .getAsString()))
             .map(
                 data -> data.get("type")
                     .getAsString() + " "

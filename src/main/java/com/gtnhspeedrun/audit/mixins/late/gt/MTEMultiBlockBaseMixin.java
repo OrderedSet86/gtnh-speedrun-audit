@@ -1,10 +1,13 @@
 package com.gtnhspeedrun.audit.mixins.late.gt;
 
 import java.lang.reflect.Field;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraftforge.fluids.FluidStack;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -20,15 +23,19 @@ import com.gtnhspeedrun.audit.trackers.FormationGuard;
 import com.gtnhspeedrun.audit.trackers.GtExtraHatches;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
 import com.gtnhspeedrun.audit.trackers.GtMachineSites;
+import com.gtnhspeedrun.audit.trackers.GtRecipeStarts;
 import com.gtnhspeedrun.audit.trackers.HatchScan;
 import com.gtnhspeedrun.audit.trackers.MachineSite;
 import com.gtnhspeedrun.audit.trackers.MultiblockFootprint;
 import com.gtnhspeedrun.audit.trackers.MultiblockPower;
 import com.gtnhspeedrun.audit.trackers.MultiblockSinks;
+import com.gtnhspeedrun.audit.trackers.PowerUse;
+import com.gtnhspeedrun.audit.trackers.RecipeTallyCache;
 import com.gtnhspeedrun.audit.trackers.StructureBounds;
 import com.gtnhspeedrun.audit.trackers.StructureTiers;
 
 import gregtech.api.enums.GTValues;
+import gregtech.api.interfaces.metatileentity.IMetaTileEntity;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.metatileentity.MetaTileEntity;
 import gregtech.api.metatileentity.implementations.MTEHatch;
@@ -59,9 +66,15 @@ import gregtech.api.util.GTUtility;
  * (Lapotronic Supercapacitor) grows layers. The formation and footprint lines take their coordinates from the tile of
  * this controller, not from the checkStructure() argument. The Purification Plant passes the plant's tile as that
  * argument when the plant runs the checkStructure() of the plant's units.
+ *
+ * <p>
+ * The checkRecipe() hook tallies each recipe start in {@link PowerUse}. GT, GT++ and TecTech multiblocks all start a
+ * recipe in the final checkRecipe(). The recipe's EU is getActualEnergyUsage() times mMaxProgresstime, plus the
+ * wireless EU drained during the check: an on-demand multiblock such as the Eye of Harmony takes the recipe's wireless
+ * EU up front.
  */
 @Mixin(value = MTEMultiBlockBase.class, remap = false)
-public class MTEMultiBlockBaseMixin implements GtFormationLogger {
+public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // noqa: NAR106
 
     @Shadow
     public boolean mMachine;
@@ -74,6 +87,15 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
 
     @Shadow
     protected List<MTEHatch> mExoticEnergyHatches;
+
+    @Shadow
+    public int mMaxProgresstime;
+
+    @Shadow
+    public ItemStack[] mOutputItems;
+
+    @Shadow
+    public FluidStack[] mOutputFluids;
 
     @Unique
     private static final String AUDIT_FORMED_KEY = "speedrunAuditFormed";
@@ -91,6 +113,9 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
     /** MultiblockFootprint.formatKey() of the footprint last logged, or null until a footprint is logged. */
     @Unique
     private String audit$loggedFootprint; // noqa: NAR130
+
+    @Unique
+    private RecipeTallyCache audit$recipeCache; // noqa: NAR130
 
     @Inject(method = "saveNBTData", at = @At("TAIL"), require = 1)
     private void audit$saveFormation(NBTTagCompound aNBT, CallbackInfo ci) { // noqa: NAR130
@@ -139,6 +164,35 @@ public class MTEMultiBlockBaseMixin implements GtFormationLogger {
             StructureBounds.pop(this);
         }
     }
+
+    @Inject(method = "checkRecipe()Z", at = @At("HEAD"), require = 1)
+    private void audit$beforeRecipeCheck(CallbackInfoReturnable<Boolean> cir) { // noqa: NAR130
+        PowerUse.active()
+            .openRecipeCheck();
+    }
+
+    @Inject(method = "checkRecipe()Z", at = @At("RETURN"), require = 1)
+    private void audit$afterRecipeCheck(CallbackInfoReturnable<Boolean> cir) { // noqa: NAR130
+        final BigInteger upfrontEu = PowerUse.active()
+            .closeRecipeCheck();
+        if (!cir.getReturnValueZ()) {
+            return;
+        }
+        if (audit$recipeCache == null) {
+            audit$recipeCache = new RecipeTallyCache();
+        }
+        GtRecipeStarts.addStart(
+            (IMetaTileEntity) (Object) this,
+            audit$recipeCache,
+            new GtRecipeStarts.RecipeStart(
+                GtRecipeStarts.pickFirstOutput(mOutputItems, mOutputFluids),
+                getActualEnergyUsage(),
+                mMaxProgresstime,
+                upfrontEu));
+    }
+
+    @Shadow
+    protected abstract long getActualEnergyUsage();
 
     /**
      * Logs the formation when the hatch, coil or structure tiers differ from the saved marker, then updates the saved

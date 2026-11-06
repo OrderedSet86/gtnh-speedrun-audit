@@ -41,6 +41,7 @@ public final class AuditConfig {
     public static String[] powerCensusClasses = new String[] {
         "kekztech.common.tileentities.MTELapotronicSuperCapacitor" };
     public static int powerCensusMinutes = 5;
+    public static int powerUseMinutes = 5;
     public static int storageCensusMinutes = 60;
     public static String[] commandOutputCapture = new String[] { "gt global_energy_display",
         "gregtech global_energy_display", "gamerule", "difficulty", "powerfails", "bq_admin", "mothership_info",
@@ -146,6 +147,13 @@ public final class AuditConfig {
             1,
             1440,
             "Minutes between power censuses (Lapotronic Supercapacitors in loaded chunks, every team's wireless EU).");
+        powerUseMinutes = config.getInt(
+            "powerUseMinutes",
+            "snapshots",
+            powerUseMinutes,
+            1,
+            1440,
+            "Minutes per power_use line: the EU each GT machine type and multiblock consumed, and the recipe starts.");
         storageCensusMinutes = config.getInt(
             "storageCensusMinutes",
             "snapshots",

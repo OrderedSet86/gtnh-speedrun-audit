@@ -56,6 +56,7 @@ public final class SessionManager {
     private final Set<String> onceKeys = new HashSet<>();
     private final List<Runnable> snapshotHooks = new ArrayList<>();
     private final List<Runnable> tickHooks = new ArrayList<>();
+    private final List<Runnable> stopHooks = new ArrayList<>();
     private final PlayerNumbers playerNumbers = new PlayerNumbers();
 
     private AuditDirs dirs;
@@ -289,11 +290,17 @@ public final class SessionManager {
             parentLogPresent ? lookUpLoadedSave(parentLog, fork.parentSave()) : null);
     }
 
-    /** Log session_end with {@code savingFields} after the reason key, in their order, and publish a clean anchor. */
+    /**
+     * Run the stop hooks, then log session_end with {@code savingFields} after the reason key, in their order, and
+     * publish a clean anchor.
+     */
     public void stopping(JsonObject savingFields) {
         final long DRAIN_TIMEOUT_MS = 15_000;
         if (logger == null) {
             return;
+        }
+        for (Runnable hook : stopHooks) {
+            hook.run();
         }
         stopping = true;
         attempts.reportAllWindows();
@@ -438,6 +445,11 @@ public final class SessionManager {
 
     public void addSnapshotHook(Runnable hook) {
         snapshotHooks.add(hook);
+    }
+
+    /** Run {@code hook} at a clean stop, before session_end. A hook can log the lines of a partial interval. */
+    public void addStopHook(Runnable hook) {
+        stopHooks.add(hook);
     }
 
     /** Run every snapshot hook, and return how many ran. */

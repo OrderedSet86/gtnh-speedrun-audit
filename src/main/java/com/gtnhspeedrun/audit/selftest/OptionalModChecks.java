@@ -1,9 +1,11 @@
 package com.gtnhspeedrun.audit.selftest;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,9 +18,13 @@ import java.util.zip.GZIPInputStream;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.gtnhspeedrun.audit.core.SessionManager;
+import com.gtnhspeedrun.audit.harness.Ae2Fixture;
 import com.gtnhspeedrun.audit.harness.FormationSideCheck;
+import com.gtnhspeedrun.audit.harness.NeiDrill;
+import com.gtnhspeedrun.audit.harness.PowerUseDrill;
 import com.gtnhspeedrun.audit.harness.TecTechFixture;
 import com.gtnhspeedrun.audit.trackers.GtMachineSites;
 import com.gtnhspeedrun.audit.trackers.StructureTiers;
@@ -122,6 +128,74 @@ public final class OptionalModChecks {
     }
 
     /**
+     * Check one {@code nei_cheat} line for each cheat of {@link NeiDrill}. A cheat whose NEI method gets the player, or
+     * that the drill sends through NEI's packet handler, is by Alice. The spawner and ghost-slot lines get Alice from
+     * the packet, because those NEI methods get no player. The drill calls the rain toggle and the action lock outside
+     * a packet, and those NEI methods get no player, so the lines of those two cheats have no player.
+     */
+    public void checkNeiDrill(List<JsonObject> lines) {
+        if (!scenario.hasNeiDrillRun()) {
+            checks.check("nei drill", false, "NEI is loaded and the drill did not run");
+            return;
+        }
+        final List<JsonObject> allCheats = LogChecks.selectEventData(lines, "nei_cheat");
+        final List<JsonObject> cheats = allCheats.stream()
+            .filter(
+                data -> data.has("name") && "SelfTestAlice".equals(
+                    data.get("name")
+                        .getAsString()))
+            .collect(Collectors.toList());
+        final List<JsonObject> playerless = allCheats.stream()
+            .filter(data -> !data.has("name"))
+            .collect(Collectors.toList());
+        final String[][] byAlice = { { "toggle_magnet", null }, { "cycle_creative_inv", "steps=0" },
+            { "creative_plus", "close" }, { "set_spawner_mob", NeiDrill.SPAWNER_MOB }, { "set_dummy_slot", null } };
+        for (String[] action : byAlice) {
+            checks.check("nei drill: " + action[0] + " by alice", hasCheat(cheats, action), null);
+        }
+        final String[][] withNoPlayer = { { "toggle_rain", null }, { "disable_action", NeiDrill.DISABLED_ACTION } };
+        for (String[] action : withNoPlayer) {
+            checks.check(
+                "nei drill: " + action[0] + " outside a packet, with no player",
+                hasCheat(playerless, action),
+                null);
+        }
+        final JsonObject ghost = cheats.stream()
+            .filter(
+                data -> "set_dummy_slot".equals(
+                    data.get("action")
+                        .getAsString()))
+            .findFirst()
+            .orElse(null);
+        checks.check(
+            "nei drill: set_dummy_slot has the stack, slot class and container",
+            ghost != null && ghost.has("itemKey")
+                && "minecraft:apple@0".equals(
+                    ghost.get("itemKey")
+                        .getAsString())
+                && ghost.get("slotClass")
+                    .getAsString()
+                    .endsWith("SlotDummy")
+                && ghost.has("container"),
+            String.valueOf(ghost));
+    }
+
+    /**
+     * Test for a line with the action {@code action[0]}, and the detail {@code action[1]} unless {@code action[1]} is
+     * null.
+     */
+    private static boolean hasCheat(List<JsonObject> cheats, String[] action) {
+        return cheats.stream()
+            .anyMatch(
+                data -> action[0].equals(
+                    data.get("action")
+                        .getAsString())
+                    && (action[1] == null || (data.has("detail") && action[1].equals(
+                        data.get("detail")
+                            .getAsString()))));
+    }
+
+    /**
      * Load every mixin target, vanilla or of an installed mod, and check the target for an injected audit$ member. A
      * mixin applies when the target class loads, and the scenario never loads some targets, such as the trash slot, the
      * /inv view container and the edit handlers of BetterQuesting. A bad target would then crash a real game later, not
@@ -132,13 +206,29 @@ public final class OptionalModChecks {
             { null, "net.minecraft.entity.player.EntityPlayerMP" }, { null, "net.minecraft.server.MinecraftServer" },
             { null, "net.minecraft.network.rcon.RConConsoleSource" },
             { null, "net.minecraft.network.NetHandlerPlayServer" }, { null, "net.minecraft.world.WorldServer" },
+            { null, "net.minecraft.server.management.ServerConfigurationManager" },
             { "NotEnoughItems", "codechicken.nei.NEIServerUtils" }, { "NotEnoughItems", "codechicken.nei.NEISPH" },
+            { "NotEnoughItems", "codechicken.nei.NEIServerConfig" },
             { "gregtech", "gregtech.common.data.GTPowerfailTracker" },
             { "gregtech", "gregtech.api.metatileentity.implementations.MTEMultiBlockBase" },
             { "gregtech", "gregtech.api.metatileentity.MetaTileEntity" },
             { "gregtech", "gregtech.api.metatileentity.MetaPipeEntity" },
             { "gregtech", "gregtech.api.metatileentity.BaseTileEntity" },
-            { "gregtech", "gregtech.common.blocks.BlockMachines" },
+            { "gregtech", "gregtech.api.metatileentity.BaseMetaTileEntity" },
+            { "gregtech", "gregtech.api.metatileentity.implementations.MTEBasicMachine" },
+            { "gregtech", "gregtech.common.misc.WirelessNetworkManager" },
+            { "gregtech", "gregtech.common.blocks.BlockMachines" }, { "gregtech", "detrav.net.DetravNetwork" },
+            { "gregtech", "detrav.items.behaviours.BehaviourDetravToolProspector" },
+            { "gregtech", "detrav.items.behaviours.BehaviourDetravToolElectricProspector" },
+            { "gregtech", "gregtech.common.items.behaviors.BehaviourProspecting" },
+            { "gregtech", "gregtech.common.tileentities.machines.basic.MTEAdvSeismicProspector" },
+            { "gregtech", "gregtech.api.util.GTUtility$ItemNBT" },
+            { "visualprospecting", "com.sinthoras.visualprospecting.VisualProspecting_API$LogicalServer" },
+            { "gregtech", "gregtech.common.tileentities.machines.MTEHatchCraftingInputME" },
+            { "appliedenergistics2", "appeng.container.implementations.ContainerPatternTerm" },
+            { "appliedenergistics2", "appeng.container.implementations.ContainerPatternTermEx" },
+            { "appliedenergistics2", "appeng.helpers.DualityInterface" },
+            { "appliedenergistics2", "appeng.container.implementations.ContainerInterfaceTerminal" },
             { "gregtech", "tectech.thing.metaTileEntity.multi.base.TTMultiblockBase" },
             { "structurelib", "com.gtnewhorizon.structurelib.structure.StructureUtility" },
             { "betterquesting", "betterquesting.api2.utils.ParticipantInfo" },
@@ -311,9 +401,8 @@ public final class OptionalModChecks {
                 .resolve(
                     data.get("file")
                         .getAsString());
-            try (InputStream in = new GZIPInputStream(Files.newInputStream(snapshotPath))) {
-                final JsonObject snapshot = new JsonParser().parse(new InputStreamReader(in, StandardCharsets.UTF_8))
-                    .getAsJsonObject();
+            try {
+                final JsonObject snapshot = readSnapshotFile(data);
                 for (JsonElement element : snapshot.getAsJsonArray("items")) {
                     final JsonObject item = element.getAsJsonObject();
                     if (AE2_CRAFTABLE_KEY.equals(
@@ -334,6 +423,182 @@ public final class OptionalModChecks {
         }
         checks
             .check("ae2 census flags the pattern output craftable", false, AE2_CRAFTABLE_KEY + " absent from " + seen);
+    }
+
+    /**
+     * Check the fixture's pattern: a {@code pattern_slot} line with the author, the census line's channel and pattern
+     * counts, and in a census file a provider slot with the author whose pattern's output is the craftable item.
+     */
+    public void checkAe2Patterns(List<JsonObject> lines) {
+        checks.check(
+            "pattern_slot: the fixture's pattern put into the interface, with its author",
+            LogChecks.selectEventData(lines, "pattern_slot")
+                .stream()
+                .anyMatch(
+                    data -> data.has("author") && Ae2Fixture.PATTERN_AUTHOR.equals(
+                        data.get("author")
+                            .getAsString())),
+            String.valueOf(LogChecks.selectEventData(lines, "pattern_slot")));
+        final List<String> seen = new ArrayList<>();
+        for (JsonObject data : LogChecks.selectEventData(lines, "ae2_snapshot")) {
+            if (!(data.has("channelsInUse") && data.has("patterns")
+                && data.get("patterns")
+                    .getAsInt() >= 1)) {
+                seen.add(String.valueOf(data));
+                continue;
+            }
+            final Path snapshotPath = session.snapshotDir()
+                .resolve(
+                    data.get("file")
+                        .getAsString());
+            try (InputStream in = new GZIPInputStream(Files.newInputStream(snapshotPath))) {
+                final JsonObject snapshot = new JsonParser().parse(new InputStreamReader(in, StandardCharsets.UTF_8))
+                    .getAsJsonObject();
+                if (hasAuthoredPattern(snapshot)) {
+                    checks.check("ae2 census: a provider slot with the author and the pattern's output", true, null);
+                    return;
+                }
+                seen.add(snapshotPath.getFileName() + " " + snapshot.get("providers") + " " + snapshot.get("patterns"));
+            } catch (IOException | RuntimeException e) { // noqa: NAR142, degrade and report over census files
+                seen.add(snapshotPath.getFileName() + " unreadable: " + e);
+            }
+        }
+        checks.check("ae2 census: a provider slot with the author and the pattern's output", false, seen.toString());
+    }
+
+    /**
+     * Return whether {@code snapshot} has a provider slot with the author {@link Ae2Fixture#PATTERN_AUTHOR} and a
+     * pattern that contains {@link #AE2_CRAFTABLE_KEY}.
+     */
+    private static boolean hasAuthoredPattern(JsonObject snapshot) {
+        for (JsonElement provider : snapshot.getAsJsonArray("providers")) {
+            for (JsonElement rawSlot : provider.getAsJsonObject()
+                .getAsJsonArray("slots")) {
+                final JsonObject slot = rawSlot.getAsJsonObject();
+                if (!(slot.has("author") && Ae2Fixture.PATTERN_AUTHOR.equals(
+                    slot.get("author")
+                        .getAsString())
+                    && slot.has("pattern"))) {
+                    continue;
+                }
+                final JsonObject pattern = snapshot.getAsJsonArray("patterns")
+                    .get(
+                        slot.get("pattern")
+                            .getAsInt())
+                    .getAsJsonObject();
+                if (pattern.toString()
+                    .contains(AE2_CRAFTABLE_KEY)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check the files of every power_use line, with the intervals summed. The furnace's type consumed EU and smelted
+     * cobblestone. The Active Transformer's controller is charged the EU that {@link PowerUseDrill} drained and no
+     * more, so the EU the transformer moves from the hatch into the controller's buffer is charged nothing. Each
+     * line's eu is the sum of the file's types.
+     */
+    public void checkPowerUse(List<JsonObject> lines) {
+        final String SMELTED_KEY = "minecraft:stone@0";
+        final String NO_OUTPUT = "none";
+        final String furnaceType = scenario.getPowerUseFurnaceType();
+        final String transformerType = scenario.getPowerUseTransformerType();
+        final int[] controller = scenario.readTecTechControllerPosition();
+        BigInteger furnaceEu = BigInteger.ZERO;
+        BigInteger smeltEu = BigInteger.ZERO;
+        long smeltStarts = 0;
+        long routingStarts = 0;
+        BigInteger transformerEu = BigInteger.ZERO;
+        final List<String> mismatchedLines = new ArrayList<>();
+        final List<String> unreadable = new ArrayList<>();
+        for (JsonObject data : LogChecks.selectEventData(lines, "power_use")) {
+            final JsonObject file;
+            try {
+                file = readSnapshotFile(data);
+            } catch (IOException | JsonParseException | IllegalStateException e) {
+                unreadable.add(data.get("file") + ": " + e);
+                continue;
+            }
+            BigInteger typesEu = BigInteger.ZERO;
+            for (JsonElement element : file.getAsJsonArray("types")) {
+                final JsonObject type = element.getAsJsonObject();
+                final BigInteger eu = type.get("eu")
+                    .getAsBigInteger();
+                typesEu = typesEu.add(eu);
+                if (type.get("machine")
+                    .getAsString()
+                    .equals(furnaceType)) {
+                    furnaceEu = furnaceEu.add(eu);
+                }
+            }
+            if (!typesEu.equals(
+                data.get("eu")
+                    .getAsBigInteger())) {
+                mismatchedLines.add(data.get("file") + " line=" + data.get("eu") + " types=" + typesEu);
+            }
+            for (JsonElement element : file.getAsJsonArray("multis")) {
+                final JsonObject multi = element.getAsJsonObject();
+                if (multi.get("dim")
+                    .getAsInt() == 0
+                    && multi.get("x")
+                        .getAsInt() == controller[0]
+                    && multi.get("y")
+                        .getAsInt() == controller[1]
+                    && multi.get("z")
+                        .getAsInt() == controller[2]) {
+                    transformerEu = transformerEu.add(
+                        multi.get("eu")
+                            .getAsBigInteger());
+                }
+            }
+            for (JsonElement element : file.getAsJsonArray("recipes")) {
+                final JsonObject recipe = element.getAsJsonObject();
+                final String machine = recipe.get("machine")
+                    .getAsString();
+                final String output = recipe.get("output")
+                    .getAsString();
+                if (machine.equals(furnaceType) && output.equals(SMELTED_KEY)) {
+                    smeltStarts += recipe.get("starts")
+                        .getAsLong();
+                    smeltEu = smeltEu.add(
+                        recipe.get("eu")
+                            .getAsBigInteger());
+                } else if (machine.equals(transformerType) && output.equals(NO_OUTPUT)) {
+                    routingStarts += recipe.get("starts")
+                        .getAsLong();
+                }
+            }
+        }
+        checks.check("power_use files readable", unreadable.isEmpty(), String.valueOf(unreadable));
+        checks
+            .check("power_use line eu is the sum of the types", mismatchedLines.isEmpty(), mismatchedLines.toString());
+        checks.check(
+            "power_use: the furnace consumed EU and started a cobblestone smelt with EU",
+            furnaceEu.signum() > 0 && smeltStarts >= 1 && smeltEu.signum() > 0,
+            "type=" + furnaceType + " eu=" + furnaceEu + " starts=" + smeltStarts + " recipeEu=" + smeltEu);
+        final BigInteger drained = BigInteger.valueOf(PowerUseDrill.DRAIN_EU * scenario.getPowerUseDrains());
+        checks.check(
+            "power_use: the active transformer is charged exactly the drained EU",
+            transformerEu.equals(drained),
+            "eu=" + transformerEu + " drained=" + drained);
+        checks.check(
+            "power_use: the active transformer's routing recipe starts are tallied",
+            routingStarts >= 1,
+            "type=" + transformerType + " starts=" + routingStarts);
+    }
+
+    private JsonObject readSnapshotFile(JsonObject data) throws IOException {
+        final Path snapshotPath = session.snapshotDir()
+            .resolve(
+                data.get("file")
+                    .getAsString());
+        try (InputStream in = new GZIPInputStream(Files.newInputStream(snapshotPath))) {
+            return new JsonParser().parse(new InputStreamReader(in, StandardCharsets.UTF_8))
+                .getAsJsonObject();
+        }
     }
 
     /**

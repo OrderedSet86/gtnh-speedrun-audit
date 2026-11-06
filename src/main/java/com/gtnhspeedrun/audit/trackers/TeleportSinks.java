@@ -1,9 +1,12 @@
 package com.gtnhspeedrun.audit.trackers;
 
+import java.util.Map;
+
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayerMP;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
@@ -11,12 +14,11 @@ import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.snapshot.PlayerPlace;
 
 /**
- * Log the ServerUtilities teleports that the ServerUtilities mixins report, with the player's place and the
- * destination.
+ * Log the teleports of a player: the ServerUtilities teleports that the ServerUtilities mixins report, and the moves
+ * after a command, from {@link CommandTeleports}. Each line has the player's place and the destination.
  *
  * <p>
- * The signatures have only vanilla, JDK and audit types, so this class loads on a pack without ServerUtilities. The
- * mixins call the sink on the server thread.
+ * The signatures have only vanilla, JDK and audit types, so this class loads on a pack without ServerUtilities.
  */
 public final class TeleportSinks {
 
@@ -36,6 +38,48 @@ public final class TeleportSinks {
         if (!(session != null && entity instanceof EntityPlayerMP player)) {
             return;
         }
+        CommandTeleports.noteLogged(player);
+        final JsonObject data = new JsonObject();
+        data.addProperty("type", move.type());
+        data.addProperty("warmupSeconds", move.warmupSeconds());
+        data.add("from", PlayerPlace.describePlace(player));
+        data.add("to", describeDestination(move.dim(), new double[] { move.x(), move.y(), move.z() }));
+        logTeleportLine(session, player, data);
+    }
+
+    /**
+     * Log a {@code teleport} line of type {@code COMMAND} for a player that a command has moved already, from the place
+     * {@code from} read before the command to the player's place now. The members of {@code extra} come after the type.
+     */
+    public static void logMovedTeleport(EntityPlayerMP player, JsonObject from, JsonObject extra) {
+        final SessionManager session = GtnhSpeedrunAudit.session();
+        if (session == null) {
+            return;
+        }
+        final JsonObject data = new JsonObject();
+        data.addProperty("type", "COMMAND");
+        for (Map.Entry<String, JsonElement> member : extra.entrySet()) {
+            data.add(member.getKey(), member.getValue());
+        }
+        data.addProperty("warmupSeconds", 0);
+        data.add("from", from);
+        data.add("to", describeDestination(player.dimension, new double[] { player.posX, player.posY, player.posZ }));
+        logTeleportLine(session, player, data);
+    }
+
+    private static JsonObject describeDestination(int dim, double[] feet) {
+        final JsonObject destination = new JsonObject();
+        destination.addProperty("dim", dim);
+        final JsonArray position = new JsonArray();
+        for (double coordinate : feet) {
+            position.add(new JsonPrimitive(PlayerPlace.roundToTenth(coordinate)));
+        }
+        destination.add("pos", position);
+        return destination;
+    }
+
+    /** Write the line with the player's uuid and name first, so the field order is the same for every type. */
+    private static void logTeleportLine(SessionManager session, EntityPlayerMP player, JsonObject fields) {
         final JsonObject data = new JsonObject();
         data.addProperty(
             "uuid",
@@ -43,17 +87,9 @@ public final class TeleportSinks {
                 .getId()
                 .toString());
         data.addProperty("name", player.getCommandSenderName());
-        data.addProperty("type", move.type());
-        data.addProperty("warmupSeconds", move.warmupSeconds());
-        data.add("from", PlayerPlace.describePlace(player));
-        final JsonObject destination = new JsonObject();
-        destination.addProperty("dim", move.dim());
-        final JsonArray position = new JsonArray();
-        position.add(new JsonPrimitive(PlayerPlace.roundToTenth(move.x())));
-        position.add(new JsonPrimitive(PlayerPlace.roundToTenth(move.y())));
-        position.add(new JsonPrimitive(PlayerPlace.roundToTenth(move.z())));
-        destination.add("pos", position);
-        data.add("to", destination);
+        for (Map.Entry<String, JsonElement> member : fields.entrySet()) {
+            data.add(member.getKey(), member.getValue());
+        }
         session.logger()
             .log("teleport", data);
     }

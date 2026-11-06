@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -22,7 +23,10 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.NetHandlerPlayServer;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.management.ServerConfigurationManager;
 import net.minecraft.stats.AchievementList;
+import net.minecraft.tileentity.TileEntityChest;
+import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.EntityDamageSource;
@@ -52,13 +56,19 @@ import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.harness.Ae2Fixture;
 import com.gtnhspeedrun.audit.harness.FormationSideCheck;
 import com.gtnhspeedrun.audit.harness.NbtEditDrill;
+import com.gtnhspeedrun.audit.harness.NeiDrill;
+import com.gtnhspeedrun.audit.harness.PowerUseDrill;
+import com.gtnhspeedrun.audit.harness.ProspectDrill;
 import com.gtnhspeedrun.audit.harness.QuestEditDrill;
 import com.gtnhspeedrun.audit.harness.TecTechFixture;
 import com.gtnhspeedrun.audit.harness.TeleportDrill;
 import com.gtnhspeedrun.audit.harness.WorldEditFixture;
 import com.gtnhspeedrun.audit.harness.WorldPos;
 import com.gtnhspeedrun.audit.snapshot.Ae2CensusFailures;
+import com.gtnhspeedrun.audit.snapshot.PlayerPlace;
 import com.gtnhspeedrun.audit.trackers.ClientModLists;
+import com.gtnhspeedrun.audit.trackers.CommandsAllowedTracker;
+import com.gtnhspeedrun.audit.trackers.ContainerSessions;
 import com.gtnhspeedrun.audit.trackers.FormationGuard;
 import com.gtnhspeedrun.audit.trackers.GtFormationLogger;
 import com.gtnhspeedrun.audit.trackers.InventoryChanges;
@@ -72,8 +82,10 @@ import com.gtnhspeedrun.audit.trackers.MultiblockPower;
 import com.gtnhspeedrun.audit.trackers.MultiblockSinks;
 import com.gtnhspeedrun.audit.trackers.NbtEdit;
 import com.gtnhspeedrun.audit.trackers.NeiSinks;
+import com.gtnhspeedrun.audit.trackers.ProspectSinks;
 import com.mojang.authlib.GameProfile;
 
+import cpw.mods.fml.common.ObfuscationReflectionHelper;
 import cpw.mods.fml.common.eventhandler.EventBus;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -92,7 +104,12 @@ public final class Scenario {
     public static final float ALICE_RAW_YAW = 560.0F;
     public static final double ALICE_YAW = -160.0;
     public static final float ALICE_PITCH = 30.0F;
+    public static final String PROSPECT_LINE_KEY = "selftest.prospect.line";
     private static final double ALICE_SAMPLE_MOVE_BLOCKS = 2.0;
+    private static final int POWER_USE_FURNACE_DX = 16;
+    private static final int WARM_UP_DRAINS = 3_000;
+    private static final int MEASURED_DRAINS = 1_000;
+    private static final int POWER_USE_FURNACE_DZ = 14;
 
     private final MinecraftServer server;
     private final SessionManager session;
@@ -109,13 +126,22 @@ public final class Scenario {
     private EntityPlayerMP bob;
     private long onlineTicksAtLogout = -1;
     private long ticksAtLogout = -1;
+    private String powerUseFurnaceType;
+    private long powerUseDrains;
+    private String powerUseTransformerType;
     /** The Active Transformer's live {direction, rotation, flip}, read at step 30. */
     private String[] tecTechFacing;
+    private boolean neiDrillRan;
+    private TileEntityChest containerFixture;
+    private boolean prospectDrillRan;
     /** The before and after hashes of the live /nbtedit drill, or null without ServerUtilities. */
     private String[] nbtEditHashes;
     private long nbtEditFloodMs = -1;
     private long questEditFloodMs = -1;
     private boolean questEditFloodByOp;
+    /** The feet positions {x, y, z} of alice before and after the vanilla /tp teleport. */
+    private double[] commandTeleportFrom;
+    private double[] commandTeleportFeet;
     /** The feet positions {x, y, z} of the /home and /tpl drill teleports, or null without ServerUtilities. */
     private double[][] teleportFeet;
     /**
@@ -225,6 +251,7 @@ public final class Scenario {
                 placeAe2GridHost(overworld);
                 seedPowerCensus(overworld, alice);
                 buildTecTechMulti(overworld, alice);
+                placePowerUseFurnace(overworld, alice);
                 logCrusherFormation(overworld, alice);
                 removeGtHulls(overworld, alice);
             }
@@ -252,11 +279,16 @@ public final class Scenario {
                 overworld.difficultySetting = EnumDifficulty.PEACEFUL;
                 // a ServerUtilities backup and /save-off set this flag
                 overworld.levelSaving = true;
+                // Open to LAN with "Allow Cheats" does both. The server is dedicated, so do the parts here. The setter
+                // is client-only, so set the field. Step 6 calls setCommandsAllowedForAll(false)
+                setCommandsAllowedForAll(true);
+                CommandsAllowedTracker.reportLanOpen("survival", true, "25565");
             }
             case 6 -> {
                 alice.setPosition(alice.posX - ALICE_SAMPLE_MOVE_BLOCKS, alice.posY, alice.posZ);
                 overworld.difficultySetting = EnumDifficulty.NORMAL;
                 overworld.levelSaving = false;
+                setCommandsAllowedForAll(false);
                 server.getCommandManager()
                     .executeCommand(server, "gamerule doFireTick true");
                 // /trash_can's chest: open the chest with something inside, then close the chest next step
@@ -373,6 +405,19 @@ public final class Scenario {
                     .written("deadbeef", null)
                     .before("cafebabe", JsonUtil.nbtToB64(beforeEdit))
                     .log();
+                // the NEI mixins, through NEI's server code. The drill runs only on a pack server
+                neiDrillRan = NeiDrill.runCheats(alice, fixturePos(overworld, offset(-4, 0, 12)));
+                // prospect: a tool use with chat output, logged at the use's end. On a pack server, also a scanner map
+                // with the map's VisualProspecting results. Step 9 calls reportVisualProspecting() with no open use
+                ProspectSinks.beginToolUse(
+                    alice,
+                    new ProspectSinks.Tool("selftest", null),
+                    new ProspectSinks.Place(overworld, 1, 2, 3));
+                // with Hodgepodge installed, FakePlayer has an empty addChatMessage(), and a fake player's chat never
+                // reaches the chat mixin. Pass the line to the sink as the mixin does
+                ProspectSinks.captureLine(alice, new ChatComponentTranslation(PROSPECT_LINE_KEY));
+                ProspectSinks.endToolUse();
+                prospectDrillRan = ProspectDrill.sendScan(alice);
                 // the mixin itself, through the packet handler of ServerUtilities. The drill runs only on a pack
                 // server
                 nbtEditHashes = NbtEditDrill.editChest(alice, fixturePos(overworld, offset(5, 0, 0)));
@@ -419,8 +464,26 @@ public final class Scenario {
                 final Object key = new Object();
                 ClientModLists.storeClientModList(key, fakeMods);
                 checks.check("client modlist round-trip", fakeMods.equals(ClientModLists.readClientMods(key)), null);
+                openContainerFixture(overworld);
             }
             case 9 -> {
+                closeContainerFixture();
+                // a scan with no open use, logged at the end of the tick
+                ProspectSinks.reportVisualProspecting(alice, new JsonArray(), new JsonArray());
+                // a command teleport: vanilla /tp from the console. A coordinate with a decimal point is not moved to
+                // the block centre
+                commandTeleportFrom = new double[] { PlayerPlace.roundToTenth(alice.posX),
+                    PlayerPlace.roundToTenth(alice.posY), PlayerPlace.roundToTenth(alice.posZ) };
+                commandTeleportFeet = new double[] { offsetX(0) + 0.5, offsetY(1), offsetZ(9) + 0.5 };
+                server.getCommandManager()
+                    .executeCommand(
+                        server,
+                        String.format(
+                            Locale.ROOT,
+                            "tp SelfTestAlice %.1f %.1f %.1f",
+                            commandTeleportFeet[0],
+                            commandTeleportFeet[1],
+                            commandTeleportFeet[2]));
                 // the teleport mixins, through a real TeleportTask and /tpl of ServerUtilities. The drill runs only on
                 // a pack server. Alice's leave snapshot is then at the /tpl spot
                 teleportFeet = TeleportDrill
@@ -437,9 +500,17 @@ public final class Scenario {
                     .get();
             }
             // steps 10 to 29 wait for the TecTech start-up structure check. The check runs about 100 ticks after
-            // step 3 places the controller
+            // step 3 places the controller. The hatch is drained in these steps too, so the drain path is JIT-compiled
+            // before the allocation measure of step 32
+            case 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29 -> drainThroughTecTechMulti(
+                overworld,
+                WARM_UP_DRAINS,
+                false);
             case 30 -> recheckTecTechMulti(overworld);
             case 31 -> rotateTecTechMulti(overworld);
+            case 32 -> drainThroughTecTechMulti(overworld, MEASURED_DRAINS, true);
+            // power_use: the furnace's recipe and the drains of step 32, in the interval since step 4
+            case 33 -> session.runSnapshotHooks();
             case 34 -> {
                 checks.check(
                     "pticks frozen after logout",
@@ -557,7 +628,11 @@ public final class Scenario {
         final String problem = TecTechFixture.build(player, fixturePos(world, offset(8, 0, 8)));
         if (problem != null) {
             checks.check("tectech multiblock built", false, problem);
+            return;
         }
+        // power_use: a running transformer moves hatch EU into the controller's buffer and starts a routing recipe
+        final String repairProblem = PowerUseDrill.repairController(fixturePos(world, offset(8, 0, 8)));
+        checks.check("tectech multiblock repaired", repairProblem == null, repairProblem);
     }
 
     /**
@@ -767,6 +842,53 @@ public final class Scenario {
         InvseeViews.countClick(abandoned, true);
     }
 
+    /** Give power_use a single-block consumer: an LV Electric Furnace with cobblestone to smelt. */
+    private void placePowerUseFurnace(WorldServer world, EntityPlayerMP player) {
+        if (!Compat.GT5.isLoaded()) {
+            return;
+        }
+        final WorldPos furnacePos = fixturePos(world, offset(POWER_USE_FURNACE_DX, 6, POWER_USE_FURNACE_DZ));
+        final String problem = PowerUseDrill.placeFurnace(player, furnacePos);
+        checks.check("power_use furnace placed", problem == null, problem);
+        powerUseFurnaceType = PowerUseDrill.readTypeKey(furnacePos);
+    }
+
+    /**
+     * Drain the Active Transformer's energy hatch {@code drains} times in tick frames of the transformer's controller.
+     * The controller's power_use entry must have the drained EU and no more: in each tick, the transformer moves hatch
+     * EU into the controller's buffer and consumes nothing. With {@code measured}, the drains must allocate nothing.
+     */
+    private void drainThroughTecTechMulti(WorldServer world, int drains, boolean measured) {
+        if (!Compat.GT5.isLoaded()) {
+            return;
+        }
+        final int[] hatch = TecTechFixture.hatchPosition;
+        if (hatch == null) {
+            if (measured) {
+                checks.check("power_use drill through the active transformer", false, "no energy hatch placed");
+            }
+            return;
+        }
+        final WorldPos controllerPos = fixturePos(world, offset(8, 0, 8));
+        final WorldPos hatchPos = new WorldPos(world, hatch[0], hatch[1], hatch[2]);
+        final PowerUseDrill.DrainResult result = PowerUseDrill.drainThroughController(controllerPos, hatchPos, drains);
+        if (result.problem() == null) {
+            powerUseDrains += drains;
+        }
+        if (!measured) {
+            return;
+        }
+        checks.check("power_use drill through the active transformer", result.problem() == null, result.problem());
+        final String startProblem = PowerUseDrill.startController(controllerPos);
+        checks.check("tectech multiblock switched on", startProblem == null, startProblem);
+        // -1: this JVM has no allocation counter
+        checks.check(
+            "power_use drains allocate nothing",
+            result.allocatedBytes() >= -1 && result.allocatedBytes() < drains,
+            "bytes=" + result.allocatedBytes() + " drains=" + drains);
+        powerUseTransformerType = PowerUseDrill.readTypeKey(controllerPos);
+    }
+
     /** Force a re-check of the formed Active Transformer and read the facing. The footprint is unchanged. */
     private void recheckTecTechMulti(WorldServer world) {
         if (!Compat.GT5.isLoaded()) {
@@ -775,6 +897,36 @@ public final class Scenario {
         final String problem = TecTechFixture.recheck(fixturePos(world, offset(8, 0, 8)));
         checks.check("tectech multiblock re-checked", problem == null, problem);
         tecTechFacing = TecTechFixture.readFacing(fixturePos(world, offset(8, 0, 8)));
+    }
+
+    private void setCommandsAllowedForAll(boolean allowed) {
+        ObfuscationReflectionHelper.setPrivateValue(
+            ServerConfigurationManager.class,
+            server.getConfigurationManager(),
+            allowed,
+            "commandsAllowedForAll",
+            "field_72407_n");
+    }
+
+    /**
+     * Open a chest with an emerald as alice, then log one click in the chest through the click sink, as for a creative
+     * player: a stick put into slot 1. {@link #closeContainerFixture} takes the emerald and closes the chest.
+     */
+    private void openContainerFixture(WorldServer world) {
+        world.setBlock(offsetX(-6), offsetY(0), offsetZ(12), Blocks.chest);
+        containerFixture = (TileEntityChest) world.getTileEntity(offsetX(-6), offsetY(0), offsetZ(12));
+        containerFixture.setInventorySlotContents(0, new ItemStack(Items.emerald));
+        alice.openContainer = new ContainerChest(alice.inventory, containerFixture);
+        bus.post(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, alice));
+        ContainerSessions.clickHead(alice);
+        containerFixture.setInventorySlotContents(1, new ItemStack(Items.stick));
+        ContainerSessions.clickReturn(alice, new ContainerSessions.Click(1, 0, 0));
+    }
+
+    private void closeContainerFixture() {
+        alice.inventory.addItemStackToInventory(containerFixture.decrStackSize(0, 1));
+        alice.openContainer = alice.inventoryContainer;
+        bus.post(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, alice));
     }
 
     /**
@@ -791,6 +943,34 @@ public final class Scenario {
 
     public String[] getTecTechFacing() {
         return tecTechFacing;
+    }
+
+    public boolean hasProspectDrillRun() {
+        return prospectDrillRan;
+    }
+
+    public boolean hasNeiDrillRun() {
+        return neiDrillRan;
+    }
+
+    /** Return the power_use machine type of the furnace fixture, or null without GT. */
+    public String getPowerUseFurnaceType() {
+        return powerUseFurnaceType;
+    }
+
+    /** Return how many times the drill drained the Active Transformer's hatch. */
+    public long getPowerUseDrains() {
+        return powerUseDrains;
+    }
+
+    /** Return the power_use machine type of the Active Transformer, or null before step 32 or without GT. */
+    public String getPowerUseTransformerType() {
+        return powerUseTransformerType;
+    }
+
+    /** Return the Active Transformer controller's position {x, y, z}. */
+    public int[] readTecTechControllerPosition() {
+        return new int[] { offsetX(8), offsetY(0), offsetZ(8) };
     }
 
     public String[] getNbtEditHashes() {
@@ -810,6 +990,14 @@ public final class Scenario {
     /** Return whether the sender of the forged quest edits is an op, whose edits are never limited. */
     public boolean isQuestEditFloodByOp() {
         return questEditFloodByOp;
+    }
+
+    public double[] getCommandTeleportFrom() {
+        return commandTeleportFrom;
+    }
+
+    public double[] getCommandTeleportFeet() {
+        return commandTeleportFeet;
     }
 
     public double[][] getTeleportFeet() {

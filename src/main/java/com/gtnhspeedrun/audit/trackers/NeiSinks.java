@@ -6,6 +6,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 
 import org.jetbrains.annotations.Nullable;
@@ -16,6 +18,7 @@ import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
 import com.gtnhspeedrun.audit.core.AttemptLimiter;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.snapshot.ItemKey;
+import com.gtnhspeedrun.audit.snapshot.StackJson;
 
 /**
  * Log the NEI packets and the decoded NEI cheat actions that the NEI mixins report.
@@ -29,8 +32,54 @@ public final class NeiSinks {
     // static: the mixins call these sinks with no instance. The cached reflection results stay valid for the
     // JVM's lifetime.
     private static volatile Map<Integer, String> neiPacketNames;
+    // static: handlePacket() runs on one thread for each packet, and the mixins have no instance to pass the sender
+    // through
+    private static final ThreadLocal<EntityPlayerMP> PACKET_SENDER = new ThreadLocal<>();
 
     private NeiSinks() {}
+
+    /**
+     * Call at the head of {@code NEISPH.handlePacket}, with {@link #endPacket} at the return. An {@code nei_cheat} line
+     * logged in between, from an NEI method that gets no player, has the sender's uuid and name.
+     */
+    public static void beginPacket(EntityPlayerMP sender) {
+        PACKET_SENDER.set(sender);
+    }
+
+    public static void endPacket() {
+        PACKET_SENDER.remove();
+    }
+
+    /**
+     * Log an NEI ghost-slot write ({@code SET_DUMMY_SLOT}): the stack the client sent, the slot's stack before the
+     * write, and the classes of the slot and of the sender's open container. Call just before the write.
+     */
+    public static void logDummySlot(Slot slot, @Nullable ItemStack stack) {
+        final JsonObject extra = new JsonObject();
+        extra.addProperty("slot", slot.slotNumber);
+        extra.addProperty(
+            "slotClass",
+            slot.getClass()
+                .getName());
+        final EntityPlayerMP sender = PACKET_SENDER.get();
+        if (sender != null) {
+            extra.addProperty(
+                "container",
+                sender.openContainer.getClass()
+                    .getName());
+        }
+        final JsonObject previous = StackJson.toJson(slot.getStack());
+        if (previous != null) {
+            extra.add("previous", previous);
+        }
+        if (stack != null && stack.hasTagCompound()) {
+            extra.add("stack", StackJson.toJson(stack));
+        }
+        NeiCheat.of("set_dummy_slot")
+            .item(stack)
+            .extra(extra)
+            .log();
+    }
 
     /**
      * Call at the head of {@code NEISPH.handlePacket}. The head runs before authentication, so a denied packet is
@@ -77,9 +126,9 @@ public final class NeiSinks {
     }
 
     /**
-     * Build an {@code nei_cheat} line: a decoded cheat action of {@code NEIServerUtils}, with the detail that the
-     * {@code nei_packet} line lacks. For a cheat with no player, such as NEI's time change, the line has a null
-     * {@code uuid} and {@code name}.
+     * Build an {@code nei_cheat} line: a decoded cheat action of NEI, with the detail that the {@code nei_packet} line
+     * lacks. A cheat with no player, such as NEI's time change, gets the sender of the NEI packet being handled.
+     * Outside a packet, the line has a null {@code uuid} and {@code name}.
      */
     public static final class NeiCheat {
 
@@ -140,6 +189,10 @@ public final class NeiSinks {
             final SessionManager session = GtnhSpeedrunAudit.session();
             if (session == null) {
                 return;
+            }
+            final EntityPlayerMP sender = PACKET_SENDER.get();
+            if (uuid == null && sender != null) {
+                player(sender);
             }
             final JsonObject data = new JsonObject();
             data.addProperty("action", action);
