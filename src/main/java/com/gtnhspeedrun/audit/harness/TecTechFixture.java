@@ -158,10 +158,9 @@ public final class TecTechFixture {
             return "no StructureLib GT multiblock at the controller, got " + te;
         }
         final ExtendedFacing before = alignment.getExtendedFacing();
+        // In GT 5.09.54.205 (2.9.0-RC-2), `setExtendedFacing()` sets `mMachine` to false. In GT 5.09.54.265 (2.9.0),
+        // `mMachine` stays true until the next structure check.
         alignment.setExtendedFacing(ExtendedFacing.of(before.getDirection(), Rotation.CLOCKWISE, before.getFlip()));
-        if (multi.mMachine) {
-            return "still formed after the rotation";
-        }
         return multi.checkStructure(true, base) ? null : "did not re-form after the rotation";
     }
 
