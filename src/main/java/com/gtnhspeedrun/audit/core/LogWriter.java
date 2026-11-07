@@ -33,7 +33,8 @@ import com.google.gson.JsonObject;
  */
 public final class LogWriter implements Runnable {
 
-    // the longest time between two channel.force() calls while lines arrive. An isUrgent() line is forced at once
+    // a written line waits at most this long, plus one 1 s queue poll, for channel.force(). An isUrgent() line is
+    // forced as soon as the queue is empty
     private static final long FORCE_INTERVAL_MS = 5000;
     // the writer starts a new part of the log file at this size. The chain continues across the parts
     private static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
@@ -50,6 +51,8 @@ public final class LogWriter implements Runnable {
     private FileChannel channel;
     private Writer writer;
     private long lastForceMs;
+    private boolean hasUnforcedWrite;
+    private boolean hasUnforcedUrgentLine;
     private long bytesWritten;
     private int partIndex = 1;
 
@@ -132,9 +135,10 @@ public final class LogWriter implements Runnable {
     }
 
     /**
-     * Wait until the writer has finished every job submitted before the call, the writer is dead, or {@code timeoutMs}
-     * passes. Return whether every such job is finished. After a true return, {@link #publishedSeq()} includes the last
-     * of those jobs.
+     * Wait until the writer has written every job submitted before the call, the writer is dead, or {@code timeoutMs}
+     * passes. Return whether every such job is written. After a true return, {@link #publishedSeq()} includes the last
+     * of those jobs. The call doesn't wait for {@code channel.force()}: on a disk with slow fsync, one force takes
+     * hundreds of milliseconds.
      */
     public boolean drain(long timeoutMs) {
         final long POLL_MS = 20;
@@ -181,9 +185,8 @@ public final class LogWriter implements Runnable {
                     writeSnapshot(snapshot);
                     finishedJobs++;
                     reportDroppedJobs(snapshot.clocks());
-                } else if (job == null) {
-                    maybeForce(false);
                 }
+                forceIfDue();
             }
             finish();
         } catch (IOException | InterruptedException failure) {
@@ -239,7 +242,8 @@ public final class LogWriter implements Runnable {
         publishedSeq = seq;
         seq++;
 
-        maybeForce(isUrgent(event.type()));
+        hasUnforcedWrite = true;
+        hasUnforcedUrgentLine |= isUrgent(event.type());
         rollIfNeeded();
     }
 
@@ -303,13 +307,21 @@ public final class LogWriter implements Runnable {
             || type.equals("world_saved");
     }
 
-    private void maybeForce(boolean urgent) throws IOException {
+    /**
+     * Force the written lines to disk once the queue is empty after an urgent line, or once {@code FORCE_INTERVAL_MS}
+     * has passed since the last force. A burst of urgent lines gets one force, after the burst.
+     */
+    private void forceIfDue() throws IOException {
         final long now = System.currentTimeMillis();
-        if (urgent || now - lastForceMs > FORCE_INTERVAL_MS) {
-            writer.flush();
-            channel.force(false);
-            lastForceMs = now;
+        final boolean urgentDue = hasUnforcedUrgentLine && queue.isEmpty();
+        if (!(hasUnforcedWrite && (urgentDue || now - lastForceMs > FORCE_INTERVAL_MS))) {
+            return;
         }
+        writer.flush();
+        channel.force(false);
+        lastForceMs = now;
+        hasUnforcedWrite = false;
+        hasUnforcedUrgentLine = false;
     }
 
     // writer thread only

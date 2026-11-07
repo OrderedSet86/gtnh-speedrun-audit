@@ -401,7 +401,9 @@ public final class SessionManager {
      * timeout, the anchor is published with the lines written so far.
      */
     public void syncAnchorBeforeSave() {
-        final long DRAIN_TIMEOUT_MS = 1_000;
+        // the server thread waits here at every overworld save. A snapshot job on the writer thread can outlast the
+        // wait. The anchor then trails the log by the lines queued behind the job
+        final long DRAIN_TIMEOUT_MS = 50;
         if (anchor == null) {
             return;
         }
