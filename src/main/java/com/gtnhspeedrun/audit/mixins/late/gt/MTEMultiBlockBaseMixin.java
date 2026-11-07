@@ -205,13 +205,19 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
         final IGregTechTileEntity base = self.getBaseMetaTileEntity();
         final MachineSite site = GtMachineSites.readSite(self);
         final MultiblockFootprint footprint = audit$footprint(base, site);
-        audit$encodeExtents(base, site, footprint);
-        final String logged = MultiblockSinks.logGtMultiblockFormed(
-            audit$loggedFormation,
-            new MultiblockSinks.GtFormation(site, audit$power(), footprint));
-        if (logged == null || logged.equals(audit$loggedFormation)) {
+        final MultiblockPower power = audit$power();
+        if (!MultiblockSinks.isNewGtFormation(audit$loggedFormation, power)) {
             // an unchanged formation, such as the first check after a restart, can still have a new footprint
             audit$logFootprintChange(site, base, footprint);
+            return;
+        }
+        // after a chunk loads, GT waits for 100 ticks and then checks the structure of each controller in the chunk.
+        // After a restart, every loaded controller is checked in the same tick. Read the blocks of the footprint only
+        // for a formation that is logged
+        audit$encodeExtents(base, site, footprint);
+        final String logged = MultiblockSinks
+            .logGtMultiblockFormed(audit$loggedFormation, new MultiblockSinks.GtFormation(site, power, footprint));
+        if (logged == null || logged.equals(audit$loggedFormation)) {
             return;
         }
         audit$loggedFormation = logged;

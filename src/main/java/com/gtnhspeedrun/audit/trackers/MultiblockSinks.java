@@ -56,6 +56,15 @@ public final class MultiblockSinks {
     }
 
     /**
+     * Return whether {@link #logGtMultiblockFormed} would log a formation with {@code power}: a session is logging, and
+     * the marker of {@code power} differs from {@code loggedMarker}.
+     */
+    public static boolean isNewGtFormation(@Nullable String loggedMarker, MultiblockPower power) {
+        return GtnhSpeedrunAudit.session() != null && !power.dedupeSuffix()
+            .equals(loggedMarker);
+    }
+
+    /**
      * Log a GT multiblock formation, deduped by a marker saved in the controller's NBT. The formation is logged once,
      * and again only when the hatch tiers, the amperages, or the coil or structure tiers change.
      *
