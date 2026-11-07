@@ -30,6 +30,20 @@
         "/home/order/Downloads/archive-2026-10-06T104219-0400/report"
       ],
       "port": 8766
+    },
+    {
+      "name": "eohdrill-report",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8771",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/home/order/Dropbox/OrderedSetCode/cloned-gtnh/gtnh-speedrun-audit/run/eohdrill/report"
+      ],
+      "port": 8771
     }
   ]
 }

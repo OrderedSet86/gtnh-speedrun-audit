@@ -26,6 +26,7 @@ import com.gtnhspeedrun.audit.compat.WorldEditAudit;
 import com.gtnhspeedrun.audit.core.ClientThreadGate;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.harness.Ae2Bench;
+import com.gtnhspeedrun.audit.harness.EyeOfHarmonyDrill;
 import com.gtnhspeedrun.audit.harness.StructureBench;
 import com.gtnhspeedrun.audit.selftest.SelfTest;
 import com.gtnhspeedrun.audit.snapshot.Ae2Snapshotter;
@@ -232,6 +233,12 @@ public class GtnhSpeedrunAudit {
                     LOG.warn(
                         "STRUCTURE BENCH MODE ACTIVE — this server run times structure checks and then shuts down");
                     onFmlBus(new StructureBench(event.getServer(), Paths.get(structureBenchDir)));
+                }
+                final String eyeOfHarmonyCount = System.getProperty(EyeOfHarmonyDrill.PROPERTY);
+                if (eyeOfHarmonyCount != null && !eyeOfHarmonyCount.isEmpty()) {
+                    LOG.warn(
+                        "EYE OF HARMONY DRILL ACTIVE — this server run builds Eyes of Harmony and then shuts down");
+                    onFmlBus(new EyeOfHarmonyDrill(event.getServer(), Integer.parseInt(eyeOfHarmonyCount)));
                 }
                 final GtWirelessAudit wireless = new GtWirelessAudit(sm.logger());
                 onForgeBus(wireless); // CommandEvent
