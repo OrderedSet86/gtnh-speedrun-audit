@@ -66,7 +66,8 @@ public final class WorldEditFixture {
                 new BaseBlock(Block.getIdFromBlock(Blocks.chest), 0, new CompoundTag(chest)));
             session.flushQueue();
             return null;
-        } catch (WorldEditException | RuntimeException e) { // noqa: NAR142, degrade and report over WorldEdit edit code
+        } catch (WorldEditException | RuntimeException e) {
+            // degrade and report over WorldEdit edit code
             return String.valueOf(e);
         }
     }

@@ -25,18 +25,18 @@ public class ParticipantInfoMixin {
 
     @Shadow
     @Final
-    public EntityPlayer PLAYER; // noqa: NAR130
+    public EntityPlayer PLAYER;
 
     @Shadow
     @Final
-    public UUID UUID; // noqa: NAR130
+    public UUID UUID;
 
     @Shadow
     @Final
-    public List<UUID> ACTIVE_UUIDS; // noqa: NAR130
+    public List<UUID> ACTIVE_UUIDS;
 
     @Inject(method = "<init>", at = @At("RETURN"), require = 1)
-    private void audit$built(EntityPlayer player, CallbackInfo ci) { // noqa: NAR130
+    private void audit$built(EntityPlayer player, CallbackInfo ci) {
         BqActor.noteParticipant(PLAYER, UUID, ACTIVE_UUIDS);
     }
 }

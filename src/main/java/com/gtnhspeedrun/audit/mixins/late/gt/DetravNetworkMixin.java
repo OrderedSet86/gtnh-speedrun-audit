@@ -24,7 +24,7 @@ import detrav.net.ProspectingPacket;
 public class DetravNetworkMixin {
 
     @Inject(method = "sendToPlayer", at = @At("HEAD"), require = 1)
-    private void audit$sendToPlayer(DetravPacket packet, EntityPlayerMP player, CallbackInfo ci) { // noqa: NAR130
+    private void audit$sendToPlayer(DetravPacket packet, EntityPlayerMP player, CallbackInfo ci) {
         if (!(packet instanceof ProspectingPacket scan)) {
             return;
         }

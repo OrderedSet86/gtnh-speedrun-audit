@@ -25,9 +25,8 @@ public class BehaviourProspectingMixin {
 
     /** Opens a prospecting use for the click, on the server. */
     @Inject(method = ON_ITEM_USE_FIRST, at = @At("HEAD"), require = 1)
-    private void audit$beginUse(MetaBaseItem item, ItemStack stack, EntityPlayer player, // noqa: NAR130, NAR131
-        World world, int x, int y, int z, ForgeDirection side, float hitX, float hitY, float hitZ,
-        CallbackInfoReturnable<Boolean> cir) {
+    private void audit$beginUse(MetaBaseItem item, ItemStack stack, EntityPlayer player, World world, int x, int y,
+        int z, ForgeDirection side, float hitX, float hitY, float hitZ, CallbackInfoReturnable<Boolean> cir) {
         if (!world.isRemote) {
             ProspectSinks.beginToolUse(
                 player,
@@ -38,9 +37,8 @@ public class BehaviourProspectingMixin {
 
     /** Ends the prospecting use of the click, on the server. */
     @Inject(method = ON_ITEM_USE_FIRST, at = @At("RETURN"), require = 1)
-    private void audit$endUse(MetaBaseItem item, ItemStack stack, EntityPlayer player, // noqa: NAR130, NAR131
-        World world, int x, int y, int z, ForgeDirection side, float hitX, float hitY, float hitZ,
-        CallbackInfoReturnable<Boolean> cir) {
+    private void audit$endUse(MetaBaseItem item, ItemStack stack, EntityPlayer player, World world, int x, int y, int z,
+        ForgeDirection side, float hitX, float hitY, float hitZ, CallbackInfoReturnable<Boolean> cir) {
         if (!world.isRemote) {
             ProspectSinks.endToolUse();
         }

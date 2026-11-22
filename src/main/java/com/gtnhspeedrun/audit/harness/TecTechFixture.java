@@ -65,8 +65,8 @@ public final class TecTechFixture {
             multi.getClass()
                 .getMethod("construct", ItemStack.class, boolean.class)
                 .invoke(multi, controller, false);
-        } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, degrade and report over
-                                                                      // reflection into GT code
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // degrade and report over reflection into GT code
             return "construct failed: " + e;
         }
         final int SEARCH_RADIUS = 2;

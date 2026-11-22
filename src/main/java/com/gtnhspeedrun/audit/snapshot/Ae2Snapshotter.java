@@ -122,9 +122,9 @@ public final class Ae2Snapshotter {
             for (Grid grid : TickHandler.INSTANCE.getGridList()) {
                 grids.add(grid);
             }
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over AE2 grid code
-            // the AE2 tick handler has no grid list yet, or the AE2 API changed. No grid can be read, so the whole
-            // census fails
+        } catch (RuntimeException | LinkageError e) {
+            // Degrade and report over AE2 grid code. When the AE2 tick handler doesn't have a grid list yet, or the AE2
+            // API changed, the census can't read a grid, and the whole census fails.
             failures.add(
                 Ae2CensusFailures
                     .logAe2CensusFailure(new Ae2CensusFailures.Ae2CensusFailure(censusIndex, "grid list", null, e)));
@@ -143,8 +143,8 @@ public final class Ae2Snapshotter {
                 } else {
                     written.add(census);
                 }
-            } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over AE2 grid code
-                // one broken grid must not stop the census of the other grids
+            } catch (RuntimeException | LinkageError e) {
+                // Degrade and report over AE2 grid code. One broken grid must not stop the census of the other grids.
                 failures.add(
                     Ae2CensusFailures
                         .logAe2CensusFailure(new Ae2CensusFailures.Ae2CensusFailure(censusIndex, "grid", id, e)));
@@ -165,8 +165,8 @@ public final class Ae2Snapshotter {
             try {
                 getMyStorage = Grid.class.getDeclaredMethod("getMyStorage");
                 getMyStorage.setAccessible(true);
-            } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, degrade and report over
-                                                                          // reflection into AE2 code
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                // degrade and report over reflection into AE2 code
                 reflectionFailed = true;
             }
         }
@@ -176,9 +176,8 @@ public final class Ae2Snapshotter {
                 if (storage instanceof GridStorage gridStorage) {
                     return String.valueOf(gridStorage.getID());
                 }
-            } catch (ReflectiveOperationException | RuntimeException ignored) { // noqa: NAR142, degrade and report over
-                                                                                // reflection into AE2 code
-                // fall through to the ephemeral id
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // Degrade and report over reflection into AE2 code. Fall through to the ephemeral id.
             }
         }
         // The ephemeral id lasts as long as the Grid object, and never past the session. While the Grid object lives,

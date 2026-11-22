@@ -51,23 +51,23 @@ public class InvseeContainerMixin implements InvseeViewHolder {
     private ForgePlayer otherPlayer;
 
     @Unique
-    private String audit$viewId; // noqa: NAR130
+    private String auditViewId;
 
     @Unique
-    private int audit$depth; // noqa: NAR130
+    private int audit$depth;
 
     @Unique
-    private int audit$clickTick; // noqa: NAR130
+    private int audit$clickTick;
 
     @Unique
-    private List<ItemStack> audit$before; // noqa: NAR130
+    private List<ItemStack> audit$before;
 
     @Unique
-    private ItemStack audit$cursorBefore; // noqa: NAR130
+    private ItemStack audit$cursorBefore;
 
     @Override
-    public String audit$viewId() {
-        return audit$viewId;
+    public String auditViewId() {
+        return auditViewId;
     }
 
     /**
@@ -76,18 +76,18 @@ public class InvseeContainerMixin implements InvseeViewHolder {
      * onContainerClosed(), so this hook ends the replaced view.
      */
     @Inject(method = "<init>", at = @At("RETURN"), require = 1)
-    private void audit$open(CallbackInfo ci) { // noqa: NAR130
+    private void audit$open(CallbackInfo ci) {
         final EntityPlayer viewer = ((ContainerBase) (Object) this).player;
         if (!(viewer != null && viewer.worldObj != null && !viewer.worldObj.isRemote)) {
             return;
         }
         if (viewer.openContainer instanceof InvseeViewHolder previous && previous != (Object) this) {
             InvseeViews.end(
-                previous.audit$viewId(),
+                previous.auditViewId(),
                 new InvseeViews.Party(viewer.getUniqueID(), viewer.getCommandSenderName()),
                 new InvseeViews.ViewEnd("replaced", null, otherPlayer != null && otherPlayer.isOnline()));
         }
-        audit$viewId = InvseeViews.open(
+        auditViewId = InvseeViews.open(
             new InvseeViews.Party(viewer.getUniqueID(), viewer.getCommandSenderName()),
             new InvseeViews.Party(
                 otherPlayer == null ? null : otherPlayer.getId(),
@@ -97,7 +97,7 @@ public class InvseeContainerMixin implements InvseeViewHolder {
 
     /** Copies every slot and the cursor stack before the outermost slotClick() of a click. */
     @Inject(method = { "slotClick", "func_75144_a" }, at = @At("HEAD"), require = 1)
-    private void audit$clickHead(int slotId, int button, int mode, EntityPlayer player, // noqa: NAR130, NAR131
+    private void audit$clickHead(int slotId, int button, int mode, EntityPlayer player,
         CallbackInfoReturnable<ItemStack> cir) {
         // a client in a remote world has no MinecraftServer
         final MinecraftServer server = MinecraftServer.getServer();
@@ -121,7 +121,7 @@ public class InvseeContainerMixin implements InvseeViewHolder {
      * click that changed no slot and not the cursor.
      */
     @Inject(method = { "slotClick", "func_75144_a" }, at = @At("RETURN"), require = 1)
-    private void audit$clickReturn(int slotId, int button, int mode, EntityPlayer player, // noqa: NAR130, NAR131
+    private void audit$clickReturn(int slotId, int button, int mode, EntityPlayer player,
         CallbackInfoReturnable<ItemStack> cir) {
         if (--audit$depth > 0 || player.worldObj.isRemote || audit$before == null) {
             return;
@@ -139,8 +139,8 @@ public class InvseeContainerMixin implements InvseeViewHolder {
                         .get("owner")
                         .getAsString());
             }
-            InvseeViews.countClick(audit$viewId, touchedTarget);
-            InventoryChanges.InvseeClick.of(audit$viewId, player)
+            InvseeViews.countClick(auditViewId, touchedTarget);
+            InventoryChanges.InvseeClick.of(auditViewId, player)
                 .target(
                     otherPlayer == null ? null : otherPlayer.getName(),
                     otherPlayer == null ? null : String.valueOf(otherPlayer.getId()),
@@ -155,12 +155,12 @@ public class InvseeContainerMixin implements InvseeViewHolder {
     }
 
     @Inject(method = { "onContainerClosed", "func_75134_a" }, at = @At("HEAD"), require = 1)
-    private void audit$close(EntityPlayer player, CallbackInfo ci) { // noqa: NAR130
+    private void audit$close(EntityPlayer player, CallbackInfo ci) {
         if (player.worldObj.isRemote) {
             return;
         }
         InvseeViews.end(
-            audit$viewId,
+            auditViewId,
             new InvseeViews.Party(player.getUniqueID(), player.getCommandSenderName()),
             new InvseeViews.ViewEnd(
                 "closed",

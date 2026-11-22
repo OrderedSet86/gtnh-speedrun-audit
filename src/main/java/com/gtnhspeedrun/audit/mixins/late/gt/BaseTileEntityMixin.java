@@ -21,7 +21,7 @@ import gregtech.api.metatileentity.BaseTileEntity;
 public class BaseTileEntityMixin {
 
     @Inject(method = "setToFire", at = @At("HEAD"), require = 1)
-    private void audit$burned(CallbackInfo ci) { // noqa: NAR130
+    private void audit$burned(CallbackInfo ci) {
         final TileEntity self = (TileEntity) (Object) this;
         if (!(self.getWorldObj() != null && !self.getWorldObj().isRemote)) {
             return;

@@ -74,7 +74,8 @@ public record ChainTail(int maxIndex, long seq, String hash, String sid, String 
         try {
             obj = new JsonParser().parse(new String(line, StandardCharsets.UTF_8))
                 .getAsJsonObject();
-        } catch (RuntimeException e) { // noqa: NAR142, Gson 2.2.4 throws several unchecked types for one bad line
+        } catch (RuntimeException e) {
+            // Gson 2.2.4 throws several unchecked types for one bad line
             return null;
         }
         final boolean isChainLine = JsonUtil.hasNumber(obj, "seq") && JsonUtil.hasString(obj, "sid")

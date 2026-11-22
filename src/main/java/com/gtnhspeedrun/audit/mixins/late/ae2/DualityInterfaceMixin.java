@@ -31,8 +31,8 @@ public class DualityInterfaceMixin {
 
     /** Logs each change of a slot of {@code patterns}, other than a {@code markDirty} operation. */
     @Inject(method = "onChangeInventory", at = @At("HEAD"), require = 1)
-    private void audit$patternChange(IInventory inventory, int slot, InvOperation operation, // noqa: NAR130, NAR131
-        ItemStack removed, ItemStack added, CallbackInfo ci) {
+    private void audit$patternChange(IInventory inventory, int slot, InvOperation operation, ItemStack removed,
+        ItemStack added, CallbackInfo ci) {
         if (!(inventory == patterns && operation != InvOperation.markDirty && (removed != null || added != null))) {
             return;
         }

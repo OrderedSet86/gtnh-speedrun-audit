@@ -46,7 +46,7 @@ public class MessageEditNBTResponseMixin {
 
     /** Logs the edit, with the hash and Base64 of the new NBT and of the target's current NBT. */
     @Inject(method = "onMessage", at = @At("HEAD"), require = 1)
-    private void audit$logEdit(EntityPlayerMP player, CallbackInfo ci) { // noqa: NAR130
+    private void audit$logEdit(EntityPlayerMP player, CallbackInfo ci) {
         if (!(info != null && mainNbt != null)) {
             return;
         }
@@ -80,12 +80,13 @@ public class MessageEditNBTResponseMixin {
     }
 
     /** Record the target's current NBT on {@code edit}, or the reason why there is none. */
-    private void audit$recordBefore(NbtEdit edit, EntityPlayerMP player, String type) { // noqa: NAR130
+    private void audit$recordBefore(NbtEdit edit, EntityPlayerMP player, String type) {
         Object before;
         try {
             before = audit$readBefore(player, type);
-        } catch (RuntimeException | LinkageError failure) { // noqa: NAR142, degrade over another mod's writeToNBT()
-            // the edit must go through even when the read of the current NBT fails
+        } catch (RuntimeException | LinkageError failure) {
+            // Degrade over another mod's writeToNBT(). The edit must go through even when the read of the current NBT
+            // fails.
             before = "error: " + failure;
         }
         if (before instanceof NBTTagCompound beforeNbt) {
@@ -97,7 +98,7 @@ public class MessageEditNBTResponseMixin {
     }
 
     /** Return whether the session logs this attempt. False without a session, or past the limit. */
-    private static boolean audit$tryLogAttempt(EntityPlayerMP player) { // noqa: NAR130
+    private static boolean audit$tryLogAttempt(EntityPlayerMP player) {
         final SessionManager session = GtnhSpeedrunAudit.session();
         return session != null && session.attempts()
             .tryLog(
@@ -112,7 +113,7 @@ public class MessageEditNBTResponseMixin {
      * Reads the target's current NBT, or returns the reason why there is none. The lookup is the lookup of onMessage(),
      * so no chunk is loaded.
      */
-    private Object audit$readBefore(EntityPlayerMP player, String type) { // noqa: NAR130
+    private Object audit$readBefore(EntityPlayerMP player, String type) {
         switch (type) {
             case "block" -> {
                 final int x = info.getInteger("x");

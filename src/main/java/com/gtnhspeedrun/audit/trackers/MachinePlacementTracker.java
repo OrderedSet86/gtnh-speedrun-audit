@@ -75,6 +75,7 @@ public final class MachinePlacementTracker {
     private final Set<String> watchedBlocks;
     private final String machineBlock;
     private final String manipulatorPrefix;
+    private final FacingReader facingReader;
     /** This tick's manipulator checks by spot. The first check of a spot has the block before the placement. */
     private final Map<BlockSpot, ManipulatorCheck> manipulatorChecks = new LinkedHashMap<>();
 
@@ -83,15 +84,14 @@ public final class MachinePlacementTracker {
      * {@link AuditConfig#watchedBlocks}, with blank entries skipped. A watched entry is {@code modid:name} for any
      * meta, or {@code modid:name@meta}.
      *
-     * @param machineBlock      the GT machine block name. The self-test passes a vanilla stand-in.
-     * @param manipulatorPrefix the item key prefix of the Matter Manipulator. The self-test passes a vanilla stand-in.
      */
-    public MachinePlacementTracker(AuditLogger logger, String machineBlock, String manipulatorPrefix) {
+    public MachinePlacementTracker(AuditLogger logger, Setup setup) {
         this.logger = logger;
         this.trackedBlocks = collectNonBlank(AuditConfig.trackedPlacements);
         this.watchedBlocks = collectNonBlank(AuditConfig.watchedBlocks);
-        this.machineBlock = machineBlock;
-        this.manipulatorPrefix = manipulatorPrefix;
+        this.machineBlock = setup.machineBlock();
+        this.manipulatorPrefix = setup.manipulatorPrefix();
+        this.facingReader = setup.facingReader();
     }
 
     private static Set<String> collectNonBlank(String[] entries) {
@@ -131,10 +131,15 @@ public final class MachinePlacementTracker {
             final JsonObject data = describePlacement(event, player);
             final TileEntity tile = event.world.getTileEntity(event.x, event.y, event.z);
             data.addProperty("kind", classify(tile));
-            readGtMachine(
+            final GtMachine machine = readGtMachine(
                 event.placedBlock,
                 event.placedBlock.getDamageValue(event.world, event.x, event.y, event.z),
-                tile).writeTo(data);
+                tile);
+            machine.writeTo(data);
+            final String facing = machine.pipe() ? null : facingReader.readFacing(tile);
+            if (facing != null) {
+                data.addProperty("facing", facing);
+            }
             logger.log("machine_placed", data);
         } else if (trackedBlocks.contains(blockName)) {
             final JsonObject data = describePlacement(event, player);
@@ -173,13 +178,9 @@ public final class MachinePlacementTracker {
             if (machineNow == check.machineBefore()) {
                 batch.countChecked();
             } else {
-                batch.add(
-                    check.spot(),
-                    readGtMachine(
-                        now,
-                        machineNow,
-                        check.world()
-                            .getTileEntity(check.x(), check.y(), check.z())));
+                final TileEntity tile = check.world()
+                    .getTileEntity(check.x(), check.y(), check.z());
+                batch.add(check.spot(), readGtMachine(now, machineNow, tile), facingReader.readFacing(tile));
             }
         }
         manipulatorChecks.clear();
@@ -237,7 +238,8 @@ public final class MachinePlacementTracker {
             try {
                 tile.writeToNBT(tag);
                 data.addProperty("tileNbtB64", JsonUtil.nbtToB64(tag));
-            } catch (RuntimeException e) { // noqa: NAR142, degrade and report over another mod's writeToNBT()
+            } catch (RuntimeException e) {
+                // degrade and report over another mod's writeToNBT()
                 data.addProperty("tileNbtError", String.valueOf(e));
             }
         }
@@ -379,7 +381,8 @@ public final class MachinePlacementTracker {
         }
         try {
             return JsonUtil.stripFormatting(stack.getDisplayName());
-        } catch (RuntimeException e) { // noqa: NAR142, degrade and report over GT getDisplayName()
+        } catch (RuntimeException e) {
+            // degrade and report over GT getDisplayName()
             return null;
         }
     }
@@ -392,13 +395,32 @@ public final class MachinePlacementTracker {
         try {
             final String key = stack.getUnlocalizedName();
             return key == null || key.isEmpty() ? null : key;
-        } catch (RuntimeException e) { // noqa: NAR142, degrade and report over GT getUnlocalizedName()
+        } catch (RuntimeException e) {
+            // degrade and report over GT getUnlocalizedName()
             return null;
         }
     }
 
     public static boolean isWatched(Set<String> watched, String blockName, int meta) {
         return !watched.isEmpty() && (watched.contains(blockName) || watched.contains(blockName + "@" + meta));
+    }
+
+    /**
+     * The tracker matches placements against {@code machineBlock} and {@code manipulatorPrefix}, and reads the facing
+     * of a GT tile with {@code facingReader}.
+     *
+     * @param machineBlock      the GT machine block name. The self-test passes a vanilla stand-in.
+     * @param manipulatorPrefix the item key prefix of the Matter Manipulator. The self-test passes a vanilla stand-in.
+     */
+    public record Setup(String machineBlock, String manipulatorPrefix, FacingReader facingReader) {}
+
+    /** Read the front facing of a GT machine's tile, such as NORTH. */
+    @FunctionalInterface
+    public interface FacingReader {
+
+        /** Return the facing, or null for a tile that doesn't have a facing. */
+        @Nullable
+        String readFacing(@Nullable TileEntity tile);
     }
 
     /** A creative placement or break of one block. {@code itemInHand} is null for a break. */
@@ -496,12 +518,16 @@ public final class MachinePlacementTracker {
             checked++;
         }
 
-        public void add(BlockSpot spot, GtMachine machine) {
+        /** Add one entry. A machine that has a facing gets {@code facing} as a fifth value. */
+        public void add(BlockSpot spot, GtMachine machine, @Nullable String facing) {
             final JsonArray entry = new JsonArray();
             entry.add(new JsonPrimitive(spot.x()));
             entry.add(new JsonPrimitive(spot.y()));
             entry.add(new JsonPrimitive(spot.z()));
             entry.add(new JsonPrimitive(machine.machineId()));
+            if (facing != null && !machine.pipe()) {
+                entry.add(new JsonPrimitive(facing));
+            }
             (machine.pipe() ? pipes : machines).add(entry);
             final String id = String.valueOf(machine.machineId());
             if (machine.machine() != null && !names.has(id)) {

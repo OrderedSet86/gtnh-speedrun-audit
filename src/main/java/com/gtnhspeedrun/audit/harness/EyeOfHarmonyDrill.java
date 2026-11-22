@@ -84,7 +84,8 @@ public final class EyeOfHarmonyDrill {
                 reportFormed();
                 server.initiateShutdown();
             }
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over GT structure code
+        } catch (RuntimeException | LinkageError e) {
+            // degrade and report over GT structure code
             GtnhSpeedrunAudit.LOG.error("[eohdrill] failed", e);
             server.initiateShutdown();
         }

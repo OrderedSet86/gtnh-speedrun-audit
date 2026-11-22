@@ -46,7 +46,8 @@ public final class GtRecipeStarts {
             if (start.upfrontEu() != null) {
                 tally.addEu(start.upfrontEu());
             }
-        } catch (RuntimeException e) { // noqa: NAR142, degrade and report over GT machine code
+        } catch (RuntimeException e) {
+            // degrade and report over GT machine code
             powerUse.noteReadError();
             GtnhSpeedrunAudit.LOG.debug(
                 "power_use.recipe_unreadable machine={}",

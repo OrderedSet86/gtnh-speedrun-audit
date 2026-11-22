@@ -19,17 +19,13 @@ import appeng.helpers.InventoryAction;
 @Mixin(value = ContainerInterfaceTerminal.class, remap = false)
 public class ContainerInterfaceTerminalMixin {
 
-    /** Mark {@code player} as the player of each provider slot change during the action. */
     @Inject(method = "doAction", at = @At("HEAD"), require = 1)
-    private void audit$beginAction(EntityPlayerMP player, InventoryAction action, // noqa: NAR130, NAR131
-        int slot, long id, CallbackInfo ci) {
+    private void audit$beginAction(EntityPlayerMP player, InventoryAction action, int slot, long id, CallbackInfo ci) {
         PatternSinks.beginPlayerAction(player);
     }
 
-    /** Clear the acting player at the end of the action. */
     @Inject(method = "doAction", at = @At("RETURN"), require = 1)
-    private void audit$endAction(EntityPlayerMP player, InventoryAction action, // noqa: NAR130, NAR131
-        int slot, long id, CallbackInfo ci) {
+    private void audit$endAction(EntityPlayerMP player, InventoryAction action, int slot, long id, CallbackInfo ci) {
         PatternSinks.endPlayerAction();
     }
 }

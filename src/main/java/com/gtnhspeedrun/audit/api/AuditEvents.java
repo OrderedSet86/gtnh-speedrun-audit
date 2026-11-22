@@ -120,8 +120,9 @@ public final class AuditEvents {
             try {
                 subscription.listener()
                     .onEvent(event.type(), copyObject(event.data()), event.igtTicks());
-            } catch (RuntimeException | LinkageError failure) { // noqa: NAR142, degrade and report over another mod
-                // a listener that uses a class of a mod that isn't installed throws NoClassDefFoundError
+            } catch (RuntimeException | LinkageError failure) {
+                // Degrade and report over another mod. A listener that uses a class of a mod that isn't installed
+                // throws NoClassDefFoundError.
                 final Logger sessionLog = log;
                 if (sessionLog != null) {
                     sessionLog.warn(

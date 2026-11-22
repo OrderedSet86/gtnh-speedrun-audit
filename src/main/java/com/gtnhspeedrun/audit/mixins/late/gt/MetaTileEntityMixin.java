@@ -22,7 +22,7 @@ import gregtech.api.metatileentity.MetaTileEntity;
 public class MetaTileEntityMixin {
 
     @Inject(method = "doExplosion", at = @At("HEAD"), require = 1)
-    private void audit$explosion(long aExplosionPower, CallbackInfo ci) { // noqa: NAR130
+    private void audit$explosion(long aExplosionPower, CallbackInfo ci) {
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
         final IGregTechTileEntity base = self.getBaseMetaTileEntity();
         if (!(base != null && base.getWorld() != null && !base.getWorld().isRemote)) {

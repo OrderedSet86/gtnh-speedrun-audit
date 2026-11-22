@@ -21,8 +21,7 @@ import gregtech.common.tileentities.machines.basic.MTEAdvSeismicProspector;
 public class MTEAdvSeismicProspectorMixin {
 
     @Inject(method = "onRightclick", at = @At("HEAD"), require = 1)
-    private void audit$beginUse(IGregTechTileEntity base, EntityPlayer player, // noqa: NAR130
-        CallbackInfoReturnable<Boolean> cir) {
+    private void audit$beginUse(IGregTechTileEntity base, EntityPlayer player, CallbackInfoReturnable<Boolean> cir) {
         if (base.isServerSide()) {
             ProspectSinks.beginToolUse(
                 player,
@@ -32,8 +31,7 @@ public class MTEAdvSeismicProspectorMixin {
     }
 
     @Inject(method = "onRightclick", at = @At("RETURN"), require = 1)
-    private void audit$endUse(IGregTechTileEntity base, EntityPlayer player, // noqa: NAR130
-        CallbackInfoReturnable<Boolean> cir) {
+    private void audit$endUse(IGregTechTileEntity base, EntityPlayer player, CallbackInfoReturnable<Boolean> cir) {
         if (base.isServerSide()) {
             ProspectSinks.endToolUse();
         }

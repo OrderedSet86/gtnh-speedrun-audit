@@ -88,9 +88,9 @@ public final class SelfTest {
                 logChecks.verifyLog();
                 finish();
             }
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over pack mod handlers
-            // The check detail is one line. The stack trace in the log has the class of the mod handler that
-            // threw.
+        } catch (RuntimeException | LinkageError e) {
+            // Degrade and report over pack mod handlers. The check detail is one line. The stack trace in the log has
+            // the class of the mod handler that threw.
             GtnhSpeedrunAudit.LOG.error("[selftest] step {} threw", step - 1, e);
             checks.check("step " + (step - 1) + " threw", false, String.valueOf(e));
             finish();

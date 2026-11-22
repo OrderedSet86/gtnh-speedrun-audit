@@ -22,8 +22,7 @@ import gregtech.common.misc.WirelessNetworkManager;
 public class WirelessNetworkManagerMixin {
 
     @Inject(method = "addEUToGlobalEnergyMap(Ljava/util/UUID;Ljava/math/BigInteger;)Z", at = @At("RETURN"), require = 1)
-    private static void audit$wirelessDrain(UUID user, BigInteger eu, // noqa: NAR130
-        CallbackInfoReturnable<Boolean> cir) {
+    private static void audit$wirelessDrain(UUID user, BigInteger eu, CallbackInfoReturnable<Boolean> cir) {
         if (cir.getReturnValueZ() && eu.signum() < 0) {
             PowerUse.active()
                 .noteWirelessDrain(eu.negate());

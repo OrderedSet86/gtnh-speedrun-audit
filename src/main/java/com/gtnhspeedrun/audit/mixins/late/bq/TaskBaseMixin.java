@@ -20,7 +20,7 @@ import bq_standard.tasks.base.TaskBase;
 public class TaskBaseMixin {
 
     @Inject(method = "setComplete", at = @At("HEAD"), require = 1)
-    private void audit$completing(UUID uuid, CallbackInfo ci) { // noqa: NAR130
+    private void audit$completing(UUID uuid, CallbackInfo ci) {
         final ITask self = (ITask) (Object) this;
         if (uuid != null && !self.isComplete(uuid)) {
             BqActor.taskCompleting(self, uuid);

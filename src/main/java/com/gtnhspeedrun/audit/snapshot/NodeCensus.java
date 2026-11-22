@@ -98,7 +98,8 @@ public final class NodeCensus {
                     final NBTTagCompound tag = new NBTTagCompound();
                     tile.writeToNBT(tag);
                     node.addProperty("nbtB64", JsonUtil.nbtToB64(tag));
-                } catch (RuntimeException e) { // noqa: NAR142, degrade and report over Thaumcraft writeToNBT()
+                } catch (RuntimeException e) {
+                    // degrade and report over Thaumcraft writeToNBT()
                     node.addProperty("nbtError", String.valueOf(e));
                 }
                 nodes.add(node);

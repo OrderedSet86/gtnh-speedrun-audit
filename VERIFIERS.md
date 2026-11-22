@@ -109,6 +109,9 @@ Play in a copy then never enters the chain of the original folder.
   expensive; it cannot stop someone from fabricating an entire log offline. Treat it as raising the bar,
   not as cryptographic proof.
 - `command` lines record *dispatch*, not success — a permission-denied `/give` still appears (uncanceled).
+- A command block gets a `command` line for the first run of each command in a 10-minute window. The windows of two
+  command blocks (`dim`, `pos`), or of two commands, are separate. One `command_repeats` line has the count of the window's other runs: the command block's fields,
+  `cmd`, `args`, `dropped` (the count of runs) and `windowMs`. In older bundles, every run has a `command` line.
 - Quest timestamps are ±3 s (BetterQuesting detects completions on a 60-tick poll).
 - Multiblock formation timestamps lag real placement by up to a few seconds (structure checks are periodic).
 - GT `multiblock_formed` lines carry `energyHatches`/`energyTier` and `dynamoHatches`/`dynamoTier`: how many
@@ -247,6 +250,11 @@ Play in a copy then never enters the chain of the original folder.
   with no removal between is a log from before this version.
 - `bulk_removed` lines are GT machines a Matter Manipulator removed or replaced, in the shape of `bulk_placed`
   with no `checked`.
+- A GT machine's front facing, such as `NORTH`, is `facing` on `machine_placed`, and the fifth value of a
+  `bulk_placed` machines entry: `[x, y, z, meta tile ID, facing]`. A pipe doesn't have a facing. A `machine_facing`
+  line is a turn to a new facing after the machine's first second, such as a wrench rotation: the machine's place,
+  `machineId`, `machine` and `machineKey`, `from` and `to`. The audit doesn't log a line for the facing that a world
+  load reads from the save. In older logs, only a multiblock controller's footprint has a facing.
 - `machineKey` (on `machine_placed` and `machine_removed`) and `keys` (on `bulk_placed` and `bulk_removed`) are
   GT's unlocalized machine keys, such as `gt.blockmachines.hull.bronze`. `achKey` on `achievement` is the
   achievement's lang key, and `provider` on `dim_first_visit` is the dimension's WorldProvider class. Use these
@@ -258,11 +266,14 @@ Play in a copy then never enters the chain of the original folder.
 - In singleplayer, lines from the client thread are not logged: they come from the structure-preview world
   (dim 2147483647), not from the run's world. `session_end` has `clientThreadLinesDropped` when any were. In
   earlier bundles, such lines have `"thread": "Client thread"`. Leave them out.
-- `world_saving` lines with `enabled: false` also have `lastSave {seq, ticks, wall}`: the anchor values the
-  overworld's latest save wrote. A backup saves every world and then turns saving off, so these are the anchor
+- `world_saving` lines with `enabled: false` also have `lastSave {seq, ticks, wall}`: the anchor values in the
+  overworld's latest save. A backup saves every world and then turns saving off, so these values are the anchor
   inside that backup. A `WORLD_ROLLBACK` whose `session_start.anchor` equals a `lastSave` restored that backup.
-  `backup_done` names the newest file in ServerUtilities' backup folder when a backup thread finishes.
-  `backup_done.save` has the same values as that `lastSave`. `loadedSave` on `session_start` does this match.
+  `backup_done` has the newest file of ServerUtilities' backup folder when a backup finishes, and each backup gets
+  one line. In bundles from earlier versions, a backup on ServerUtilities 2.4.22 (pack 2.9.0) can have two or three
+  `backup_done` lines with the same file, and a backup on ServerUtilities 2.5 (pack 2.9.1) doesn't have a line.
+  `backup_done.save` has the same values as that `lastSave`. `loadedSave` on `session_start` is the result of this
+  match.
 - A `world_saved` line is logged at each overworld save while saving is on, with `anchor {seq, ticks, wall}`.
   These saves are the autosave (every 900 ticks), `/save-all`, and the save before each backup. The shutdown
   save after `session_end` has no line. Every line is flushed to the OS when written, and a `world_saved` line is also forced to disk. After a

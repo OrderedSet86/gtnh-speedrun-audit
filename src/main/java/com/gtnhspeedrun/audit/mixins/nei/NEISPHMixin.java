@@ -33,8 +33,8 @@ public class NEISPHMixin {
      * is a live stream. Do NOT read from the packet here.
      */
     @Inject(method = "handlePacket", at = @At("HEAD"), require = 1)
-    private void audit$logPacket(PacketCustom packet, EntityPlayerMP sender, // noqa: NAR130, NAR131
-        INetHandlerPlayServer netHandler, CallbackInfo ci) {
+    private void audit$logPacket(PacketCustom packet, EntityPlayerMP sender, INetHandlerPlayServer netHandler,
+        CallbackInfo ci) {
         NeiSinks.beginPacket(sender);
         NeiSinks.logNeiPacket(
             sender.getGameProfile()
@@ -46,14 +46,14 @@ public class NEISPHMixin {
 
     /** Clears the packet sender in NeiSinks at the end of handlePacket(). */
     @Inject(method = "handlePacket", at = @At("RETURN"), require = 1)
-    private void audit$endPacket(PacketCustom packet, EntityPlayerMP sender, // noqa: NAR130, NAR131
-        INetHandlerPlayServer netHandler, CallbackInfo ci) {
+    private void audit$endPacket(PacketCustom packet, EntityPlayerMP sender, INetHandlerPlayServer netHandler,
+        CallbackInfo ci) {
         NeiSinks.endPacket();
     }
 
     /** Logs NEI's creative+ inventory, a 54-slot stash of items, opened or closed. */
     @Inject(method = "processCreativeInv", at = @At("HEAD"), require = 1)
-    private static void audit$creativePlus(EntityPlayerMP sender, boolean open, CallbackInfo ci) { // noqa: NAR130
+    private static void audit$creativePlus(EntityPlayerMP sender, boolean open, CallbackInfo ci) {
         NeiSinks.NeiCheat.of("creative_plus")
             .player(sender)
             .detail(open ? "open" : "close")
@@ -62,8 +62,8 @@ public class NEISPHMixin {
 
     /** Logs an enchantment added to or removed from the item in NEI's enchantment GUI, at any level. */
     @Inject(method = "modifyEnchantment", at = @At("HEAD"), require = 1)
-    private void audit$modifyEnchantment(EntityPlayerMP player, int enchantment, int level, // noqa: NAR130, NAR131
-        boolean add, CallbackInfo ci) {
+    private void audit$modifyEnchantment(EntityPlayerMP player, int enchantment, int level, boolean add,
+        CallbackInfo ci) {
         final JsonObject extra = new JsonObject();
         extra.addProperty("enchantment", enchantment);
         extra.addProperty("level", level);
@@ -76,8 +76,7 @@ public class NEISPHMixin {
 
     /** Logs a mob spawner's new mob. NEI checks no permission for this packet. */
     @Inject(method = "handleMobSpawnerID", at = @At("HEAD"), require = 1)
-    private void audit$setSpawnerMob(World world, BlockCoord coord, String mobType, // noqa: NAR130, NAR131
-        CallbackInfo ci) {
+    private void audit$setSpawnerMob(World world, BlockCoord coord, String mobType, CallbackInfo ci) {
         final JsonObject extra = new JsonObject();
         extra.addProperty("dim", world.provider.dimensionId);
         extra.addProperty("x", coord.x);
@@ -101,7 +100,7 @@ public class NEISPHMixin {
             target = "Lnet/minecraft/inventory/Slot;putStack(Lnet/minecraft/item/ItemStack;)V",
             remap = true),
         require = 1)
-    private void audit$setDummySlot(Slot slot, ItemStack stack) { // noqa: NAR130
+    private void audit$setDummySlot(Slot slot, ItemStack stack) {
         NeiSinks.logDummySlot(slot, stack);
         slot.putStack(stack);
     }

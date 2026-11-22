@@ -13,10 +13,10 @@ public interface GtFormationLogger {
      * Call right after the structure check that formed the multiblock, while the multiblock's
      * {@link StructureBounds} frame is open.
      */
-    void audit$logFormation(); // noqa: NAR130
+    void auditLogFormation();
 
     /**
      * Call after a check of a formed multiblock that left the multiblock formed, while the multiblock's frame is open.
      */
-    void audit$logFootprintChange(); // noqa: NAR130
+    void auditLogFootprintChange();
 }

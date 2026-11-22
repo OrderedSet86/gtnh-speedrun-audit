@@ -75,7 +75,8 @@ public final class GtMachineSites {
         }
         try {
             return String.valueOf(LOCAL_NAME_GETTER.invoke(mte));
-        } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, reflection into GT code
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // reflection into GT code
             return null;
         }
     }

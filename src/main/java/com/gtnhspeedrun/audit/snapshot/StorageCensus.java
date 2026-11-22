@@ -83,8 +83,8 @@ public final class StorageCensus {
             try {
                 ender = readEnderStorage();
                 reference.addProperty("enderStorages", ender.size());
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) { // noqa: NAR142, reflection
-                                                                                         // into EnderStorage
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                // reflection into EnderStorage
                 reference.addProperty("enderStorageError", String.valueOf(e));
             }
         }
@@ -209,7 +209,8 @@ public final class StorageCensus {
             backpack.addProperty("lastModified", readLastModifiedMillis(file));
             try (InputStream in = Files.newInputStream(file)) {
                 backpack.addProperty("nbtB64", JsonUtil.nbtToB64(CompressedStreamTools.readCompressed(in)));
-            } catch (IOException | RuntimeException e) { // noqa: NAR142, NBT read of Backpack mod files
+            } catch (IOException | RuntimeException e) {
+                // NBT read of Backpack mod files
                 backpack.addProperty("error", String.valueOf(e));
             }
             out.add(backpack);

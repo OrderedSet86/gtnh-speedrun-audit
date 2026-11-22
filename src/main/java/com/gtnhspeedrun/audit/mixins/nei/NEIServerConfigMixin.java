@@ -20,8 +20,7 @@ public class NEIServerConfigMixin {
 
     /** Logs the lock of the action {@code name} in dimension {@code dim}, set or cleared. */
     @Inject(method = "disableAction", at = @At("HEAD"), require = 1)
-    private static void audit$disableAction(int dim, String name, boolean disable, // noqa: NAR130, NAR131
-        CallbackInfo ci) {
+    private static void audit$disableAction(int dim, String name, boolean disable, CallbackInfo ci) {
         final JsonObject extra = new JsonObject();
         extra.addProperty("dim", dim);
         extra.addProperty("disable", disable);

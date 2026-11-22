@@ -27,15 +27,15 @@ public class MTEBrickedBlastFurnaceMixin {
     public boolean mMachine;
 
     @Unique
-    private boolean audit$wasFormed; // noqa: NAR130
+    private boolean audit$wasFormed;
 
     @Inject(method = "onPostTick", at = @At("HEAD"), require = 1)
-    private void audit$before(IGregTechTileEntity aBaseMetaTileEntity, long aTimer, CallbackInfo ci) { // noqa: NAR130
+    private void audit$before(IGregTechTileEntity aBaseMetaTileEntity, long aTimer, CallbackInfo ci) {
         audit$wasFormed = mMachine;
     }
 
     @Inject(method = "onPostTick", at = @At("RETURN"), require = 1)
-    private void audit$after(IGregTechTileEntity aBaseMetaTileEntity, long aTimer, CallbackInfo ci) { // noqa: NAR130
+    private void audit$after(IGregTechTileEntity aBaseMetaTileEntity, long aTimer, CallbackInfo ci) {
         if (!(!audit$wasFormed && mMachine && aBaseMetaTileEntity.isServerSide())) {
             return;
         }

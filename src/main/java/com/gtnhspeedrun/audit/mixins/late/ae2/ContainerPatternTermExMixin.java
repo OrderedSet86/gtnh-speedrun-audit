@@ -28,15 +28,15 @@ import appeng.container.implementations.ContainerPatternTermEx;
 public class ContainerPatternTermExMixin {
 
     @Unique
-    private List<ItemStack> audit$beforeEncode; // noqa: NAR130
+    private List<ItemStack> audit$beforeEncode;
 
     @Inject(method = "encode", at = @At("HEAD"), require = 0)
-    private void audit$encodeHead(CallbackInfo ci) { // noqa: NAR130
+    private void audit$encodeHead(CallbackInfo ci) {
         audit$beforeEncode = ContainerSlots.copySlots((Container) (Object) this);
     }
 
     @Inject(method = "encode", at = @At("RETURN"), require = 0)
-    private void audit$encodeReturn(CallbackInfo ci) { // noqa: NAR130
+    private void audit$encodeReturn(CallbackInfo ci) {
         if (audit$beforeEncode != null
             && ((AEBaseContainer) (Object) this).getPlayerInv().player instanceof EntityPlayerMP player) {
             Ae2PatternEvents.logEncode((Container) (Object) this, audit$beforeEncode, player);

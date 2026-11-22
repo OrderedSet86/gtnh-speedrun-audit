@@ -27,10 +27,10 @@ import com.gtnhspeedrun.audit.trackers.StructureBounds;
  * speedrunaudit.noStructureBounds is not set.
  */
 @Mixin(value = StructureUtility.class, remap = false)
-public abstract class StructureUtilityMixin { // noqa: NAR106
+public abstract class StructureUtilityMixin {
 
     @Inject(method = "iterateV2", at = @At("HEAD"), require = 1)
-    private static void audit$iterateStarted(CallbackInfoReturnable<Boolean> cir) { // noqa: NAR130
+    private static void audit$iterateStarted(CallbackInfoReturnable<Boolean> cir) {
         StructureBounds.iterateStarted();
     }
 
@@ -39,13 +39,13 @@ public abstract class StructureUtilityMixin { // noqa: NAR106
         method = "iterateV2",
         at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;blockExists(III)Z", remap = true),
         require = 1)
-    private static boolean audit$visited(World world, int x, int y, int z) { // noqa: NAR130, NAR131
+    private static boolean audit$visited(World world, int x, int y, int z) {
         StructureBounds.visited(x, y, z);
         return world.blockExists(x, y, z);
     }
 
     @Inject(method = "iterateV2", at = @At("RETURN"), require = 1)
-    private static void audit$iterateFinished(CallbackInfoReturnable<Boolean> cir) { // noqa: NAR130
+    private static void audit$iterateFinished(CallbackInfoReturnable<Boolean> cir) {
         StructureBounds.iterateFinished(cir.getReturnValue());
     }
 }

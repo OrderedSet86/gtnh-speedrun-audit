@@ -22,7 +22,7 @@ import gregtech.common.data.GTPowerfailTracker;
 public class GTPowerfailTrackerMixin {
 
     @Inject(method = "createPowerfailEvent", at = @At("HEAD"), require = 1)
-    private void audit$powerfail(IGregTechTileEntity baseMetaTileEntity, CallbackInfo ci) { // noqa: NAR130
+    private void audit$powerfail(IGregTechTileEntity baseMetaTileEntity, CallbackInfo ci) {
         if (!(baseMetaTileEntity != null && baseMetaTileEntity.getWorld() != null
             && !baseMetaTileEntity.getWorld().isRemote)) {
             return;

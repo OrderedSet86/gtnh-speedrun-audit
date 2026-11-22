@@ -22,13 +22,13 @@ import com.gtnhspeedrun.audit.trackers.ProspectSinks;
 public class EntityPlayerMPChatMixin {
 
     @Inject(method = "addChatMessage", at = @At("HEAD"), require = 1)
-    private void audit$line(IChatComponent message, CallbackInfo ci) { // noqa: NAR130
+    private void audit$line(IChatComponent message, CallbackInfo ci) {
         CommandOutputCapture.captureLine((ICommandSender) (Object) this, message);
         ProspectSinks.captureLine((ICommandSender) (Object) this, message);
     }
 
     @Inject(method = "addChatComponentMessage", at = @At("HEAD"), require = 1)
-    private void audit$component(IChatComponent message, CallbackInfo ci) { // noqa: NAR130
+    private void audit$component(IChatComponent message, CallbackInfo ci) {
         CommandOutputCapture.captureLine((ICommandSender) (Object) this, message);
         ProspectSinks.captureLine((ICommandSender) (Object) this, message);
     }

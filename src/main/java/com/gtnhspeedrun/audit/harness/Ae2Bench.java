@@ -86,8 +86,8 @@ public final class Ae2Bench {
         done = true;
         try {
             run();
-        } catch (IOException | RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over AE2 storage
-                                                                    // code
+        } catch (IOException | RuntimeException | LinkageError e) {
+            // degrade and report over AE2 storage code
             GtnhSpeedrunAudit.LOG.error("AE2 bench failed", e);
         }
         server.initiateShutdown();

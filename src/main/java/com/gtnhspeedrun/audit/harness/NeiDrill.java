@@ -92,7 +92,8 @@ public final class NeiDrill {
         private static void runSending(Runnable neiCall) {
             try {
                 neiCall.run();
-            } catch (RuntimeException ignored) { // noqa: NAR142, degrade over FML's send to a fake player
+            } catch (RuntimeException ignored) {
+                // degrade over FML's send to a fake player
             }
         }
 

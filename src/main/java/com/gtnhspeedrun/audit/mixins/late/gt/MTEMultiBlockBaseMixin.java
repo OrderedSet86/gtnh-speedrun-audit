@@ -46,14 +46,14 @@ import gregtech.api.metatileentity.implementations.MTEMultiBlockBase;
 import gregtech.api.util.GTUtility;
 
 /**
- * Logs the formation of every modern GT multiblock (assembly line, EBF, fusion, ...). GT sets mMachine in
- * checkStructure(), except for TecTech multiblocks. TTMultiblockBase sets mMachine in onPostTick(), and
- * TTMultiblockBaseMixin logs TecTech formations through audit$logFormation(). The change of mMachine from false to true
- * is the graded event for categories such as coke%, bbf% and assline%. The structure check fills the hatch lists, so at
- * RETURN the lists contain the hatches of the multiblock that just formed. The voltage tiers of the formation line are
- * read from those lists. Coil and structure tiers (StructureTiers) are read at the same moment. A swap of coils or of a
- * structure part breaks and re-forms the structure. The new tiers are part of the dedupe key, so a new formation is
- * logged after an upgrade.
+ * Logs the formation of every modern GT multiblock (assembly line, EBF, fusion, ...). checkStructure() sets mMachine,
+ * except in TecTech multiblocks. In those, TTMultiblockBase.onPostTick() sets mMachine, and TTMultiblockBaseMixin logs
+ * TecTech formations through auditLogFormation(). The change of mMachine from false to true is the graded event for
+ * categories such as coke%, bbf% and assline%. The structure check fills the hatch lists, so at RETURN the lists
+ * contain the hatches of the multiblock that just formed. The voltage tiers of the formation line are read from those
+ * lists. Coil and structure tiers (StructureTiers) are read at the same moment. A swap of coils or of a structure part
+ * breaks and re-forms the structure. The new tiers are part of the dedupe key, so a new formation is logged after an
+ * upgrade.
  *
  * <p>
  * The tiers last logged are saved in the controller's NBT, so no second formation is logged at the re-check after a
@@ -75,16 +75,16 @@ import gregtech.api.util.GTUtility;
  * EU up front.
  */
 @Mixin(value = MTEMultiBlockBase.class, remap = false)
-public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // noqa: NAR106
+public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger {
 
     @Shadow
     public boolean mMachine;
 
     @Shadow
-    public ArrayList<MTEHatchEnergy> mEnergyHatches; // noqa: NAR140
+    public ArrayList<MTEHatchEnergy> mEnergyHatches;
 
     @Shadow
-    public ArrayList<MTEHatchDynamo> mDynamoHatches; // noqa: NAR140
+    public ArrayList<MTEHatchDynamo> mDynamoHatches;
 
     @Shadow
     protected List<MTEHatch> mExoticEnergyHatches;
@@ -105,21 +105,21 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
     private static final String AUDIT_FOOTPRINT_KEY = "speedrunAuditFootprint";
 
     @Unique
-    private boolean audit$wasFormed; // noqa: NAR130
+    private boolean audit$wasFormed;
 
     /** Dedupe suffix of the formation last logged for this controller, or null until a formation is logged. */
     @Unique
-    private String audit$loggedFormation; // noqa: NAR130
+    private String audit$loggedFormation;
 
     /** MultiblockFootprint.formatKey() of the footprint last logged, or null until a footprint is logged. */
     @Unique
-    private String audit$loggedFootprint; // noqa: NAR130
+    private String audit$loggedFootprint;
 
     @Unique
-    private RecipeTallyCache audit$recipeCache; // noqa: NAR130
+    private RecipeTallyCache audit$recipeCache;
 
     @Inject(method = "saveNBTData", at = @At("TAIL"), require = 1)
-    private void audit$saveFormation(NBTTagCompound aNBT, CallbackInfo ci) { // noqa: NAR130
+    private void audit$saveFormation(NBTTagCompound aNBT, CallbackInfo ci) {
         if (audit$loggedFormation != null) {
             aNBT.setString(AUDIT_FORMED_KEY, audit$loggedFormation);
         }
@@ -129,7 +129,7 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
     }
 
     @Inject(method = "loadNBTData", at = @At("TAIL"), require = 1)
-    private void audit$loadFormation(NBTTagCompound aNBT, CallbackInfo ci) { // noqa: NAR130
+    private void audit$loadFormation(NBTTagCompound aNBT, CallbackInfo ci) {
         if (aNBT.hasKey(AUDIT_FORMED_KEY)) {
             audit$loggedFormation = aNBT.getString(AUDIT_FORMED_KEY);
         }
@@ -142,7 +142,7 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
         method = "checkStructure(ZLgregtech/api/interfaces/tileentity/IGregTechTileEntity;)Z",
         at = @At("HEAD"),
         require = 1)
-    private void audit$before(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity, // noqa: NAR130
+    private void audit$before(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity,
         CallbackInfoReturnable<Boolean> cir) {
         audit$wasFormed = mMachine;
         StructureBounds.push(this, aBaseMetaTileEntity.isServerSide());
@@ -152,7 +152,7 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
         method = "checkStructure(ZLgregtech/api/interfaces/tileentity/IGregTechTileEntity;)Z",
         at = @At("RETURN"),
         require = 1)
-    private void audit$after(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity, // noqa: NAR130
+    private void audit$after(boolean aForceReset, IGregTechTileEntity aBaseMetaTileEntity,
         CallbackInfoReturnable<Boolean> cir) {
         try {
             if (!(mMachine && aBaseMetaTileEntity.isServerSide())) {
@@ -167,13 +167,13 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
     }
 
     @Inject(method = "checkRecipe()Z", at = @At("HEAD"), require = 1)
-    private void audit$beforeRecipeCheck(CallbackInfoReturnable<Boolean> cir) { // noqa: NAR130
+    private void audit$beforeRecipeCheck(CallbackInfoReturnable<Boolean> cir) {
         PowerUse.active()
             .openRecipeCheck();
     }
 
     @Inject(method = "checkRecipe()Z", at = @At("RETURN"), require = 1)
-    private void audit$afterRecipeCheck(CallbackInfoReturnable<Boolean> cir) { // noqa: NAR130
+    private void audit$afterRecipeCheck(CallbackInfoReturnable<Boolean> cir) {
         final BigInteger upfrontEu = PowerUse.active()
             .closeRecipeCheck();
         if (!cir.getReturnValueZ()) {
@@ -200,7 +200,7 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
      * markers and marks the tile dirty. For an unchanged formation, only a footprint change is logged.
      */
     @Override
-    public void audit$logFormation() {
+    public void auditLogFormation() {
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
         final IGregTechTileEntity base = self.getBaseMetaTileEntity();
         final MachineSite site = GtMachineSites.readSite(self);
@@ -208,7 +208,7 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
         final MultiblockPower power = audit$power();
         if (!MultiblockSinks.isNewGtFormation(audit$loggedFormation, power)) {
             // an unchanged formation, such as the first check after a restart, can still have a new footprint
-            audit$logFootprintChange(site, base, footprint);
+            auditLogFootprintChange(site, base, footprint);
             return;
         }
         // after a chunk loads, GT waits for 100 ticks and then checks the structure of each controller in the chunk.
@@ -229,11 +229,11 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
     }
 
     @Override
-    public void audit$logFootprintChange() {
+    public void auditLogFootprintChange() {
         final MetaTileEntity self = (MetaTileEntity) (Object) this;
         final IGregTechTileEntity base = self.getBaseMetaTileEntity();
         final MachineSite site = GtMachineSites.readSite(self);
-        audit$logFootprintChange(site, base, audit$footprint(base, site));
+        auditLogFootprintChange(site, base, audit$footprint(base, site));
     }
 
     /**
@@ -241,8 +241,7 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
      * line is logged.
      */
     @Unique
-    private void audit$logFootprintChange(MachineSite site, IGregTechTileEntity base, // noqa: NAR130
-        MultiblockFootprint footprint) {
+    private void auditLogFootprintChange(MachineSite site, IGregTechTileEntity base, MultiblockFootprint footprint) {
         // a check that ran no StructureLib walk has no box: the structure had not changed since the last check, or
         // the controller's check is hand-written
         if (footprint.bounds == null) {
@@ -267,7 +266,7 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
      * multiblock) also has a rotation and a flip. Other controllers have only a front facing.
      */
     @Unique
-    private MultiblockFootprint audit$footprint(IGregTechTileEntity base, MachineSite site) { // noqa: NAR130
+    private MultiblockFootprint audit$footprint(IGregTechTileEntity base, MachineSite site) {
         final int[] bounds = StructureBounds.computeBounds(this, site);
         final MultiblockFootprint footprint;
         if ((Object) this instanceof IAlignment alignment) {
@@ -296,8 +295,7 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
      * with no box, or a frame with no positions, gets no extents.
      */
     @Unique
-    private void audit$encodeExtents(IGregTechTileEntity base, MachineSite site, // noqa: NAR130
-        MultiblockFootprint footprint) {
+    private void audit$encodeExtents(IGregTechTileEntity base, MachineSite site, MultiblockFootprint footprint) {
         final int[] positions = StructureBounds.copyPositions(this, site);
         if (!(positions != null && footprint.bounds != null)) {
             return;
@@ -315,15 +313,15 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
      * multiblock, the scan reports only the hatches of mAllEnergyHatches that are also in the base lists.
      */
     @Unique
-    private MultiblockPower audit$power() { // noqa: NAR130
+    private MultiblockPower audit$power() {
         final HatchScan scan = new HatchScan();
         audit$scan(mEnergyHatches, true, scan);
         audit$scan(mExoticEnergyHatches, true, scan);
         audit$scan(mDynamoHatches, false, scan);
         audit$scan(audit$exoticDynamoHatches(), false, scan);
         if (this instanceof GtExtraHatches extra) {
-            audit$scan(extra.audit$extraEnergyHatches(), true, scan);
-            audit$scan(extra.audit$extraDynamoHatches(), false, scan);
+            audit$scan(extra.auditExtraEnergyHatches(), true, scan);
+            audit$scan(extra.auditExtraDynamoHatches(), false, scan);
         }
         return scan.buildPower(GTValues.VN, StructureTiers.read(this), StructureTiers.unreadable(getClass()));
     }
@@ -336,18 +334,19 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
     private static final Field AUDIT_EXOTIC_DYNAMOS = audit$findExoticDynamos();
 
     @Unique
-    private static Field audit$findExoticDynamos() { // noqa: NAR130
+    private static Field audit$findExoticDynamos() {
         try {
             final Field f = MTEMultiBlockBase.class.getDeclaredField("mExoticDynamoHatches");
             f.setAccessible(true);
             return f;
-        } catch (NoSuchFieldException | RuntimeException e) { // noqa: NAR142, reflection into GT
+        } catch (NoSuchFieldException | RuntimeException e) {
+            // reflection into GT
             return null;
         }
     }
 
     @Unique
-    private List<? extends MTEHatch> audit$exoticDynamoHatches() { // noqa: NAR130
+    private List<? extends MTEHatch> audit$exoticDynamoHatches() {
         if (AUDIT_EXOTIC_DYNAMOS == null) {
             return null;
         }
@@ -355,14 +354,15 @@ public abstract class MTEMultiBlockBaseMixin implements GtFormationLogger { // n
             @SuppressWarnings("unchecked")
             final List<? extends MTEHatch> hatches = (List<? extends MTEHatch>) AUDIT_EXOTIC_DYNAMOS.get(this);
             return hatches;
-        } catch (IllegalAccessException | RuntimeException e) { // noqa: NAR142, reflection into GT
+        } catch (IllegalAccessException | RuntimeException e) {
+            // reflection into GT
             return null;
         }
     }
 
     /** Adds each live hatch once to {@code scan}. A hatch with no voltage is counted with no tier. */
     @Unique
-    private static void audit$scan(List<? extends MTEHatch> hatches, boolean input, HatchScan scan) { // noqa: NAR130
+    private static void audit$scan(List<? extends MTEHatch> hatches, boolean input, HatchScan scan) {
         if (hatches == null) {
             return;
         }

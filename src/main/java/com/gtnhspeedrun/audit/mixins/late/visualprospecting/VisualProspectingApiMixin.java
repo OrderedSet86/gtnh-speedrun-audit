@@ -25,7 +25,7 @@ public class VisualProspectingApiMixin {
 
     /** Converts the veins and fluids to JSON for {@link ProspectSinks#reportVisualProspecting}. */
     @Inject(method = "sendProspectionResultsToClient", at = @At("HEAD"), require = 1)
-    private static void audit$results(EntityPlayerMP player, List<OreVeinPosition> veins, // noqa: NAR130, NAR131
+    private static void audit$results(EntityPlayerMP player, List<OreVeinPosition> veins,
         List<UndergroundFluidPosition> fluids, CallbackInfo ci) {
         final JsonArray veinArray = new JsonArray();
         if (veins != null) {

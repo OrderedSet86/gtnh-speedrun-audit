@@ -79,8 +79,8 @@ public final class StructureBench {
                 writeReport(measure());
                 server.initiateShutdown();
             }
-        } catch (IOException | RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over GT
-                                                                    // structure code
+        } catch (IOException | RuntimeException | LinkageError e) {
+            // degrade and report over GT structure code
             GtnhSpeedrunAudit.LOG.error("[structurebench] failed", e);
             server.initiateShutdown();
         }

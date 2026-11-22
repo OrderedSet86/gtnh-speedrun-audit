@@ -49,6 +49,8 @@ public final class SessionManager {
     private static final int ANCHOR_EVERY_TICKS = 100;
     private static final int REPORT_ATTEMPTS_EVERY_TICKS = 20;
     private static final Duration ATTEMPT_WINDOW = Duration.ofMinutes(1);
+    // a command block on a 1 s timer gets one command line and one command_repeats line per window
+    private static final Duration COMMAND_BLOCK_WINDOW = Duration.ofMinutes(10);
 
     private final Logger log;
     private final MinecraftServer server;
@@ -65,6 +67,7 @@ public final class SessionManager {
     private LogWriter writer;
     private AuditLogger logger;
     private AttemptLimiter attempts;
+    private AttemptLimiter commandBlockRuns;
     private TimingStart timingStart;
     private String sessionId;
     private int sessionIndex;
@@ -133,7 +136,12 @@ public final class SessionManager {
         writer.start();
         registerExitDrain(writer);
         logger = new AuditLogger(writer, clock, gate);
-        attempts = new AttemptLimiter(logger, ATTEMPT_WINDOW);
+        attempts = new AttemptLimiter(
+            logger,
+            new AttemptLimiter.Limit(ATTEMPT_WINDOW, AttemptLimiter.PLAYER_LINES_PER_WINDOW, "rate_limited"));
+        commandBlockRuns = new AttemptLimiter(
+            logger,
+            new AttemptLimiter.Limit(COMMAND_BLOCK_WINDOW, 1, "command_repeats"));
         AuditEvents.attachSession(clock::get, log);
         // No event of the session is logged yet. Each listener with history gets the history first
         replayHistory(tail, auditRoot, fork);
@@ -304,6 +312,7 @@ public final class SessionManager {
         }
         stopping = true;
         attempts.reportAllWindows();
+        commandBlockRuns.reportAllWindows();
         final JsonObject data = new JsonObject();
         data.addProperty("uptimeTicks", clock.get() - sessionStartTicks);
         data.addProperty("onlineUptimeTicks", clock.getOnline() - sessionStartOnlineTicks);
@@ -347,6 +356,7 @@ public final class SessionManager {
         writer = null;
         logger = null;
         attempts = null;
+        commandBlockRuns = null;
         anchor = null;
         timingStart = null;
     }
@@ -379,6 +389,7 @@ public final class SessionManager {
         }
         if (server.getTickCounter() % REPORT_ATTEMPTS_EVERY_TICKS == 0) {
             attempts.reportEndedWindows();
+            commandBlockRuns.reportEndedWindows();
         }
         if (!anchor.timingStarted) {
             // IGT convention: the run clocks don't advance until the first player movement, so worldgen lag, spawn
@@ -466,6 +477,10 @@ public final class SessionManager {
 
     public AttemptLimiter attempts() {
         return attempts;
+    }
+
+    public AttemptLimiter commandBlockRuns() {
+        return commandBlockRuns;
     }
 
     public AuditLogger logger() {

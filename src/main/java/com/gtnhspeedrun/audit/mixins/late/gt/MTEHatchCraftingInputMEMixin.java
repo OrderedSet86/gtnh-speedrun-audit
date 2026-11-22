@@ -22,7 +22,7 @@ import gregtech.common.tileentities.machines.MTEHatchCraftingInputME;
 public class MTEHatchCraftingInputMEMixin {
 
     @Inject(method = "onPatternChange", at = @At("HEAD"), require = 1)
-    private void audit$patternChange(int index, ItemStack newItem, CallbackInfo ci) { // noqa: NAR130
+    private void audit$patternChange(int index, ItemStack newItem, CallbackInfo ci) {
         final IGregTechTileEntity base = ((MetaTileEntity) (Object) this).getBaseMetaTileEntity();
         if (!(base != null && base.isServerSide())) {
             return;

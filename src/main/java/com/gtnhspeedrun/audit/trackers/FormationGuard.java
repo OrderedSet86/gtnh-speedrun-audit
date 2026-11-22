@@ -22,19 +22,21 @@ public final class FormationGuard {
     private FormationGuard() {}
 
     /**
-     * Call {@code audit$logFootprintChange()} when the multiblock was formed before the check, and
-     * {@code audit$logFormation()} otherwise. No RuntimeException or LinkageError from the logging reaches the caller.
+     * Call {@code auditLogFootprintChange()} when the multiblock was formed before the check, and
+     * {@code auditLogFormation()} otherwise. A RuntimeException or LinkageError from the logging doesn't reach the
+     * caller.
      *
      * @param site the controller's site for the failure line
      */
     public static void log(GtFormationLogger controller, boolean wasFormed, MachineSite site) {
         try {
             if (wasFormed) {
-                controller.audit$logFootprintChange();
+                controller.auditLogFootprintChange();
             } else {
-                controller.audit$logFormation();
+                controller.auditLogFormation();
             }
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, reflection over GT addon controller classes
+        } catch (RuntimeException | LinkageError e) {
+            // reflection over GT addon controller classes
             final String type = controller.getClass()
                 .getName();
             if (REPORTED.add(type)) {

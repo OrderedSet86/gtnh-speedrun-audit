@@ -27,7 +27,7 @@ import com.gtnhspeedrun.audit.trackers.PatternSinks;
 public class NetHandlerPlayServerMixin {
 
     @Inject(method = "processCreativeInventoryAction", at = @At("HEAD"), require = 1)
-    private void audit$creativeSlot(C10PacketCreativeInventoryAction packet, CallbackInfo ci) { // noqa: NAR130
+    private void audit$creativeSlot(C10PacketCreativeInventoryAction packet, CallbackInfo ci) {
         // reobfuscation maps this plain field access to the SRG name. @Shadow on playerEntity would need a refmap
         // entry
         final EntityPlayerMP playerEntity = ((NetHandlerPlayServer) (Object) this).playerEntity;
@@ -48,7 +48,7 @@ public class NetHandlerPlayServerMixin {
      * a creative player, in a GUI that is not the inventory.
      */
     @Inject(method = "processClickWindow", at = @At("HEAD"), require = 1)
-    private void audit$clickHead(C0EPacketClickWindow packet, CallbackInfo ci) { // noqa: NAR130
+    private void audit$clickHead(C0EPacketClickWindow packet, CallbackInfo ci) {
         final EntityPlayerMP playerEntity = ((NetHandlerPlayServer) (Object) this).playerEntity;
         PatternSinks.beginPlayerAction(playerEntity);
         if (audit$isLoggedClick(playerEntity, packet)) {
@@ -57,7 +57,7 @@ public class NetHandlerPlayServerMixin {
     }
 
     @Inject(method = "processClickWindow", at = @At("RETURN"), require = 1)
-    private void audit$clickReturn(C0EPacketClickWindow packet, CallbackInfo ci) { // noqa: NAR130
+    private void audit$clickReturn(C0EPacketClickWindow packet, CallbackInfo ci) {
         final EntityPlayerMP playerEntity = ((NetHandlerPlayServer) (Object) this).playerEntity;
         PatternSinks.endPlayerAction();
         if (audit$isLoggedClick(playerEntity, packet)) {
@@ -68,7 +68,7 @@ public class NetHandlerPlayServerMixin {
     }
 
     @Unique
-    private static boolean audit$isLoggedClick(EntityPlayerMP player, C0EPacketClickWindow packet) { // noqa: NAR130
+    private static boolean audit$isLoggedClick(EntityPlayerMP player, C0EPacketClickWindow packet) {
         return player.theItemInWorldManager.isCreative() && player.openContainer != player.inventoryContainer
             && player.openContainer.windowId == packet.func_149548_c();
     }

@@ -28,41 +28,39 @@ import gregtech.api.metatileentity.MetaTileEntity;
 public class BaseMetaTileEntityPowerMixin implements PowerUseCounter {
 
     @Unique
-    private PowerTally audit$powerTally; // noqa: NAR130
+    private PowerTally audit$powerTally;
 
     @Inject(method = "updateEntityProfiled", at = @At("HEAD"), require = 1)
-    private void audit$enterTick(CallbackInfo ci) { // noqa: NAR130
+    private void audit$enterTick(CallbackInfo ci) {
         PowerUse.active()
             .enterTile(this, audit$readStoredEu());
     }
 
     @Inject(method = "updateEntityProfiled", at = @At("RETURN"), require = 1)
-    private void audit$exitTick(CallbackInfo ci) { // noqa: NAR130
+    private void audit$exitTick(CallbackInfo ci) {
         PowerUse.active()
             .exitTile(audit$readStoredEu());
     }
 
     @Inject(method = "decreaseStoredEnergyUnits", at = @At("HEAD"), require = 1)
-    private void audit$beforeDrain(long aEnergy, boolean aIgnoreTooLessEnergy, // noqa: NAR130
-        CallbackInfoReturnable<Boolean> cir) {
+    private void audit$beforeDrain(long aEnergy, boolean aIgnoreTooLessEnergy, CallbackInfoReturnable<Boolean> cir) {
         PowerUse.active()
             .openDrain(audit$readStoredEu());
     }
 
     @Inject(method = "decreaseStoredEnergyUnits", at = @At("RETURN"), require = 1)
-    private void audit$afterDrain(long aEnergy, boolean aIgnoreTooLessEnergy, // noqa: NAR130
-        CallbackInfoReturnable<Boolean> cir) {
+    private void audit$afterDrain(long aEnergy, boolean aIgnoreTooLessEnergy, CallbackInfoReturnable<Boolean> cir) {
         PowerUse.active()
             .closeDrain(this, audit$readStoredEu());
     }
 
     @Override
-    public PowerTally audit$readPowerTally() {
+    public PowerTally auditReadPowerTally() {
         return audit$powerTally;
     }
 
     @Override
-    public void audit$writePowerTally(PowerTally tally) {
+    public void auditWritePowerTally(PowerTally tally) {
         audit$powerTally = tally;
     }
 
@@ -71,7 +69,7 @@ public class BaseMetaTileEntityPowerMixin implements PowerUseCounter {
      * would not show.
      */
     @Unique
-    private long audit$readStoredEu() { // noqa: NAR130
+    private long audit$readStoredEu() {
         return ((IGregTechTileEntity) (Object) this).getMetaTileEntity() instanceof MetaTileEntity machine
             ? machine.getEUVar()
             : 0;

@@ -46,7 +46,7 @@ public class TeleportTaskMixin {
             target = "Lserverutils/lib/math/TeleporterDimPos;teleport(Lnet/minecraft/entity/Entity;)Lnet/minecraft/entity/Entity;",
             ordinal = 1),
         require = 1)
-    private Entity audit$teleportPlayer(TeleporterDimPos destination, Entity entity) { // noqa: NAR130
+    private Entity audit$teleportPlayer(TeleporterDimPos destination, Entity entity) {
         TeleportSinks.logTeleport(
             entity,
             new TeleportSinks.Move(

@@ -102,7 +102,8 @@ public final class WorldEditAudit {
         if (world instanceof ForgeWorld forge) {
             try {
                 return forge.getWorld().provider.dimensionId;
-            } catch (RuntimeException e) { // noqa: NAR142, degrade and report over the WorldEdit world reference
+            } catch (RuntimeException e) {
+                // degrade and report over the WorldEdit world reference
                 return null; // the world unloaded under the session
             }
         }

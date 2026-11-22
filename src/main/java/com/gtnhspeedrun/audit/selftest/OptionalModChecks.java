@@ -28,6 +28,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.gtnhspeedrun.audit.GtnhSpeedrunAudit;
+import com.gtnhspeedrun.audit.compat.BackupAccess;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.harness.Ae2Fixture;
 import com.gtnhspeedrun.audit.harness.FormationSideCheck;
@@ -373,6 +374,19 @@ public final class OptionalModChecks {
     }
 
     /**
+     * Check that the backup API of the installed ServerUtilities matches {@link BackupAccess}. When the API doesn't
+     * match, the mod logs world_saving and session_end lines without {@code backupRunning}, and doesn't log a
+     * backup_done line. The scenario doesn't run a real backup, so only this check fails when the API doesn't match.
+     */
+    public void checkBackupStateReadable() {
+        final Boolean running = BackupAccess.isBackupRunning();
+        checks.check("serverutilities backup state readable", running != null, "isBackupRunning=" + running);
+        final JsonObject newest = new JsonObject();
+        BackupAccess.describeNewest(newest);
+        checks.check("serverutilities backup folder readable", !newest.has("folderUnavailable"), newest.toString());
+    }
+
+    /**
      * Check the tier fields that {@link StructureTiers#planKeys} returns for real controller classes. A renamed GT
      * field then fails this check, and the tier does not go missing from a run's log with no warning. The classes
      * load without their static initialisers.
@@ -459,6 +473,38 @@ public final class OptionalModChecks {
             "extreme entity crusher formation logged once",
             crusherFormations == 1,
             "count=" + crusherFormations);
+    }
+
+    /** Check the turn of the hull at x -16 in step 32: one machine_facing line with the hull's key and both facings. */
+    public void checkGtHullTurn(List<JsonObject> lines) {
+        final String[] turn = scenario.getHullTurn();
+        final List<String> logged = new ArrayList<>();
+        for (JsonObject data : LogChecks.selectEventData(lines, "machine_facing")) {
+            // the scenario's other GT fixtures can log machine_facing lines too. Keep the hull's spot only
+            if (!(data.get("y")
+                .getAsInt() == scenario.offsetY(3)
+                && data.get("z")
+                    .getAsInt() == scenario.offsetZ(0))) {
+                continue;
+            }
+            logged.add(
+                (data.get("x")
+                    .getAsInt() - scenario.offsetX(0)) + " "
+                    + data.get("machineKey")
+                        .getAsString()
+                    + " "
+                    + data.get("from")
+                        .getAsString()
+                    + " "
+                    + data.get("to")
+                        .getAsString());
+        }
+        final List<String> expected = turn == null ? List.of()
+            : List.of("-16 gt.blockmachines.hull.bronze " + turn[0] + " " + turn[1]);
+        checks.check(
+            "machine_facing: the hull's turn logged with both facings",
+            turn != null && logged.equals(expected),
+            logged.toString());
     }
 
     /**

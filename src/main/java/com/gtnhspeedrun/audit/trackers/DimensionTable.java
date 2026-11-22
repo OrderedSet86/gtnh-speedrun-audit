@@ -118,8 +118,8 @@ public final class DimensionTable {
             if (saveFolder != null) {
                 data.addProperty("saveFolder", saveFolder);
             }
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over another mod's
-                                                      // WorldProvider
+        } catch (RuntimeException | LinkageError e) {
+            // degrade and report over another mod's WorldProvider
             data.addProperty("providerError", String.valueOf(e));
         }
     }

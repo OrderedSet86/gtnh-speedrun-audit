@@ -26,7 +26,7 @@ public class CmdTplastMixin {
             value = "INVOKE",
             target = "Lserverutils/lib/math/TeleporterDimPos;teleport(Lnet/minecraft/entity/Entity;)Lnet/minecraft/entity/Entity;"),
         require = 1)
-    private Entity audit$teleportPlayer(TeleporterDimPos destination, Entity entity) { // noqa: NAR130
+    private Entity audit$teleportPlayer(TeleporterDimPos destination, Entity entity) {
         TeleportSinks.logTeleport(
             entity,
             new TeleportSinks.Move("TPL", 0, destination.dim, destination.posX, destination.posY, destination.posZ));

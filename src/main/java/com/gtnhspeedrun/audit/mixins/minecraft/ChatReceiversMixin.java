@@ -22,7 +22,7 @@ import com.gtnhspeedrun.audit.trackers.CommandOutputCapture;
 public class ChatReceiversMixin {
 
     @Inject(method = "addChatMessage", at = @At("HEAD"), require = 1)
-    private void audit$line(IChatComponent message, CallbackInfo ci) { // noqa: NAR130
+    private void audit$line(IChatComponent message, CallbackInfo ci) {
         CommandOutputCapture.captureLine((ICommandSender) (Object) this, message);
     }
 }

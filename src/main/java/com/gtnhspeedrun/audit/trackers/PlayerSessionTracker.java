@@ -104,8 +104,9 @@ public final class PlayerSessionTracker {
             if (player.playerNetServerHandler != null && player.playerNetServerHandler.netManager != null) {
                 dispatcher = NetworkDispatcher.get(player.playerNetServerHandler.netManager);
             }
-        } catch (RuntimeException ignored) { // noqa: NAR142, FML NetworkDispatcher.get() on an unconnected manager
-            // channel() of an unconnected NetworkManager is null
+        } catch (RuntimeException ignored) {
+            // FML NetworkDispatcher.get() throws for an unconnected manager. channel() of an unconnected NetworkManager
+            // returns null.
         }
         if (dispatcher == null) {
             data.addProperty("clientMods", "none_reported");

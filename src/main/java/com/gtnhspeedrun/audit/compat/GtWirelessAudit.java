@@ -131,9 +131,9 @@ public final class GtWirelessAudit {
             return new Target(
                 name,
                 new TeamBalance(uuid, SpaceProjectManager.getLeader(uuid), WirelessNetworkManager.getUserEU(uuid)));
-        } catch (RuntimeException e) { // noqa: NAR142, degrade and report over GT wireless code
-            // For an unknown name the profile cache returns null, and getId() throws a NullPointerException. The GT
-            // command fails the same way.
+        } catch (RuntimeException e) {
+            // Degrade and report over GT wireless code. For an unknown name the profile cache returns null, and getId()
+            // throws a NullPointerException. The GT command fails the same way.
             return new Target(name, null);
         }
     }

@@ -41,7 +41,7 @@ public class MTEBasicMachineMixin {
     public FluidStack mOutputFluid;
 
     @Unique
-    private RecipeTallyCache audit$recipeCache; // noqa: NAR130
+    private RecipeTallyCache audit$recipeCache;
 
     @Inject(
         method = "onPostTick",
@@ -49,8 +49,7 @@ public class MTEBasicMachineMixin {
             value = "INVOKE",
             target = "Lgregtech/api/metatileentity/implementations/MTEBasicMachine;startProcess()V"),
         require = 1)
-    private void audit$recipeStarted(IGregTechTileEntity aBaseMetaTileEntity, long aTick, // noqa: NAR130
-        CallbackInfo ci) {
+    private void audit$recipeStarted(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) {
         if (audit$recipeCache == null) {
             audit$recipeCache = new RecipeTallyCache();
         }

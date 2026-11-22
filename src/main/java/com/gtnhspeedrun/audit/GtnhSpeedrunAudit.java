@@ -19,6 +19,7 @@ import com.gtnhspeedrun.audit.compat.BackupAccess;
 import com.gtnhspeedrun.audit.compat.BqQuestDb;
 import com.gtnhspeedrun.audit.compat.BqQuestTracker;
 import com.gtnhspeedrun.audit.compat.Compat;
+import com.gtnhspeedrun.audit.compat.GtFacing;
 import com.gtnhspeedrun.audit.compat.GtPowerCensus;
 import com.gtnhspeedrun.audit.compat.GtPowerUse;
 import com.gtnhspeedrun.audit.compat.GtWirelessAudit;
@@ -160,13 +161,15 @@ public class GtnhSpeedrunAudit {
             sm.addSnapshotHook(() -> scheduler.snapshotAllPlayers("manual"));
 
             final MilestoneTracker milestones = new MilestoneTracker(sm.logger(), sm.anchor(), keyItems);
-            onForgeBus(new CommandTracker(sm.logger()));
+            onForgeBus(new CommandTracker(sm.logger(), sm.commandBlockRuns()));
             onForgeBus(inventory); // LivingDeathEvent
             onForgeBus(milestones); // AchievementEvent
             final MachinePlacementTracker placements = new MachinePlacementTracker(
                 sm.logger(),
-                selftest ? SelfTest.STAND_IN_MACHINE_BLOCK : MachinePlacementTracker.GT_MACHINE_BLOCK,
-                selftest ? SelfTest.STAND_IN_MANIPULATOR_PREFIX : MachinePlacementTracker.MANIPULATOR_PREFIX);
+                new MachinePlacementTracker.Setup(
+                    selftest ? SelfTest.STAND_IN_MACHINE_BLOCK : MachinePlacementTracker.GT_MACHINE_BLOCK,
+                    selftest ? SelfTest.STAND_IN_MANIPULATOR_PREFIX : MachinePlacementTracker.MANIPULATOR_PREFIX,
+                    Compat.GT5.isLoaded() ? GtFacing::readFacing : tile -> null));
             onForgeBus(placements); // PlaceEvent, BreakEvent
             onFmlBus(placements); // end of tick: Matter Manipulator placements
             final Predicate<ItemStack> isWrench;
@@ -269,8 +272,9 @@ public class GtnhSpeedrunAudit {
                     worldEdit.register();
                     onFmlBus(worldEdit); // end of tick: one worldedit_edit per edit session
                     worldEditStop = worldEdit::unregister;
-                } catch (LinkageError | RuntimeException e) { // noqa: NAR142, degrade and report over the WorldEdit API
-                    // a WorldEdit build with another API leaves only WorldEdit edits unaudited
+                } catch (LinkageError | RuntimeException e) {
+                    // Degrade and report over the WorldEdit API. A WorldEdit build with another API leaves only
+                    // WorldEdit edits unaudited.
                     LOG.error("WorldEdit edits NOT audited — WorldEdit API mismatch", e);
                 }
             }
@@ -290,9 +294,9 @@ public class GtnhSpeedrunAudit {
                 auditListeners.addAll(fmlBusListeners);
                 onFmlBus(new SelfTest(sm, Paths.get(selftestDir), auditListeners));
             }
-        } catch (IOException | RuntimeException e) { // noqa: NAR142, degrade and report over the trackers of pack mods
-                                                     // at server start
-            // a broken audit trail must be loud, but the server of the run must keep running
+        } catch (IOException | RuntimeException e) {
+            // Degrade and report over the trackers of pack mods at server start. A broken audit trail must be loud, but
+            // the server of the run must keep running.
             LOG.error("Speedrun audit failed to start — THIS RUN IS NOT BEING AUDITED", e);
             session = null;
             MachineRemovals.activate(null);
@@ -321,14 +325,14 @@ public class GtnhSpeedrunAudit {
                 sm.logger()
                     .clock()
                     .get());
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over the item registry of
-                                                      // every mod
+        } catch (RuntimeException | LinkageError e) {
+            // degrade and report over the item registry of every mod
             LOG.error("Item ID table not recorded", e);
         }
         try {
             dimensions.logDimensionTable();
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over the dimensions of every
-                                                      // mod
+        } catch (RuntimeException | LinkageError e) {
+            // degrade and report over the dimensions of every mod
             LOG.error("dim_table.failed", e);
         }
         if (Compat.BETTER_QUESTING.isLoaded()) {

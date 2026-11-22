@@ -180,8 +180,8 @@ public final class GtPowerCensus {
                 }
             }
             lsc.add("capacitors", capacitors);
-        } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, degrade and report over
-                                                                      // reflection into GT code
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // degrade and report over reflection into GT code
             lsc.addProperty("readError", String.valueOf(e));
         }
         return lsc;
@@ -219,8 +219,8 @@ public final class GtPowerCensus {
                 for (int i = 0; i < tierConstants.length; i++) {
                     access.tierNames[i] = ((Enum<?>) tierConstants[i]).name();
                 }
-            } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, degrade and report over
-                                                                          // reflection into GT code
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                // degrade and report over reflection into GT code
                 access.error = String.valueOf(e);
             }
             return access;

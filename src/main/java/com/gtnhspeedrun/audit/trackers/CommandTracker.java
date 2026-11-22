@@ -1,5 +1,7 @@
 package com.gtnhspeedrun.audit.trackers;
 
+import java.util.List;
+
 import net.minecraft.command.ICommandSender;
 import net.minecraft.command.server.CommandBlockLogic;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -11,6 +13,7 @@ import net.minecraftforge.event.CommandEvent;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.gtnhspeedrun.audit.core.AttemptLimiter;
 import com.gtnhspeedrun.audit.core.AuditLogger;
 import com.gtnhspeedrun.audit.core.JsonUtil;
 
@@ -29,14 +32,24 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
  * flag is the value after every other handler.
  *
  * <p>
+ * {@code commandBlockRuns} limits the {@code command} lines of each command of each command block, and counts the other
+ * runs. A timer can run a command block every tick.
+ *
+ * <p>
  * The event can fire on the RCON thread. NEVER touch world state here beyond reading the sender's fields.
  */
 public final class CommandTracker {
 
-    private final AuditLogger logger;
+    // `commandBlockRuns` counts the runs of a command block per value of these fields of the command line
+    private static final List<String> COMMAND_BLOCK_IDENTITY = List
+        .of("senderType", "sender", "dim", "pos", "cmd", "args");
 
-    public CommandTracker(AuditLogger logger) {
+    private final AuditLogger logger;
+    private final AttemptLimiter commandBlockRuns;
+
+    public CommandTracker(AuditLogger logger, AttemptLimiter commandBlockRuns) {
         this.logger = logger;
+        this.commandBlockRuns = commandBlockRuns;
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
@@ -57,7 +70,20 @@ public final class CommandTracker {
         data.add("args", args);
         data.addProperty("canceled", event.isCanceled());
         describeSender(data, sender);
+        if (sender instanceof CommandBlockLogic && !commandBlockRuns.tryLog(selectIdentity(data))) {
+            return;
+        }
         logger.log("command", data);
+    }
+
+    private static JsonObject selectIdentity(JsonObject data) {
+        final JsonObject identity = new JsonObject();
+        for (String field : COMMAND_BLOCK_IDENTITY) {
+            if (data.has(field)) {
+                identity.add(field, data.get(field));
+            }
+        }
+        return identity;
     }
 
     /** Add {@code senderType}, {@code sender}, and the position fields that the sender type has. */
@@ -75,6 +101,10 @@ public final class CommandTracker {
         } else if (sender instanceof CommandBlockLogic) {
             data.addProperty("senderType", "commandblock");
             data.addProperty("sender", sender.getCommandSenderName());
+            final World world = sender.getEntityWorld();
+            if (world != null) {
+                data.addProperty("dim", world.provider.dimensionId);
+            }
             addPosition(data, sender.getPlayerCoordinates());
         } else if (sender instanceof RConConsoleSource) {
             data.addProperty("senderType", "rcon");

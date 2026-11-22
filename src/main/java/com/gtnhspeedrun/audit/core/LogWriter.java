@@ -222,7 +222,8 @@ public final class LogWriter implements Runnable {
         String json;
         try {
             json = renderLine(event);
-        } catch (RuntimeException failure) { // noqa: NAR142, event data comes from the state of other mods
+        } catch (RuntimeException failure) {
+            // event data comes from the state of other mods
             json = renderLine(describeFailedEvent(event.type(), event.clocks(), failure));
         }
         final byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
@@ -362,7 +363,8 @@ public final class LogWriter implements Runnable {
                 snapshot.content()
                     .get())
                 .getBytes(StandardCharsets.UTF_8);
-        } catch (RuntimeException failure) { // noqa: NAR142, the supplier reads the captured data of other mods
+        } catch (RuntimeException failure) {
+            // the supplier reads the captured data of other mods
             appendLine(describeFailedEvent(snapshot.type(), snapshot.clocks(), failure));
             return;
         }

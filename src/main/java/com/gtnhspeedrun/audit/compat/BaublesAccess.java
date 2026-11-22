@@ -22,7 +22,8 @@ public final class BaublesAccess {
         }
         try {
             return Holder.readBaubles(player);
-        } catch (NoClassDefFoundError | RuntimeException e) { // noqa: NAR142, degrade and report over Baubles code
+        } catch (NoClassDefFoundError | RuntimeException e) {
+            // degrade and report over Baubles code
             return null;
         }
     }

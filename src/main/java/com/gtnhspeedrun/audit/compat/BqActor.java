@@ -154,8 +154,8 @@ public final class BqActor {
                     }
                 }
             }
-        } catch (RuntimeException | LinkageError ignored) { // noqa: NAR142, degrade and report over BQ database code
-            // the line still has the player and the task type
+        } catch (RuntimeException | LinkageError ignored) {
+            // Degrade and report over BQ database code. The line still has the player and the task type.
         }
     }
 

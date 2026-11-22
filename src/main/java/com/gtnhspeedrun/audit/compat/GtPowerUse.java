@@ -118,7 +118,8 @@ public final class GtPowerUse {
             final MachineSite site = GtMachineSites.readSite(base);
             final boolean isMultiblock = base.getMetaTileEntity() instanceof MTEMultiBlockBase;
             return new PowerUse.TileIdentity(site.formatTypeKey(), isMultiblock ? site : null);
-        } catch (RuntimeException e) { // noqa: NAR142, degrade and report over GT machine code
+        } catch (RuntimeException e) {
+            // degrade and report over GT machine code
             PowerUse.active()
                 .noteReadError();
             GtnhSpeedrunAudit.LOG.debug(

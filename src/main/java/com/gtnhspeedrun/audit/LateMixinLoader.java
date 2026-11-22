@@ -48,6 +48,7 @@ public class LateMixinLoader implements ILateMixinLoader {
             mixins.add("gt.GTUtilityItemNbtMixin");
             mixins.add("gt.MTEHatchCraftingInputMEMixin");
             mixins.add("gt.BaseMetaTileEntityPowerMixin");
+            mixins.add("gt.BaseMetaTileEntityFacingMixin");
             mixins.add("gt.WirelessNetworkManagerMixin");
             mixins.add("gt.MTEBasicMachineMixin");
         }

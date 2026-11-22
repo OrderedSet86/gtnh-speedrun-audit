@@ -9,5 +9,5 @@ package com.gtnhspeedrun.audit.trackers;
  */
 public interface InvseeViewHolder {
 
-    String audit$viewId(); // noqa: NAR130
+    String auditViewId();
 }

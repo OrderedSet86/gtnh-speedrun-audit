@@ -26,6 +26,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.management.ServerConfigurationManager;
 import net.minecraft.stats.AchievementList;
 import net.minecraft.tileentity.TileEntityChest;
+import net.minecraft.tileentity.TileEntityCommandBlock;
 import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.util.DamageSource;
@@ -55,6 +56,7 @@ import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.harness.Ae2Fixture;
 import com.gtnhspeedrun.audit.harness.FormationSideCheck;
+import com.gtnhspeedrun.audit.harness.GtFacingDrill;
 import com.gtnhspeedrun.audit.harness.NbtEditDrill;
 import com.gtnhspeedrun.audit.harness.NeiDrill;
 import com.gtnhspeedrun.audit.harness.PowerUseDrill;
@@ -106,6 +108,7 @@ public final class Scenario {
     public static final float ALICE_PITCH = 30.0F;
     public static final String PROSPECT_LINE_KEY = "selftest.prospect.line";
     private static final double ALICE_SAMPLE_MOVE_BLOCKS = 2.0;
+    public static final int COMMAND_BLOCK_RUNS = 25;
     private static final int POWER_USE_FURNACE_DX = 16;
     private static final int WARM_UP_DRAINS = 3_000;
     private static final int MEASURED_DRAINS = 1_000;
@@ -137,6 +140,8 @@ public final class Scenario {
     /** The before and after hashes of the live /nbtedit drill, or null without ServerUtilities. */
     private String[] nbtEditHashes;
     private long nbtEditFloodMs = -1;
+    // the hull's facings before and after the turn of step 32, or null before the turn and without GT
+    private String[] hullTurn;
     private long questEditFloodMs = -1;
     private boolean questEditFloodByOp;
     /** The feet positions {x, y, z} of alice before and after the vanilla /tp teleport. */
@@ -276,6 +281,7 @@ public final class Scenario {
                 // off the allowlist: no command_output
                 server.getCommandManager()
                     .executeCommand(server, "seed");
+                runCommandBlock(overworld);
                 overworld.difficultySetting = EnumDifficulty.PEACEFUL;
                 // a ServerUtilities backup and /save-off set this flag
                 overworld.levelSaving = true;
@@ -508,7 +514,12 @@ public final class Scenario {
                 false);
             case 30 -> recheckTecTechMulti(overworld);
             case 31 -> rotateTecTechMulti(overworld);
-            case 32 -> drainThroughTecTechMulti(overworld, MEASURED_DRAINS, true);
+            case 32 -> {
+                drainThroughTecTechMulti(overworld, MEASURED_DRAINS, true);
+                if (Compat.GT5.isLoaded()) {
+                    hullTurn = GtFacingDrill.turnMachine(fixturePos(overworld, offset(-16, 3, 0)));
+                }
+            }
             // power_use: the furnace's recipe and the drains of step 32, in the interval since step 4
             case 33 -> session.runSnapshotHooks();
             case 34 -> {
@@ -630,7 +641,8 @@ public final class Scenario {
             Class.forName("gregtech.common.misc.WirelessNetworkManager")
                 .getMethod("addEUToGlobalEnergyMap", UUID.class, long.class)
                 .invoke(null, player.getUniqueID(), SEEDED_WIRELESS_EU);
-        } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, reflection into GT wireless code
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // reflection into GT wireless code
             checks.check("wireless EU seeded", false, String.valueOf(e));
         }
     }
@@ -759,6 +771,8 @@ public final class Scenario {
         }
         placeGtHull(world, machineBlock, -12);
         world.setBlockToAir(offsetX(-12), offsetY(3), offsetZ(0));
+        // the hull at x -16 stays, for the facing turn of step 32
+        placeGtHull(world, machineBlock, -16);
         placeGtHull(world, machineBlock, -14);
         final Object vajraItem = Item.itemRegistry.getObject(GT_VAJRA);
         if (!(vajraItem instanceof Item vajra)) {
@@ -924,6 +938,24 @@ public final class Scenario {
     }
 
     /**
+     * Run one command of a command block {@link #COMMAND_BLOCK_RUNS} times, as a command block on a timer does, then
+     * end the window of the command.
+     */
+    private void runCommandBlock(WorldServer world) {
+        world.setBlock(offsetX(-8), offsetY(0), offsetZ(12), Blocks.command_block);
+        final TileEntityCommandBlock block = (TileEntityCommandBlock) world
+            .getTileEntity(offsetX(-8), offsetY(0), offsetZ(12));
+        // CommandBlockLogic.func_145755_a() runs the command only with enable-command-block on. Send each run to the
+        // command manager with the command block as sender
+        for (int run = 0; run < COMMAND_BLOCK_RUNS; run++) {
+            server.getCommandManager()
+                .executeCommand(block.func_145993_a(), "testfor @a");
+        }
+        session.commandBlockRuns()
+            .reportAllWindows();
+    }
+
+    /**
      * Open a chest with an emerald as alice, then log one click in the chest through the click sink, as for a creative
      * player: a stick put into slot 1. {@link #closeContainerFixture} takes the emerald and closes the chest.
      */
@@ -992,6 +1024,11 @@ public final class Scenario {
         return nbtEditHashes;
     }
 
+    @Nullable
+    public String[] getHullTurn() {
+        return hullTurn;
+    }
+
     /** Return the time the nbtedit hook took for the forged reply with the large list, in ms, or -1 if not run. */
     public long getNbtEditFloodMs() {
         return nbtEditFloodMs;
@@ -1023,12 +1060,12 @@ public final class Scenario {
     private static final class SelfTestBrokenController implements GtFormationLogger {
 
         @Override
-        public void audit$logFormation() {
+        public void auditLogFormation() {
             throw new IllegalStateException("selftest");
         }
 
         @Override
-        public void audit$logFootprintChange() {
+        public void auditLogFootprintChange() {
             throw new IllegalStateException("selftest");
         }
     }

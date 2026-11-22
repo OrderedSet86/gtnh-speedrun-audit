@@ -13,5 +13,5 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 public interface ServerConfigurationManagerAccessor {
 
     @Accessor("commandsAllowedForAll")
-    boolean audit$isCommandsAllowedForAll(); // noqa: NAR130
+    boolean audit$isCommandsAllowedForAll();
 }

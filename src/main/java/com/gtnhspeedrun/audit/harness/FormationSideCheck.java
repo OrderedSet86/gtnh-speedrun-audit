@@ -44,7 +44,8 @@ public final class FormationSideCheck {
             }
             try {
                 StructureTiers.read(mte);
-            } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over GT machine code
+            } catch (RuntimeException | LinkageError e) {
+                // degrade and report over GT machine code
                 failed.add(
                     mte.getClass()
                         .getSimpleName() + ": "
@@ -77,8 +78,8 @@ public final class FormationSideCheck {
 
     /**
      * Place an Extreme Entity Crusher controller at {@code controllerPos} as {@code player}, and call
-     * {@code audit$logFormation()} on the controller, as the {@code checkStructure} hook does. The call here has no
-     * guard of the hook, so a failure returns to the self-test and the error log gets nothing.
+     * {@code auditLogFormation()} on the controller, as the {@code checkStructure} hook does. This call doesn't go
+     * through {@code FormationGuard}, so a failure returns to the self-test, and the error log doesn't get a line.
      *
      * @return null on success, otherwise what went wrong
      */
@@ -109,9 +110,10 @@ public final class FormationSideCheck {
             return "no GT multiblock at the controller, got " + te;
         }
         try {
-            logger.audit$logFormation();
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over GT machine code
-            return "audit$logFormation threw " + e;
+            logger.auditLogFormation();
+        } catch (RuntimeException | LinkageError e) {
+            // degrade and report over GT machine code
+            return "auditLogFormation threw " + e;
         }
         return null;
     }

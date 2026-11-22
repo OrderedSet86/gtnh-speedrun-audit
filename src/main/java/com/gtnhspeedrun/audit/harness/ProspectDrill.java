@@ -50,12 +50,14 @@ public final class ProspectDrill {
             try {
                 DetravNetwork.INSTANCE
                     .sendToPlayer(new ProspectingPacket(x >> 4, z >> 4, x, z, RADIUS_CHUNKS, MODE), player);
-            } catch (RuntimeException ignored) { // noqa: NAR142, degrade over FML's send to a fake player
+            } catch (RuntimeException ignored) {
+                // degrade over FML's send to a fake player
             }
             try {
                 VisualProspecting_API.LogicalServer
                     .sendProspectionResultsToClient(player, veins, Collections.emptyList());
-            } catch (RuntimeException ignored) { // noqa: NAR142, degrade over FML's send to a fake player
+            } catch (RuntimeException ignored) {
+                // degrade over FML's send to a fake player
             }
         }
     }

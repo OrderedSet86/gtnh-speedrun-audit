@@ -19,7 +19,7 @@ import com.gtnhspeedrun.audit.core.SessionManager;
 public class WorldServerSaveMixin {
 
     @Inject(method = "saveAllChunks", at = @At("HEAD"), require = 1)
-    private void audit$syncAnchor(boolean saveAll, IProgressUpdate progress, CallbackInfo ci) { // noqa: NAR130
+    private void audit$syncAnchor(boolean saveAll, IProgressUpdate progress, CallbackInfo ci) {
         if (((WorldServer) (Object) this).provider.dimensionId != 0) {
             return;
         }

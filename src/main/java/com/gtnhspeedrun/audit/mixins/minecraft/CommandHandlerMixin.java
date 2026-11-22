@@ -23,7 +23,7 @@ import com.gtnhspeedrun.audit.trackers.CommandTeleports;
 public class CommandHandlerMixin {
 
     @Inject(method = "executeCommand", at = @At("HEAD"), require = 1)
-    private void audit$begin(ICommandSender sender, String line, CallbackInfoReturnable<Integer> cir) { // noqa: NAR130
+    private void audit$begin(ICommandSender sender, String line, CallbackInfoReturnable<Integer> cir) {
         ICommand resolved = null;
         try {
             String name = line == null ? "" : line.trim();
@@ -32,15 +32,16 @@ public class CommandHandlerMixin {
             }
             final Map<?, ?> commands = ((CommandHandler) (Object) this).getCommands();
             resolved = (ICommand) commands.get(name.split(" ")[0]);
-        } catch (RuntimeException ignored) { // noqa: NAR142, degrade over a command map that other mods fill
-            // resolved stays null, and CommandOutputCapture matches the typed name
+        } catch (RuntimeException ignored) {
+            // Degrade over a command map that other mods fill. `resolved` stays null then, and CommandOutputCapture
+            // matches the typed name.
         }
         CommandOutputCapture.begin(sender, line, resolved);
         CommandTeleports.begin(sender, resolved != null ? resolved.getCommandName() : String.valueOf(line));
     }
 
     @Inject(method = "executeCommand", at = @At("RETURN"), require = 1)
-    private void audit$end(ICommandSender sender, String line, CallbackInfoReturnable<Integer> cir) { // noqa: NAR130
+    private void audit$end(ICommandSender sender, String line, CallbackInfoReturnable<Integer> cir) {
         CommandTeleports.end();
         CommandOutputCapture.end();
     }

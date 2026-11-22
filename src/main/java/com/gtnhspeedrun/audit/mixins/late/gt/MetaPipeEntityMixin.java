@@ -17,7 +17,7 @@ import gregtech.api.metatileentity.MetaPipeEntity;
 public class MetaPipeEntityMixin {
 
     @Inject(method = "doExplosion", at = @At("HEAD"), require = 1)
-    private void audit$explosion(long aExplosionPower, CallbackInfo ci) { // noqa: NAR130
+    private void audit$explosion(long aExplosionPower, CallbackInfo ci) {
         final IGregTechTileEntity base = ((MetaPipeEntity) (Object) this).getBaseMetaTileEntity();
         if (!(base != null && base.getWorld() != null && !base.getWorld().isRemote)) {
             return;

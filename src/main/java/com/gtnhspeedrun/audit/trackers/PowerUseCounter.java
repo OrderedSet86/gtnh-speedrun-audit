@@ -9,7 +9,7 @@ import org.jetbrains.annotations.Nullable;
 public interface PowerUseCounter {
 
     @Nullable
-    PowerTally audit$readPowerTally(); // noqa: NAR130
+    PowerTally auditReadPowerTally();
 
-    void audit$writePowerTally(PowerTally tally); // noqa: NAR130
+    void auditWritePowerTally(PowerTally tally);
 }

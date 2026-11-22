@@ -216,10 +216,10 @@ public final class PowerUse {
     }
 
     private PowerTally listTally(PowerUseCounter tile) {
-        PowerTally tally = tile.audit$readPowerTally();
+        PowerTally tally = tile.auditReadPowerTally();
         if (tally == null) {
             tally = new PowerTally(tile);
-            tile.audit$writePowerTally(tally);
+            tile.auditWritePowerTally(tally);
         }
         if (!tally.isListed()) {
             tally.setListed(true);

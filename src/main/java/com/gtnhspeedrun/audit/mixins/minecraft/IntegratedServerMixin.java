@@ -19,7 +19,7 @@ public class IntegratedServerMixin {
 
     /** The return value is the LAN port, or null when the LAN endpoint failed to start. */
     @Inject(method = "shareToLAN", at = @At("RETURN"), require = 1)
-    private void audit$sharedToLan(WorldSettings.GameType type, boolean allowCheats, // noqa: NAR130
+    private void audit$sharedToLan(WorldSettings.GameType type, boolean allowCheats,
         CallbackInfoReturnable<String> cir) {
         CommandsAllowedTracker.reportLanOpen(type.getName(), allowCheats, cir.getReturnValue());
     }

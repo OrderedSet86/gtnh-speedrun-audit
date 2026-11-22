@@ -3,6 +3,7 @@ package com.gtnhspeedrun.audit.export;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -158,6 +159,9 @@ public final class RunSummary {
         // A Stargate is about 20 tracked blocks. MILESTONES has the first placement of each block, and TRACKED
         // PLACEMENTS has the count of every placement.
         final Set<String> placedSeen = new HashSet<>();
+        // a quest of a party is completed once for each member. MILESTONES has the first completion
+        final Map<String, Set<String>> questPlayers = collectQuestPlayers(lines);
+        final Set<String> questsShown = new HashSet<>();
         for (JsonObject line : lines) {
             final String type = line.get("t")
                 .getAsString();
@@ -176,13 +180,22 @@ public final class RunSummary {
                         data.get("name")
                             .getAsString())
                     .append('\n');
-                case "quest_complete" -> sb.append(when)
-                    .append("  QUEST      ")
-                    .append(
-                        JsonUtil.stripFormatting(
-                            data.get("questName")
-                                .getAsString()))
-                    .append('\n');
+                case "quest_complete" -> {
+                    final String questId = data.get("questId")
+                        .getAsString();
+                    if (questsShown.add(questId)) {
+                        final int players = questPlayers.get(questId)
+                            .size();
+                        sb.append(when)
+                            .append("  QUEST      ")
+                            .append(
+                                JsonUtil.stripFormatting(
+                                    data.get("questName")
+                                        .getAsString()))
+                            .append(players == 1 ? " (1 player)" : " (" + players + " players)")
+                            .append('\n');
+                    }
+                }
                 case "dim_first_visit" -> sb.append(when)
                     .append("  DIMENSION  ")
                     .append(
@@ -336,6 +349,27 @@ public final class RunSummary {
             sb.append(report == chains.get(0) ? "  (exported)\n" : "\n");
         }
         sb.append("SESSIONS has the exported chain's ancestors up to each copied save, then the exported chain.\n\n");
+    }
+
+    /** Quest id -> the player uuids of the quest's quest_complete lines. */
+    private static Map<String, Set<String>> collectQuestPlayers(List<JsonObject> lines) {
+        final Map<String, Set<String>> players = new HashMap<>();
+        for (JsonObject line : lines) {
+            if (!line.get("t")
+                .getAsString()
+                .equals("quest_complete")) {
+                continue;
+            }
+            final JsonObject data = line.getAsJsonObject("data");
+            players.computeIfAbsent(
+                data.get("questId")
+                    .getAsString(),
+                unused -> new HashSet<>())
+                .add(
+                    data.get("playerUuid")
+                        .getAsString());
+        }
+        return players;
     }
 
     private static final DateTimeFormatter UTC_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'")

@@ -209,7 +209,8 @@ public final class JsonUtil {
     public static String nbtToB64(NBTTagCompound tag) {
         try {
             return Base64.encodeBase64String(CompressedStreamTools.compress(tag));
-        } catch (IOException | RuntimeException e) { // noqa: NAR142, NBT from the tile entities and items of other mods
+        } catch (IOException | RuntimeException e) {
+            // NBT from the tile entities and items of other mods
             return "ERROR:" + e;
         }
     }

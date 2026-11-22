@@ -28,7 +28,7 @@ import betterquesting.network.handlers.NetSettingSync;
 public class QuestEditHandlersMixin {
 
     @Inject(method = "onServer", at = @At("HEAD"), require = 1)
-    private static void audit$edit(Tuple2<NBTTagCompound, EntityPlayerMP> message, CallbackInfo ci) { // noqa: NAR130
+    private static void audit$edit(Tuple2<NBTTagCompound, EntityPlayerMP> message, CallbackInfo ci) {
         // Mixin merges this handler into each target class, so lookupClass() returns the packet handler class
         BqActor.edit(
             MethodHandles.lookup()

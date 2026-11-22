@@ -30,8 +30,7 @@ public class BlockMachinesMixin {
      * the tile is removed, so the GT tile is still readable at HEAD.
      */
     @Inject(method = "breakBlock", at = @At("HEAD"), remap = true, require = 1)
-    private void audit$removed(World world, int x, int y, int z, Block block, int meta, // noqa: NAR130, NAR131
-        CallbackInfo ci) {
+    private void audit$removed(World world, int x, int y, int z, Block block, int meta, CallbackInfo ci) {
         if (world.isRemote) {
             return;
         }
@@ -47,7 +46,8 @@ public class BlockMachinesMixin {
                 MachineRemovals
                     .logMachineRemoval(new MachineSite("?", null, world.provider.dimensionId, x, y, z), null);
             }
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over GT machine code
+        } catch (RuntimeException | LinkageError e) {
+            // degrade and report over GT machine code
             GtnhSpeedrunAudit.LOG
                 .error("machine_removed.failed dim={} x={} y={} z={}", world.provider.dimensionId, x, y, z, e);
         }

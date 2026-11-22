@@ -51,7 +51,8 @@ public final class BqQuestTracker {
         try {
             final IQuest quest = QuestDatabase.INSTANCE.get(questId);
             return quest == null ? "?" : JsonUtil.stripFormatting(quest.getProperty(NativeProps.NAME));
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over BQ database code
+        } catch (RuntimeException | LinkageError e) {
+            // degrade and report over BQ database code
             return "?";
         }
     }

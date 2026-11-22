@@ -19,8 +19,8 @@ public class GTUtilityItemNbtMixin {
 
     /** Reports the data that setAdvancedProspectionData() writes to {@code stick}. */
     @Inject(method = "setAdvancedProspectionData", at = @At("HEAD"), require = 1)
-    private static void audit$prospectionData(byte tier, ItemStack stick, int x, short y, // noqa: NAR130, NAR131
-        int z, int dim, ArrayList<String> oils, ArrayList<String> ores, int radius, CallbackInfo ci) { // noqa: NAR140
+    private static void audit$prospectionData(byte tier, ItemStack stick, int x, short y, int z, int dim,
+        ArrayList<String> oils, ArrayList<String> ores, int radius, CallbackInfo ci) {
         ProspectSinks.reportSeismicData(new ProspectSinks.SeismicData(tier, radius, ores, oils));
     }
 }

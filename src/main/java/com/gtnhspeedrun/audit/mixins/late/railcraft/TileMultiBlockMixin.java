@@ -26,15 +26,15 @@ public class TileMultiBlockMixin {
     protected boolean isMaster;
 
     @Unique
-    private boolean audit$wasMaster; // noqa: NAR130
+    private boolean audit$wasMaster;
 
     @Inject(method = "testIfMasterBlock", at = @At("HEAD"), require = 1)
-    private void audit$before(CallbackInfo ci) { // noqa: NAR130
+    private void audit$before(CallbackInfo ci) {
         audit$wasMaster = isMaster;
     }
 
     @Inject(method = "testIfMasterBlock", at = @At("RETURN"), require = 1)
-    private void audit$after(CallbackInfo ci) { // noqa: NAR130
+    private void audit$after(CallbackInfo ci) {
         if (!(!audit$wasMaster && isMaster)) {
             return;
         }

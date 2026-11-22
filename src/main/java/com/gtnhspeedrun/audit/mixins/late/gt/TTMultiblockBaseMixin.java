@@ -47,16 +47,16 @@ import tectech.thing.metaTileEntity.multi.base.TTMultiblockBase;
 public class TTMultiblockBaseMixin implements GtExtraHatches {
 
     @Shadow
-    protected ArrayList<MTEHatchEnergyMulti> eEnergyMulti; // noqa: NAR140
+    protected ArrayList<MTEHatchEnergyMulti> eEnergyMulti;
 
     @Shadow
-    protected ArrayList<MTEHatchDynamoMulti> eDynamoMulti; // noqa: NAR140
+    protected ArrayList<MTEHatchDynamoMulti> eDynamoMulti;
 
     @Unique
-    private boolean audit$ttWasFormed; // noqa: NAR130
+    private boolean audit$ttWasFormed;
 
     @Inject(method = "onPostTick", at = @At("HEAD"), require = 1)
-    private void audit$before(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) { // noqa: NAR130
+    private void audit$before(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) {
         audit$ttWasFormed = ((MTEMultiBlockBase) (Object) this).mMachine;
         StructureBounds.push(this, aBaseMetaTileEntity.isServerSide());
     }
@@ -67,7 +67,7 @@ public class TTMultiblockBaseMixin implements GtExtraHatches {
             value = "INVOKE",
             target = "Ltectech/thing/metaTileEntity/multi/base/TTMultiblockBase;hatchInit_EM(Z)V"),
         require = 1)
-    private void audit$checked(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) { // noqa: NAR130
+    private void audit$checked(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) {
         if (!(((MTEMultiBlockBase) (Object) this).mMachine && aBaseMetaTileEntity.isServerSide())) {
             return;
         }
@@ -80,17 +80,17 @@ public class TTMultiblockBaseMixin implements GtExtraHatches {
     }
 
     @Inject(method = "onPostTick", at = @At("RETURN"), require = 1)
-    private void audit$after(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) { // noqa: NAR130
+    private void audit$after(IGregTechTileEntity aBaseMetaTileEntity, long aTick, CallbackInfo ci) {
         StructureBounds.pop(this);
     }
 
     @Override
-    public List<? extends MTEHatch> audit$extraEnergyHatches() {
+    public List<? extends MTEHatch> auditExtraEnergyHatches() {
         return eEnergyMulti;
     }
 
     @Override
-    public List<? extends MTEHatch> audit$extraDynamoHatches() {
+    public List<? extends MTEHatch> auditExtraDynamoHatches() {
         return eDynamoMulti;
     }
 }

@@ -82,7 +82,8 @@ public final class Ae2PatternCensus {
             }
             try {
                 census.readProvider(provider, lookup);
-            } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over provider code
+            } catch (RuntimeException | LinkageError e) {
+                // degrade and report over provider code
                 census.readErrors++;
             }
         }
@@ -100,7 +101,8 @@ public final class Ae2PatternCensus {
                 channelsInUseField.setAccessible(true);
             }
             return channelsInUseField.getInt(pathing);
-        } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, reflection into AE2 code
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // reflection into AE2 code
             channelsFieldFailed = true;
             return -1;
         }

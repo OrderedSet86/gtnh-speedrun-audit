@@ -27,15 +27,15 @@ public class TEAltarMixin {
     private int upgradeLevel;
 
     @Unique
-    private int audit$tierBefore; // noqa: NAR130
+    private int audit$tierBefore;
 
     @Inject(method = "checkAndSetAltar", at = @At("HEAD"), require = 1)
-    private void audit$before(CallbackInfo ci) { // noqa: NAR130
+    private void audit$before(CallbackInfo ci) {
         audit$tierBefore = upgradeLevel;
     }
 
     @Inject(method = "checkAndSetAltar", at = @At("RETURN"), require = 1)
-    private void audit$after(CallbackInfo ci) { // noqa: NAR130
+    private void audit$after(CallbackInfo ci) {
         if (upgradeLevel == audit$tierBefore) {
             return;
         }

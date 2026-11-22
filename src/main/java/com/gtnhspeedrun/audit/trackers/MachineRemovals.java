@@ -217,7 +217,7 @@ public final class MachineRemovals {
                 .computeIfAbsent(
                     remover.uuid() + "|" + site.dim() + "|" + remover.toolKey(),
                     batchKey -> new ManipulatorBatch(describeBatch(remover, site.dim())))
-                .add(spot, machine);
+                .add(spot, machine, null);
             return;
         }
         final JsonObject data = new JsonObject();

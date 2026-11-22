@@ -42,7 +42,8 @@ public final class BqQuestDb {
             data.addProperty("questCount", QuestDatabase.INSTANCE.size());
             data.addProperty("questLineCount", QuestLineDatabase.INSTANCE.size());
             data.addProperty("liveHash", JsonUtil.canonicalNbtHash(live));
-        } catch (RuntimeException | LinkageError e) { // noqa: NAR142, degrade and report over BQ database code
+        } catch (RuntimeException | LinkageError e) {
+            // degrade and report over BQ database code
             data.addProperty("liveError", String.valueOf(e));
         }
         final Path questDbPath = server.getFile(server.getFolderName())

@@ -79,8 +79,9 @@ public final class StructureTiers {
         for (Getter getter : plan) {
             try {
                 out.put(getter.key(), format(getter.get(controller)));
-            } catch (ReflectiveOperationException | RuntimeException ignored) { // noqa: NAR142, GT controller fields
-                // a field that can't be read is left out, and the other fields are still read
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // The read of a GT controller field can throw. A field that can't be read is left out, and the other
+                // fields are still read.
             }
         }
         return out;
@@ -165,8 +166,9 @@ public final class StructureTiers {
                 try {
                     field.setAccessible(true);
                     getters.add(new FieldPath(List.of(field)));
-                } catch (RuntimeException ignored) { // noqa: NAR142, setAccessible() on another mod's field
-                    // the field is inaccessible under this JVM's module rules. Skip the field
+                } catch (RuntimeException ignored) {
+                    // Another mod's field can be inaccessible under this JVM's module rules, and then setAccessible()
+                    // throws. Skip the field.
                 }
             }
         }
@@ -194,7 +196,8 @@ public final class StructureTiers {
                 return false;
             }
             fields = readInstanceFields(in);
-        } catch (IOException | RuntimeException e) { // noqa: NAR142, ASM on another mod's class file
+        } catch (IOException | RuntimeException e) {
+            // ASM on another mod's class file
             return false;
         }
         final MethodHandles.Lookup lookup;
@@ -202,7 +205,8 @@ public final class StructureTiers {
             lookup = (MethodHandles.Lookup) MethodHandles.class
                 .getMethod("privateLookupIn", Class.class, MethodHandles.Lookup.class)
                 .invoke(null, declaring, MethodHandles.lookup());
-        } catch (ReflectiveOperationException | RuntimeException e) { // noqa: NAR142, lookup into another mod
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // lookup into another mod
             return false;
         }
         for (ClassFileField field : fields) {
@@ -215,9 +219,9 @@ public final class StructureTiers {
             }
             try {
                 getters.add(new HandleGetter(field.name(), lookup.findGetter(declaring, field.name(), type)));
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) { // noqa: NAR142, another
-                                                                                               // mod
-                // the field can't be read after all. The class's other fields are still read
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                // findGetter() on another mod's class can throw. The field is then left out, and the class's other
+                // fields are still read.
             }
         }
         return true;
@@ -294,9 +298,9 @@ public final class StructureTiers {
                 final Field field = declaring.getDeclaredField(name);
                 field.setAccessible(true);
                 return field;
-            } catch (NoSuchFieldException | RuntimeException | LinkageError ignored) { // noqa: NAR142, another mod's
-                                                                                       // class
-                // look in the superclass. A LinkageError comes from a client-only field type on a dedicated server
+            } catch (NoSuchFieldException | RuntimeException | LinkageError ignored) {
+                // getDeclaredField() and setAccessible() on another mod's class can throw. Look in the superclass then.
+                // A LinkageError comes from a client-only field type on a dedicated server.
             }
         }
         return null;
@@ -410,7 +414,8 @@ public final class StructureTiers {
         public Object get(Object controller) throws InvocationTargetException {
             try {
                 return getter.invoke(controller);
-            } catch (Throwable t) { // noqa: NAR142, invoke() declares Throwable. Another mod's field
+            } catch (Throwable t) {
+                // invoke() declares Throwable, and the getter reads another mod's field
                 throw new InvocationTargetException(t);
             }
         }

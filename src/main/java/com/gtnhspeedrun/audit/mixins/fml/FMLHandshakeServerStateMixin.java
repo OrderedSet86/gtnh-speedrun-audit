@@ -26,7 +26,7 @@ import io.netty.channel.ChannelHandlerContext;
 public class FMLHandshakeServerStateMixin {
 
     @Inject(method = "accept", at = @At("HEAD"), require = 1)
-    private void audit$captureModList(ChannelHandlerContext context, FMLHandshakeMessage message, // noqa: NAR130
+    private void audit$captureModList(ChannelHandlerContext context, FMLHandshakeMessage message,
         CallbackInfoReturnable<Object> cir) {
         if (message instanceof FMLHandshakeMessage.ModList modList) {
             ClientModLists.storeClientModList(

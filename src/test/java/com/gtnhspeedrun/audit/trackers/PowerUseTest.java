@@ -259,12 +259,12 @@ class PowerUseTest {
         }
 
         @Override
-        public PowerTally audit$readPowerTally() {
+        public PowerTally auditReadPowerTally() {
             return tally;
         }
 
         @Override
-        public void audit$writePowerTally(PowerTally tally) {
+        public void auditWritePowerTally(PowerTally tally) {
             this.tally = tally;
         }
     }

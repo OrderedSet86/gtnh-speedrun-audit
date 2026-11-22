@@ -35,16 +35,16 @@ public class NEIServerUtilsMixin {
      * handles packets on the netty thread, and both injections run on that thread.
      */
     @Unique
-    private static final ThreadLocal<Object[]> audit$giveStart = new ThreadLocal<>(); // noqa: NAR130
+    private static final ThreadLocal<Object[]> AUDIT_GIVE_START = new ThreadLocal<>();
 
     /** Copies the requested stack and counts the matching items in the main inventory before the give. */
     @Inject(method = "givePlayerItem", at = @At("HEAD"), require = 1)
-    private static void audit$giveHead(EntityPlayerMP player, ItemStack stack, boolean infinite, // noqa: NAR130, NAR131
-        boolean doGive, CallbackInfo ci) {
+    private static void audit$giveHead(EntityPlayerMP player, ItemStack stack, boolean infinite, boolean doGive,
+        CallbackInfo ci) {
         // for an infinite give, NEI passes this stack to addItemStackToInventory(). That call shrinks the stack, so
         // copy the stack first
         final ItemStack requested = stack == null ? null : stack.copy();
-        audit$giveStart.set(new Object[] { requested, audit$countMatching(player, requested) });
+        AUDIT_GIVE_START.set(new Object[] { requested, audit$countMatching(player, requested) });
     }
 
     /**
@@ -53,10 +53,10 @@ public class NEIServerUtilsMixin {
      * chat notice. The requested count is then higher than the inserted count.
      */
     @Inject(method = "givePlayerItem", at = @At("RETURN"), require = 1)
-    private static void audit$give(EntityPlayerMP player, ItemStack stack, boolean infinite, // noqa: NAR130, NAR131
-        boolean doGive, CallbackInfo ci) {
-        final Object[] start = audit$giveStart.get();
-        audit$giveStart.remove();
+    private static void audit$give(EntityPlayerMP player, ItemStack stack, boolean infinite, boolean doGive,
+        CallbackInfo ci) {
+        final Object[] start = AUDIT_GIVE_START.get();
+        AUDIT_GIVE_START.remove();
         final ItemStack requested = start == null ? stack : (ItemStack) start[0];
         final JsonObject extra = new JsonObject();
         extra.addProperty("doGive", doGive);
@@ -76,8 +76,8 @@ public class NEIServerUtilsMixin {
 
     /** Logs a set_slot cheat, with the slot's contents before the write. */
     @Inject(method = "setSlotContents", at = @At("HEAD"), require = 1)
-    private static void audit$setSlot(EntityPlayer player, int slot, ItemStack item, // noqa: NAR130, NAR131
-        boolean containerInv, CallbackInfo ci) {
+    private static void audit$setSlot(EntityPlayer player, int slot, ItemStack item, boolean containerInv,
+        CallbackInfo ci) {
         final JsonObject extra = new JsonObject();
         final ItemStack previous = audit$slotContents(player, slot, containerInv);
         if (previous != null) {
@@ -99,7 +99,7 @@ public class NEIServerUtilsMixin {
      * deleteAllItems(), and then refills the slots by set_slot.
      */
     @Inject(method = "deleteAllItems", at = @At("HEAD"), require = 1)
-    private static void audit$deleteAll(EntityPlayerMP player, CallbackInfo ci) { // noqa: NAR130
+    private static void audit$deleteAll(EntityPlayerMP player, CallbackInfo ci) {
         final JsonObject extra = new JsonObject();
         final JsonArray items = new JsonArray();
         int index = 0;
@@ -123,7 +123,7 @@ public class NEIServerUtilsMixin {
     }
 
     @Inject(method = "setGamemode", at = @At("HEAD"), require = 1)
-    private static void audit$gamemode(EntityPlayerMP player, int mode, CallbackInfo ci) { // noqa: NAR130
+    private static void audit$gamemode(EntityPlayerMP player, int mode, CallbackInfo ci) {
         NeiSinks.NeiCheat.of("set_gamemode")
             .player(player)
             .detail("mode=" + mode)
@@ -132,7 +132,7 @@ public class NEIServerUtilsMixin {
 
     /** Logs a set_time cheat. NEI passes no player to setHourForward(), so the player is the packet's sender. */
     @Inject(method = "setHourForward", at = @At("HEAD"), require = 1)
-    private static void audit$setHour(World world, int hour, boolean notify, CallbackInfo ci) { // noqa: NAR130, NAR131
+    private static void audit$setHour(World world, int hour, boolean notify, CallbackInfo ci) {
         NeiSinks.NeiCheat.of("set_time")
             .detail("hour=" + hour)
             .log();
@@ -140,7 +140,7 @@ public class NEIServerUtilsMixin {
 
     /** Logs a rain toggle, in the dimension of the packet's sender. */
     @Inject(method = "toggleRaining", at = @At("HEAD"), require = 1)
-    private static void audit$toggleRain(World world, boolean notify, CallbackInfo ci) { // noqa: NAR130
+    private static void audit$toggleRain(World world, boolean notify, CallbackInfo ci) {
         final JsonObject extra = new JsonObject();
         extra.addProperty("dim", world.provider.dimensionId);
         extra.addProperty("wasRaining", world.isRaining());
@@ -151,7 +151,7 @@ public class NEIServerUtilsMixin {
 
     /** Logs the magnet mode toggle: with magnet mode on, item drops in range fly to the player. */
     @Inject(method = "toggleMagnetMode", at = @At("HEAD"), require = 1)
-    private static void audit$toggleMagnet(EntityPlayerMP player, CallbackInfo ci) { // noqa: NAR130
+    private static void audit$toggleMagnet(EntityPlayerMP player, CallbackInfo ci) {
         NeiSinks.NeiCheat.of("toggle_magnet")
             .player(player)
             .log();
@@ -159,7 +159,7 @@ public class NEIServerUtilsMixin {
 
     /** Logs a row swap between the main inventory and the creative+ stash. */
     @Inject(method = "cycleCreativeInv", at = @At("HEAD"), require = 1)
-    private static void audit$cycleCreativeInv(EntityPlayerMP player, int steps, CallbackInfo ci) { // noqa: NAR130
+    private static void audit$cycleCreativeInv(EntityPlayerMP player, int steps, CallbackInfo ci) {
         NeiSinks.NeiCheat.of("cycle_creative_inv")
             .player(player)
             .detail("steps=" + steps)
@@ -167,7 +167,7 @@ public class NEIServerUtilsMixin {
     }
 
     @Inject(method = "healPlayer", at = @At("HEAD"), require = 1)
-    private static void audit$heal(EntityPlayer player, CallbackInfo ci) { // noqa: NAR130
+    private static void audit$heal(EntityPlayer player, CallbackInfo ci) {
         NeiSinks.NeiCheat.of("heal")
             .player(player)
             .log();
@@ -175,7 +175,7 @@ public class NEIServerUtilsMixin {
 
     /** Reads a slot by the addressing of NEIServerUtils.setSlotContents(). */
     @Unique
-    private static ItemStack audit$slotContents(EntityPlayer player, int slot, boolean containerInv) { // noqa: NAR130
+    private static ItemStack audit$slotContents(EntityPlayer player, int slot, boolean containerInv) {
         final int CURSOR_SLOT = -999;
         try {
             if (slot == CURSOR_SLOT) {
@@ -186,14 +186,15 @@ public class NEIServerUtilsMixin {
                     .getStack();
             }
             return player.inventory.getStackInSlot(slot);
-        } catch (RuntimeException e) { // noqa: NAR142, degrade over the open container of another mod
+        } catch (RuntimeException e) {
+            // degrade over the open container of another mod
             return null; // NEI's write fails on this slot too. The attempt is still logged
         }
     }
 
     /** Counts the items in the main inventory with the item, damage and NBT of {@code like}. */
     @Unique
-    private static int audit$countMatching(EntityPlayer player, ItemStack like) { // noqa: NAR130
+    private static int audit$countMatching(EntityPlayer player, ItemStack like) {
         if (!(like != null && like.getItem() != null)) {
             return 0;
         }

@@ -24,6 +24,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.gtnhspeedrun.audit.compat.Compat;
 import com.gtnhspeedrun.audit.core.AttemptLimiter;
+import com.gtnhspeedrun.audit.core.JsonUtil;
 import com.gtnhspeedrun.audit.core.SessionManager;
 import com.gtnhspeedrun.audit.core.Verifier;
 import com.gtnhspeedrun.audit.harness.NbtEditDrill;
@@ -44,6 +45,7 @@ public final class LogChecks {
         "inv_snapshot",
         "key_item_first_seen",
         "command",
+        "command_repeats",
         "difficulty_change",
         "death",
         "achievement",
@@ -453,13 +455,18 @@ public final class LogChecks {
             checkForgedNbtEditFlood(lines);
         }
         checkPlaces(lines);
+        checkCommandBlockRuns(lines);
         optionalModChecks.checkMixinsApplied();
+        if (Compat.SERVER_UTILITIES.isLoaded()) {
+            optionalModChecks.checkBackupStateReadable();
+        }
         // The checks below are for events of optional mods, so their event types are not in EXPECTED_TYPES. The jar
         // runs on servers without those mods, and there the events never appear.
         if (Compat.GT5.isLoaded()) {
             optionalModChecks.checkStructureTierPlans();
             optionalModChecks.checkStructureTiersOnThisSide(lines);
             optionalModChecks.checkGtHullRemoval(lines);
+            optionalModChecks.checkGtHullTurn(lines);
             optionalModChecks.checkPowerUse(lines);
         }
         checkProspects(lines);
@@ -649,6 +656,33 @@ public final class LogChecks {
             vanillaRows.toString());
     }
 
+    /** Check the runs of the command block: one command line, and a command_repeats line with the other runs. */
+    private void checkCommandBlockRuns(List<JsonObject> lines) {
+        final long commandLines = selectEventData(lines, "command").stream()
+            .filter(data -> isCommandBlockTestfor(data) && data.has("dim"))
+            .count();
+        checks.check("command block: one command line", commandLines == 1, "lines=" + commandLines);
+        final long dropped = selectEventData(lines, "command_repeats").stream()
+            .filter(LogChecks::isCommandBlockTestfor)
+            .mapToLong(
+                data -> data.get("dropped")
+                    .getAsLong())
+            .sum();
+        checks.check(
+            "command block: the other runs counted",
+            dropped == Scenario.COMMAND_BLOCK_RUNS - 1,
+            "dropped=" + dropped);
+    }
+
+    private static boolean isCommandBlockTestfor(JsonObject data) {
+        return JsonUtil.hasString(data, "senderType") && data.get("senderType")
+            .getAsString()
+            .equals("commandblock")
+            && data.get("cmd")
+                .getAsString()
+                .equals("testfor");
+    }
+
     /**
      * Check the forged /nbtedit replies of {@link NbtEditDrill#sendForgedFlood}: the hook takes under a second for the
      * large list, the count of lines is at the limit, and the rate_limited line counts the rest.
@@ -665,7 +699,7 @@ public final class LogChecks {
             .count();
         checks.check(
             "nbt_edit forged flood: limit of lines holds",
-            attemptLines == AttemptLimiter.LINES_PER_WINDOW,
+            attemptLines == AttemptLimiter.PLAYER_LINES_PER_WINDOW,
             "lines=" + attemptLines);
         final long dropped = selectEventData(lines, "rate_limited").stream()
             .filter(
@@ -676,7 +710,7 @@ public final class LogChecks {
                 data -> data.get("dropped")
                     .getAsLong())
             .sum();
-        final long expectedDropped = 1 + NbtEditDrill.FLOOD_BURST - AttemptLimiter.LINES_PER_WINDOW;
+        final long expectedDropped = 1 + NbtEditDrill.FLOOD_BURST - AttemptLimiter.PLAYER_LINES_PER_WINDOW;
         checks.check("nbt_edit forged flood: the rest counted", dropped == expectedDropped, "dropped=" + dropped);
     }
 
@@ -701,7 +735,7 @@ public final class LogChecks {
                 data -> data.get("dropped")
                     .getAsLong())
             .sum();
-        final long expectedDropped = 1 + NbtEditDrill.FLOOD_BURST - AttemptLimiter.LINES_PER_WINDOW;
+        final long expectedDropped = 1 + NbtEditDrill.FLOOD_BURST - AttemptLimiter.PLAYER_LINES_PER_WINDOW;
         checks.check("quest_edit forged flood: the rest counted", dropped == expectedDropped, "dropped=" + dropped);
     }
 

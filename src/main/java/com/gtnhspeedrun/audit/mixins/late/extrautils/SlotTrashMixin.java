@@ -30,7 +30,7 @@ import com.gtnhspeedrun.audit.trackers.InventoryChanges;
 public class SlotTrashMixin {
 
     @Inject(method = "func_75215_d(Lnet/minecraft/item/ItemStack;)V", at = @At("HEAD"), require = 1)
-    private void audit$put(ItemStack stack, CallbackInfo ci) { // noqa: NAR130
+    private void audit$put(ItemStack stack, CallbackInfo ci) {
         if (stack == null) {
             return;
         }

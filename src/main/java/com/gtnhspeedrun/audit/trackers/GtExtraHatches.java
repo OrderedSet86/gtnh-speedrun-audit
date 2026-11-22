@@ -14,7 +14,7 @@ import gregtech.api.metatileentity.implementations.MTEHatch;
  */
 public interface GtExtraHatches {
 
-    List<? extends MTEHatch> audit$extraEnergyHatches(); // noqa: NAR130
+    List<? extends MTEHatch> auditExtraEnergyHatches();
 
-    List<? extends MTEHatch> audit$extraDynamoHatches(); // noqa: NAR130
+    List<? extends MTEHatch> auditExtraDynamoHatches();
 }
