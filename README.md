@@ -11,7 +11,7 @@ records what a moderator needs to check a run. At the end, `/audit export` write
 ## Setup
 
 Download the jar from [Releases](https://github.com/OrderedSet86/gtnh-speedrun-audit/releases). The jar
-works with GTNH 2.8.4 and the dailies.
+works with GTNH 2.8.4, 2.9.0 and 2.9.1.
 
 - Multiplayer: put it in the server's `mods/`. Players don't need it.
 - Singleplayer: put it in your instance's `mods/`.

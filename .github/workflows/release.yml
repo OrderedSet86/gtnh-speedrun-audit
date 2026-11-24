@@ -79,4 +79,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "gtnhspeedrunaudit ${{ inputs.version }}" \
             ${{ inputs.prerelease && '--prerelease' || '' }} \
-            --notes 'Supports 2.8.4 - 2.9 beta dailies. Submit runs with `/audit export`.'
+            --notes 'Supports GTNH 2.8.4, 2.9.0 and 2.9.1. Submit runs with `/audit export`.'
