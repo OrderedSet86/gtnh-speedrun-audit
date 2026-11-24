@@ -21,6 +21,31 @@ flag-looking events have questbook-endorsed or otherwise innocent explanations.
   `verdict`, `lines`, `lastSeq` and `lastHash`. Each other chain's files are in `chains/<uuid>/log/` and
   `chains/<uuid>/snapshots/`. Bundles from earlier versions have neither.
 
+## Logged events
+
+Names such as moon% are leaderboard categories. Each category ends at that milestone.
+
+| Area | Logged |
+|---|---|
+| Sessions | Server start and stop, and whether the server crashed. Ops, game rules, seed, server mods and the registered dimensions. Whether commands are allowed, each change of the setting, and each opening of a singleplayer world to LAN. Each player's join and leave, and the mods that the player's client reports. |
+| Commands | Commands from players, the console and RCON (remote console), and whether each command was canceled. For a command block, the first run of each command in 10 minutes, and the count of the other runs. The replies of commands such as `/gamerule`, `/difficulty` and `/gt global_energy_display`. |
+| Creative | Gamemode changes. The mod checks the gamemode each tick and at login. In creative, each block placed or broken and each inventory slot set. |
+| NEI | Cheat requests to NEI (Not Enough Items), and the items of each request. The mod logs denied requests too. The requests are gives, slot sets, delete-all, gamemode, time, rain, heal, magnet, the creative+ stash, enchantments, mob spawners, time and rain locks, and ghost-slot filters. |
+| Inventories | Full snapshots (main, armor, Baubles, ender chest) every 15 minutes and at join, leave, death and gamemode change. Each snapshot has the player's place and facing. Deaths and the killer. |
+| AE2 | Item and fluid counts of each AE2 (Applied Energistics 2) network, what each network can autocraft, the network's channels in use, and the patterns in the network's interfaces with each pattern's author. This count is the AE2 census. The census runs hourly while a player is online and every 4 hours while the server is empty, and writes one file. A network that doesn't store anything is counted but not listed. Each pattern encoded, and each pattern put into or taken out of an interface. |
+| Storage | Hourly contents of EnderStorage chests and pouches and of backpacks. Each `/inv view` of another player's inventory, and each click in the view. Items destroyed in trash cans. Items a player took from or put into a chest, machine or other GUI. In creative, each GUI opened and each click in the GUI. |
+| Placements | GT machines placed by hand, Matter Manipulator, Vajra or multiblock projector, and the facing of each machine. Each later turn of a machine to a new facing. GT machines removed, and whether a player broke them, wrenched them or took them with a Vajra, an explosion or a fire destroyed them, or a Matter Manipulator took them. GT machine explosions. Stargate blocks. |
+| Magic | Thaumcraft nodes, jarred nodes and Ethereal Shards every 15 minutes. Thaumcraft and Blood Magic blocks placed or broken. Blood Altar tier changes. |
+| Power | The EU stored in Lapotronic Supercapacitors and each team's wireless EU, every 5 minutes. Wireless EU before and after each `/gt global_energy_*` command. GT power failures. |
+| Edits | `/nbtedit` changes, and the data before and after. Game rule and difficulty changes. WorldEdit edits on servers that run WorldEdit. |
+| Quests | Quest completions, and the party member who finished each task. Quest book edits, and a hash of the quest book. |
+| Milestones | Dimension changes and first visits (moon%). Achievements. The first sighting and first craft of each key item in the config. |
+| Prospecting | Each use of a GT prospecting tool or Advanced Seismic Prospector: who, where, and the ores, veins and fluids in the scan's result. |
+| Positions | Each player's dimension, position and facing every 30 seconds, and every 5 seconds outside survival, except while the player stands still. Where each `/home`, `/back`, `/warp`, `/spawn`, `/tpa`, `/rtp` and `/tpl` teleport went, and each player that another command, such as `/tp`, moved. |
+| Multiblocks | The formation of each GT and TecTech multiblock (assline%), and a new line when the hatch tiers, the amperage, or the coil or structure tiers change. Each line has the hatches, amperage, coils, tiers and bounding box of the multiblock, and the block at each position of the structure. The Bricked Blast Furnace (bbf%) and Railcraft multiblocks such as the coke oven (coke%). |
+| Backups | Backup start and finish. |
+| Mod files | A SHA-256 hash of each mod jar, `config/` and `scripts/` at each start. A changed jar, recipe or quest book changes the hash. |
+
 ## Independent re-verification
 
 Do not trust `verify-report.json` — recompute it. The chain rules:
