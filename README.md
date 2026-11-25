@@ -13,7 +13,7 @@ The main cost is disk space. For a base with 100,000 item types in AE2, the log 
 ## Setup
 
 Download the jar from [Releases](https://github.com/OrderedSet86/gtnh-speedrun-audit/releases). The jar
-works with GTNH 2.8.4, 2.9.0 and 2.9.1.
+works with GTNH 2.8.4, 2.9.0, 2.9.1 and 2.9.2.
 
 - Multiplayer: put the jar in the server's `mods/`. Players don't need the jar.
 - Singleplayer: put the jar in the instance's `mods/`.
